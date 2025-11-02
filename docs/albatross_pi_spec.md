@@ -30,15 +30,14 @@
   - Arduino: broadcasts IMU/wheel speeds/Air Shot/WMI status, receives targets/flags.
   - Pi: sends requests/targets, receives telemetry, initiates POST.
 - **Pi → Arduino frames** (examples):
-  - `0x112`: Requested boost PSI (u16, 0.1 psi) with mode, fuel, WMI status, traction profile, timestamp.
-  - `0x116`: AWC/ATC/eTRAC profile (slip %, gains, wheelie pitch target, torque rate).
-  - `0x118`: Flame-mode request, launch control arm, Air Shot fire, brightness.
-  - `0x11A`: Mode change with reason code.
-  - `0x11C`: POST request with 2 s response window requiring ACK.
+  - `0x120`: Boost target command (PSI × 10) forwarded to the Arduino actuator layer.
+  - `0x121`: Mode selector (1 byte: 1=ECO … 5=ALBATROSS) for synchronized HUD/actuator state.
+  - `0x140`: NFC authentication acknowledgement (0x00 fail / 0x01 success).
 - **Pi → MS3 frames** (examples):
-  - `0x120`: Timing bias, soft torque cut request, boost ceiling PSI.
-  - `0x122`: Fuel-map selector, AFR bias, launch RPM target.
-- **Arduino/MS3 → Pi frames** (examples): telemetry including RPM, boost, AFRs, spark, temps, pressures, battery voltage, knock counts, duty cycles, gear, TPS; wheel speeds, IMU, slip %, wheelie flags; Air Shot and WMI status; POST results heartbeat; fault codes.
+  - Timing bias requests and torque ceiling trims (ID TBD in ECU firmware track).
+  - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
+- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`–`0x10B`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, and dual-bank EGT; Arduino status (`0x130`–`0x135`) for Air Shot charge counts, AWC state/lean angle, tank pressure, twin turbo boost feedback, and wastegate duty.
+- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`–`0x10B`), Pi HUD commands (`0x120`, `0x121`, `0x140`), Arduino supervisory status (`0x130`–`0x135`), and bidirectional POST/test utility frames (`0x1F0`–`0x1F1`).
 - **Timeouts & fallbacks**:
   - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Arduino.
   - Loss of Arduino heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.
@@ -94,7 +93,7 @@
 
 ## 10. POST & Diagnostics
 - 3–5 s power-on self-test sequence verifying filesystem, RTC, CPU temp.
-- Sends POST request `0x11C`; waits for Arduino/MS3 module status, sensor checks, actuator tests.
+- Sends POST request `0x1F0` and waits for `0x1F1` responses with Arduino/MS3 module status, sensor checks, actuator tests.
 - Displays pass/fail summary; critical failures block DRIVE (LIMP override optional).
 - On-ride diagnostics: graph pages (boost vs RPM, AFRs, knock, slip) and fault detail view referencing last 30 s snapshot.
 

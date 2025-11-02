@@ -78,6 +78,7 @@ class StateSimulator:
         afr_right = 12.6 + math.cos(self._phase * math.tau * 2) * 0.2
         spark = 14.0 + math.sin(self._phase * math.tau * 0.5) * 5
         knock = 1 if rng.random() > 0.97 else 0
+        throttle = max(0.0, min(100.0, 40 + math.sin(self._phase * math.tau) * 40))
 
         engine = replace(
             engine,
@@ -91,6 +92,8 @@ class StateSimulator:
             afr_right=afr_right,
             spark_advance_deg=spark,
             knock_events=knock,
+            throttle_pct=throttle,
+            engine_load_pct=min(100.0, throttle * 0.9 + 10),
         )
 
         temps = replace(
@@ -101,6 +104,7 @@ class StateSimulator:
             battery_voltage=13.8 + math.sin(self._phase * math.tau * 0.25) * 0.05,
             intake_temp_f=90 + 15 * abs(math.sin(self._phase * math.tau)),
             exhaust_temp_f=1250 + 50 * math.sin(self._phase * math.tau),
+            alternator_temp_f=140 + 10 * math.sin(self._phase * math.tau * 0.6),
         )
 
         air_shot = replace(
@@ -145,6 +149,7 @@ class StateSimulator:
             time=now,
             message_line=message,
             brightness_pct=70 + math.sin(self._phase * math.tau * 0.3) * 20,
+            fuel_level_pct=max(5.0, 80 - self._phase * 20),
         )
 
         shift_light = engine.rpm > 10000

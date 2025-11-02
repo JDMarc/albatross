@@ -20,6 +20,27 @@ Use ``Ctrl+C`` in the terminal or close the HUD window to exit. The demo will
 animate RPM, boost, temperatures, traction indicators, Air Shot status, and the
 GL500 alert panel to provide a representative dashboard layout for iteration.
 
+Connecting to real CAN traffic
+------------------------------
+
+The repository now includes a ``canbus`` package with SocketCAN helpers and a
+``CANStateAggregator`` that converts the MS3/Arduino message set (IDs
+``0x100``–``0x10B`` for ECU telemetry and ``0x130``–``0x135`` for Arduino status)
+into the HUD's ``StateSnapshot`` structures. When a SocketCAN interface is
+available (for example ``can0`` provided by an MCP2515 hat or USB adapter),
+launch the HUD in live mode:
+
+```
+python main.py --can-interface can0 --width 1280 --height 480
+```
+
+Optional flags allow you to hint the bus bitrate (``--can-bitrate``), adjust the
+render pull rate (``--can-rate``), and change log verbosity (``--log-level``).
+The Raspberry Pi runtime must have ``python-can`` installed for SocketCAN
+support. The aggregator mirrors locally transmitted boost target, mode selection,
+and NFC authentication frames so the HUD stays synchronized with outgoing
+requests.
+
 Capturing a screenshot
 ----------------------
 

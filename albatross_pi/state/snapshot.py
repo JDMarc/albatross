@@ -41,6 +41,8 @@ class EngineState:
     afr_right: float = 0.0
     spark_advance_deg: float = 0.0
     knock_events: int = 0
+    throttle_pct: float = 0.0
+    engine_load_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,7 @@ class TemperaturesState:
     battery_voltage: float = 12.5
     intake_temp_f: float = 0.0
     exhaust_temp_f: float = 0.0
+    alternator_temp_f: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,7 @@ class EnvironmentState:
     time: datetime = field(default_factory=datetime.now)
     brightness_pct: float = 75.0
     message_line: str = ""
+    fuel_level_pct: float = 100.0
 
 
 @dataclass(frozen=True)
