@@ -12,14 +12,15 @@ FIRE_COLOR: Color = (255, 90, 0)
 BAR_BG: Color = (50, 30, 30)
 BAR_COLOR: Color = (255, 150, 80)
 
-FONT_CACHE: dict[int, pygame.font.Font] = {}
+_FONT_CACHE: dict[int, pygame.font.Font] = {}
 
 
-def _font(size: int) -> pygame.font.Font:
-    font = FONT_CACHE.get(size)
+def _font(size: int, *, bold: bool = False) -> pygame.font.Font:
+    key = (size, bold)
+    font = _FONT_CACHE.get(key)
     if font is None:
-        font = pygame.font.SysFont("Courier", size)
-        FONT_CACHE[size] = font
+        font = pygame.font.SysFont("Courier", size, bold=bold)
+        _FONT_CACHE[key] = font
     return font
 
 
@@ -30,19 +31,41 @@ class AirShotPanel(Widget):
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, BG_COLOR, self.rect)
-        pressure = state.air_shot.pressure_psi
-        pct = min(1.0, pressure / self.max_pressure)
-        bar_rect = pygame.Rect(self.rect.x + 8, self.rect.y + 24, self.rect.width - 16, 12)
+        padding = max(8, int(self.rect.height * 0.18))
+        bar_height = max(8, int(self.rect.height * 0.2))
+        bar_rect = pygame.Rect(
+            self.rect.x + padding,
+            self.rect.bottom - padding - bar_height,
+            self.rect.width - 2 * padding,
+            bar_height,
+        )
         pygame.draw.rect(surface, BAR_BG, bar_rect)
+        pressure = state.air_shot.pressure_psi
+        pct = min(1.0, pressure / max(1e-6, self.max_pressure))
         fill = bar_rect.copy()
         fill.width = int(bar_rect.width * pct)
         pygame.draw.rect(surface, BAR_COLOR, fill)
 
-        charges_text = f"Charges {state.air_shot.charges_remaining}" \
-            + (" *FIRE*" if state.air_shot.is_firing else "")
+        charges_font = max(14, int(self.rect.height * 0.28))
+        charges_text = f"Charges {state.air_shot.charges_remaining}"
+        if state.air_shot.is_firing:
+            charges_text += " FIRE"
         color = FIRE_COLOR if state.air_shot.is_firing else TEXT_COLOR
-        charges_surface = _font(18).render(charges_text, True, color)
-        surface.blit(charges_surface, (self.rect.x + 8, self.rect.y + 4))
+        charges_surface = _font(charges_font, bold=state.air_shot.is_firing).render(charges_text, True, color)
+        surface.blit(
+            charges_surface,
+            (
+                self.rect.x + padding,
+                self.rect.y + padding // 2,
+            ),
+        )
 
-        pressure_surface = _font(18).render(f"{pressure:4.0f} psi", True, TEXT_COLOR)
-        surface.blit(pressure_surface, (self.rect.x + 8, self.rect.y + 44))
+        pressure_font = max(14, int(self.rect.height * 0.28))
+        pressure_surface = _font(pressure_font).render(f"{pressure:4.0f} psi", True, TEXT_COLOR)
+        surface.blit(
+            pressure_surface,
+            (
+                self.rect.x + padding,
+                bar_rect.y - pressure_surface.get_height() - 4,
+            ),
+        )

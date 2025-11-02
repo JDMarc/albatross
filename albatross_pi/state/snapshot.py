@@ -74,5 +74,4 @@ class StateSnapshot:
     traction: TractionState = field(default_factory=TractionState)
     environment: EnvironmentState = field(default_factory=EnvironmentState)
     shift_light: bool = False
-    gl_sprite_mood: str = "neutral"
     faults: Tuple[str, ...] = field(default_factory=tuple)

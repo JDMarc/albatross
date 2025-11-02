@@ -127,10 +127,13 @@ class StateSimulator:
         )
 
         message = "ECU OK | ARDUINO OK | CAN OK"
+        alerts: tuple[str, ...] = tuple()
         if wmi_fault:
             message = "WMI FLOW LOW"
+            alerts = ("WMI FLOW LOW",)
         elif knock:
             message = "KNOCK DETECTED"
+            alerts = ("KNOCK DETECTED",)
 
         environment = replace(
             snapshot.environment,
@@ -145,7 +148,6 @@ class StateSimulator:
         )
 
         shift_light = engine.rpm > 10000
-        gl_mood = "alert" if knock or wmi_fault else "happy"
 
         return StateSnapshot(
             engine=engine,
@@ -155,8 +157,7 @@ class StateSimulator:
             traction=traction,
             environment=environment,
             shift_light=shift_light,
-            gl_sprite_mood=gl_mood,
-            faults=(message,) if message != "ECU OK | ARDUINO OK | CAN OK" else tuple(),
+            faults=alerts,
         )
 
     def stream(self) -> Iterator[StateSnapshot]:
@@ -175,3 +176,10 @@ class StateSimulator:
                     time.sleep(self._tick_period)
         finally:
             self.stop()
+
+    def sample(self, phase: float = 0.5) -> StateSnapshot:
+        """Generate a single snapshot without starting the streaming loop."""
+        rng = random.Random(1337)
+        previous = StateSnapshot()
+        self._phase = phase % 1.0
+        return self._next_snapshot(previous, rng)

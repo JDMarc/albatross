@@ -11,14 +11,14 @@ LABEL_COLOR: Color = (255, 160, 80)
 BG_COLOR: Color = (20, 20, 20)
 GRID_COLOR: Color = (80, 80, 80)
 
-FONT_CACHE: dict[int, pygame.font.Font] = {}
+_FONT_CACHE: dict[int, pygame.font.Font] = {}
 
 
 def _font(size: int) -> pygame.font.Font:
-    font = FONT_CACHE.get(size)
+    font = _FONT_CACHE.get(size)
     if font is None:
         font = pygame.font.SysFont("Courier", size)
-        FONT_CACHE[size] = font
+        _FONT_CACHE[size] = font
     return font
 
 
@@ -37,11 +37,18 @@ class TempsGrid(Widget):
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, BG_COLOR, self.rect)
         row_height = self.rect.height // len(self.rows)
+        font_size = max(14, int(row_height * 0.5))
         for i, (label, value_fn) in enumerate(self.rows):
             y = self.rect.y + i * row_height
             if i > 0:
                 pygame.draw.line(surface, GRID_COLOR, (self.rect.x, y), (self.rect.right, y), 1)
-            label_surface = _font(18).render(label, True, LABEL_COLOR)
-            value_surface = _font(18).render(value_fn(state), True, TEXT_COLOR)
-            surface.blit(label_surface, (self.rect.x + 8, y + 4))
-            surface.blit(value_surface, (self.rect.right - value_surface.get_width() - 8, y + 4))
+            label_surface = _font(font_size).render(label, True, LABEL_COLOR)
+            value_surface = _font(font_size).render(value_fn(state), True, TEXT_COLOR)
+            surface.blit(label_surface, (self.rect.x + 8, y + max(2, (row_height - label_surface.get_height()) // 2)))
+            surface.blit(
+                value_surface,
+                (
+                    self.rect.right - value_surface.get_width() - 8,
+                    y + max(2, (row_height - value_surface.get_height()) // 2),
+                ),
+            )
