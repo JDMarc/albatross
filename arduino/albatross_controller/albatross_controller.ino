@@ -114,6 +114,7 @@ static constexpr uint8_t FLAME_EN_PIN = 8;     // Flame mode interlock output
 static constexpr uint8_t AIRSHOT_SOL_PIN = 9;  // Air shot solenoid output
 static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 10; // Air tank compressor relay
 // Mega 2560 external interrupt-capable pins: 2,3,18,19,20,21
+// Do not duplicate these constants elsewhere in this sketch.
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 18;
 static constexpr uint8_t REAR_WHEEL_HALL_PIN = 19;
 
@@ -147,7 +148,7 @@ uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x1
 
   // Throttle gating keeps spool behavior predictable and safe.
   if (tps_pct < 20) duty = 0;
-  else if (tps_pct < 40) duty = min<int16_t>(duty, 35);
+  else if (tps_pct < 40) duty = (duty < 35) ? duty : 35;
 
   // Safety trims.
   if (knock) duty -= 20;
