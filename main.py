@@ -69,6 +69,13 @@ def main() -> None:
         except ValueError:
             logging.warning("Unknown key binding '%s'; using RETURN", ack_name)
             ack_key = pygame.K_RETURN
+    renderer = HUDRenderer(
+        screen_size=(args.width, args.height),
+        use_display=args.snapshot is None,
+    )
+    if args.bind_inputs and not args.snapshot:
+        ack_name = input("POST acknowledge key (default: return): ").strip().lower() or "return"
+        ack_key = pygame.key.key_code(ack_name)
         renderer.configure_input_bindings(ack_key)
     can_interface: SocketCANInterface | None = None
     aggregator: CANStateAggregator | None = None

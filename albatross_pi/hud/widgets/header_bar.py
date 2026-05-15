@@ -5,6 +5,7 @@ import pygame
 
 from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
+from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
 
 
@@ -29,6 +30,9 @@ class HeaderBar(Widget):
             mode_surface = font(size, bold=active).render(mode, True, color)
             surface.blit(mode_surface, (mx, my + (0 if active else 3)))
             mx += mode_surface.get_width() + 8
+        mode_size = fit_font_size(env.mode, int(self.rect.width * 0.22), line_height, start_size=line_height, bold=True)
+        mode_surface = font(mode_size, bold=True).render(env.mode, True, AMBER_BRIGHT)
+        surface.blit(mode_surface, (self.rect.x + padding, self.rect.y + padding // 2))
 
         fuel_text = f"Fuel {env.fuel_type}"
         fuel_size = fit_font_size(fuel_text, int(self.rect.width * 0.22), line_height, start_size=max(14, int(line_height * 0.75)))
