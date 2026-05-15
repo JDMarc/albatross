@@ -108,6 +108,9 @@ def main() -> None:
         else:
             assert stream is not None
             renderer.run(stream)
+    except Exception:
+        logging.exception("HUD runtime error")
+        raise
     finally:
         if can_interface:
             can_interface.stop()
