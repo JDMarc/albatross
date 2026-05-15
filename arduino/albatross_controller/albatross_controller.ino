@@ -117,6 +117,8 @@ static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 10; // Air tank compressor r
 // Do not duplicate these constants elsewhere in this sketch.
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 18;
 static constexpr uint8_t REAR_WHEEL_HALL_PIN = 19;
+static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 3;
+static constexpr uint8_t REAR_WHEEL_HALL_PIN = 4;
 
 // Placeholder base boost caps by mode (psi*10).
 uint16_t modeBoostCap(uint8_t mode) {
@@ -149,6 +151,7 @@ uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x1
   // Throttle gating keeps spool behavior predictable and safe.
   if (tps_pct < 20) duty = 0;
   else if (tps_pct < 40) duty = (duty < 35) ? duty : 35;
+  else if (tps_pct < 40) duty = min<int16_t>(duty, 35);
 
   // Safety trims.
   if (knock) duty -= 20;
@@ -427,6 +430,8 @@ void setup() {
   const int rear_irq = digitalPinToInterrupt(REAR_WHEEL_HALL_PIN);
   if (front_irq >= 0) attachInterrupt(front_irq, frontWheelPulseISR, RISING);
   if (rear_irq >= 0) attachInterrupt(rear_irq, rearWheelPulseISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN), frontWheelPulseISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(REAR_WHEEL_HALL_PIN), rearWheelPulseISR, RISING);
 
   digitalWrite(WG1_EN_PIN, LOW);
   digitalWrite(WG2_EN_PIN, LOW);
