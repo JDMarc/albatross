@@ -70,15 +70,18 @@ class StateSimulator:
         engine = snapshot.engine
         rpm = int(1000 + 5000 * (1 + math.sin(self._phase * math.tau)) / 2)
         speed = max(0.0, rpm / 100.0)
-        gear_index = max(1, min(6, int(speed // 12) + 1))
-        gear = str(gear_index)
+        throttle = max(0.0, min(100.0, 40 + math.sin(self._phase * math.tau) * 40))
+        if speed < 2.0 and throttle < 3.0:
+            gear = "N"
+        else:
+            gear_index = max(1, min(6, int(speed // 12) + 1))
+            gear = str(gear_index)
         boost = max(0.0, 18.0 * math.sin(self._phase * math.tau))
         target_boost = 20.0
         afr_left = 12.5 + math.sin(self._phase * math.tau * 2) * 0.2
         afr_right = 12.6 + math.cos(self._phase * math.tau * 2) * 0.2
         spark = 14.0 + math.sin(self._phase * math.tau * 0.5) * 5
         knock = 1 if rng.random() > 0.97 else 0
-        throttle = max(0.0, min(100.0, 40 + math.sin(self._phase * math.tau) * 40))
 
         engine = replace(
             engine,
