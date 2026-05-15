@@ -2,6 +2,7 @@
 #include <mcp_can.h>
 #include <math.h>
 
+// Target board: Arduino Mega 2560 Rev3
 // --- CAN bus wiring/config ---
 static constexpr uint8_t CAN_CS_PIN = 10;
 static constexpr uint8_t CAN_INT_PIN = 2;
@@ -112,6 +113,10 @@ static constexpr uint8_t WMI_PUMP_PIN = 7;     // Water/meth pump relay (active 
 static constexpr uint8_t FLAME_EN_PIN = 8;     // Flame mode interlock output
 static constexpr uint8_t AIRSHOT_SOL_PIN = 9;  // Air shot solenoid output
 static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 10; // Air tank compressor relay
+// Mega 2560 external interrupt-capable pins: 2,3,18,19,20,21
+// Do not duplicate these constants elsewhere in this sketch.
+static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 18;
+static constexpr uint8_t REAR_WHEEL_HALL_PIN = 19;
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 3;
 static constexpr uint8_t REAR_WHEEL_HALL_PIN = 4;
 
@@ -145,6 +150,7 @@ uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x1
 
   // Throttle gating keeps spool behavior predictable and safe.
   if (tps_pct < 20) duty = 0;
+  else if (tps_pct < 40) duty = (duty < 35) ? duty : 35;
   else if (tps_pct < 40) duty = min<int16_t>(duty, 35);
 
   // Safety trims.
@@ -420,6 +426,10 @@ void setup() {
   pinMode(AIR_COMPRESSOR_RELAY_PIN, OUTPUT);
   pinMode(FRONT_WHEEL_HALL_PIN, INPUT_PULLUP);
   pinMode(REAR_WHEEL_HALL_PIN, INPUT_PULLUP);
+  const int front_irq = digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN);
+  const int rear_irq = digitalPinToInterrupt(REAR_WHEEL_HALL_PIN);
+  if (front_irq >= 0) attachInterrupt(front_irq, frontWheelPulseISR, RISING);
+  if (rear_irq >= 0) attachInterrupt(rear_irq, rearWheelPulseISR, RISING);
   attachInterrupt(digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN), frontWheelPulseISR, RISING);
   attachInterrupt(digitalPinToInterrupt(REAR_WHEEL_HALL_PIN), rearWheelPulseISR, RISING);
 

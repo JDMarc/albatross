@@ -1,5 +1,8 @@
 # Albatross Arduino Controller
 
+This sketch is pinned and validated for **Arduino Mega 2560 Rev3** pin capabilities.
+
+
 ## What this controller now owns
 
 - Dual (2x) 3-pin electronic wastegate actuator command outputs (PWM + DIR + EN per actuator).
@@ -62,3 +65,10 @@ The sketch exposes separate pins for each 3-pin actuator:
 - WG2: `WG2_PWM_PIN`, `WG2_DIR_PIN`, `WG2_EN_PIN`
 
 Both channels currently mirror the same command request for synchronized twin-actuator control.
+
+
+## Mega 2560 hardware notes
+
+- Wheel Hall sensors are mapped to external interrupt pins `18` and `19` (valid interrupt pins on Mega 2560).
+- MCP2515 CAN interrupt remains on pin `2`.
+- Dual e-wastegate channels use independent `PWM/DIR/EN` groups; PWM outputs are on pins `5` and `6` (both PWM-capable on Mega).
