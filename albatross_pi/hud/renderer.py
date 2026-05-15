@@ -157,7 +157,6 @@ class HUDRenderer:
 
         temps_ratio = ratios["temps"]
         temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
-        temps_height = max(int(content_height * 0.57), int(height * 0.34))
         traction_height = max(int(content_height * 0.16), int(height * 0.11))
         airshot_height = max(int(content_height * 0.13), int(height * 0.09))
         wmi_height = max(
@@ -258,14 +257,6 @@ class HUDRenderer:
                     shift_light=state.shift_light,
                     faults=state.faults,
                 )
-
-            if not self._post_complete:
-                self._run_post(state)
-
-            if self._post_fault_active:
-                pressed = pygame.key.get_pressed()
-                if pressed[self._ack_key]:
-                    self._post_fault_active = False
 
             if not self._post_complete:
                 self._run_post(state)
