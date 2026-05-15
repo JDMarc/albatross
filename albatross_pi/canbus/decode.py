@@ -247,6 +247,13 @@ class CANStateAggregator:
         duty1, duty2 = data[0], data[1]
         self._engine_data["wastegate_duty_pct"] = (duty1 + duty2) / 2.0
 
+    def _update_wheel_speed(self, data: bytes) -> None:
+        if len(data) < 4:
+            return
+        front_mps_raw, rear_mps_raw = struct.unpack_from(">HH", data[:4])
+        mps = max(front_mps_raw, rear_mps_raw) / 100.0
+        self._engine_data["speed_mph"] = mps * 2.236936
+
     def _update_boost_command(self, data: bytes) -> None:
         if len(data) < 2:
             return
@@ -297,6 +304,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.TANK_PRESSURE): CANStateAggregator._update_tank_pressure,
     int(ArduinoToHudID.TWIN_TURBO_STATUS): CANStateAggregator._update_twin_turbo,
     int(ArduinoToHudID.WASTEGATE_STATUS): CANStateAggregator._update_wastegate_status,
+    int(ArduinoToHudID.WHEEL_SPEED): CANStateAggregator._update_wheel_speed,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,

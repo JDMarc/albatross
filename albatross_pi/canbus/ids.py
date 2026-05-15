@@ -30,6 +30,7 @@ class ArduinoToHudID(IntEnum):
     TANK_PRESSURE = 0x133
     TWIN_TURBO_STATUS = 0x134
     WASTEGATE_STATUS = 0x135
+    WHEEL_SPEED = 0x137
 
 
 class PiToArduinoID(IntEnum):
@@ -37,6 +38,9 @@ class PiToArduinoID(IntEnum):
 
     BOOST_TARGET_COMMAND = 0x120
     MODE_SELECTION = 0x121
+    FLAME_MODE = 0x122
+    LIMP_MODE = 0x123
+    TRACTION_LEVEL = 0x124
     NFC_AUTH = 0x140
 
 

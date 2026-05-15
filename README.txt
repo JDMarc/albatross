@@ -55,3 +55,16 @@ python main.py --width 1920 --height 720 --snapshot docs/assets/hud_demo.png
 
 The command automatically switches Pygame to SDL's dummy video driver, so no X
 server is required when running on CI or within a container.
+
+Arduino controller
+------------------
+
+An initial Arduino implementation now lives in ``arduino/albatross_controller``.
+It consumes the same CAN map and performs Arduino-side tasks including electronic wastegate actuator position control, mode-aware boost capping, WMI/flame interlocks, and
+status publishing on IDs ``0x130``–``0x135`` plus wheel-speed output (`0x137`) used by the HUD speedometer. It also includes traction-control plumbing (Pi traction level command + Arduino slip calculation + ECU torque-cut request). See ``arduino/README.md`` for tuning parameters.
+
+
+MS3Pro setup guide
+------------------
+
+A dedicated ECU setup guide is available at ``docs/ms3_tunerstudio_setup.md`` covering TunerStudio/MS3Pro configuration, map switching, launch, CAN integration, and limp-mode coordination.

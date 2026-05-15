@@ -23,3 +23,21 @@ def build_nfc_auth_frame(success: bool) -> tuple[int, bytes]:
     """Return the NFC authentication acknowledgement frame."""
     payload = bytes((0x01 if success else 0x00,))
     return int(PiToArduinoID.NFC_AUTH), payload
+
+
+def build_flame_mode_frame(enabled: bool) -> tuple[int, bytes]:
+    """Return the frame toggling flame mode (Pi is source of truth)."""
+    payload = bytes((0x01 if enabled else 0x00,))
+    return int(PiToArduinoID.FLAME_MODE), payload
+
+
+def build_limp_mode_frame(enabled: bool) -> tuple[int, bytes]:
+    """Return the frame commanding limp mode."""
+    payload = bytes((0x01 if enabled else 0x00,))
+    return int(PiToArduinoID.LIMP_MODE), payload
+
+
+def build_traction_level_frame(level_code: int) -> tuple[int, bytes]:
+    """Return the frame selecting Arduino traction aggressiveness."""
+    payload = bytes((level_code & 0xFF,))
+    return int(PiToArduinoID.TRACTION_LEVEL), payload
