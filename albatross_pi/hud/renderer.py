@@ -18,6 +18,7 @@ from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
 from .widgets.traction_panel import TractionPanel
 from .widgets.wmi_panel import WMIPanel
+from .widgets.ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
@@ -46,6 +47,10 @@ class HUDRenderer:
         self.state = StateSnapshot()
         self.state_lock = threading.Lock()
         self.widgets: List = []
+        self._post_lines: list[tuple[str, bool]] = []
+        self._post_fault_active = False
+        self._post_complete = False
+        self._ack_key = pygame.K_RETURN
         self._create_widgets()
 
     def _create_widgets(self) -> None:
@@ -67,9 +72,9 @@ class HUDRenderer:
         column_gutter = max(int(width * 0.015), 16)
         usable_width = max(available_width - 2 * column_gutter, 300)
 
-        min_left = max(int(width * 0.18), 220)
-        min_center = max(int(width * 0.25), 260)
-        min_right = max(int(width * 0.2), 220)
+        min_left = max(int(width * 0.16), 200)
+        min_center = max(int(width * 0.22), 230)
+        min_right = max(int(width * 0.3), 320)
         if usable_width <= min_left + min_center + min_right:
             scale = usable_width / float(min_left + min_center + min_right)
             left_width = max(int(min_left * scale), 160)
@@ -121,9 +126,9 @@ class HUDRenderer:
         boost_rect = pygame.Rect(center_x, content_top, center_width, boost_height)
         afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
 
-        temps_height = max(int(content_height * 0.45), int(height * 0.24))
-        traction_height = max(int(content_height * 0.2), int(height * 0.14))
-        airshot_height = max(int(content_height * 0.16), int(height * 0.12))
+        temps_height = max(int(content_height * 0.57), int(height * 0.34))
+        traction_height = max(int(content_height * 0.16), int(height * 0.11))
+        airshot_height = max(int(content_height * 0.13), int(height * 0.09))
         wmi_height = max(
             content_height - temps_height - traction_height - airshot_height - 3 * panel_gap,
             int(height * 0.12),
@@ -147,6 +152,23 @@ class HUDRenderer:
             WMIPanel(wmi_rect),
         ]
 
+    def configure_input_bindings(self, ack_key: int) -> None:
+        self._ack_key = ack_key
+
+    def _run_post(self, state: StateSnapshot) -> None:
+        checks = [
+            ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
+            ("COOLANT SENSOR", state.temps.coolant_temp_f > 0),
+            ("OIL TEMP SENSOR", state.temps.oil_temp_f > 0),
+            ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
+            ("FUEL LEVEL SENSOR", state.environment.fuel_level_pct >= 0),
+            ("CAN LINK", bool(state.environment.message_line) or state.engine.rpm > 0),
+            ("USB INPUT", pygame.joystick.get_count() > 0),
+        ]
+        self._post_lines = [(f"TEST {name:<18} {'OK' if ok else 'FAULT'}", ok) for name, ok in checks]
+        self._post_fault_active = any(not ok for _, ok in checks)
+        self._post_complete = True
+
     def update_state(self, snapshot: StateSnapshot) -> None:
         with self.state_lock:
             self.state = snapshot
@@ -157,6 +179,8 @@ class HUDRenderer:
         last_tick = time.perf_counter()
 
         state_iter = iter(state_source) if state_source else None
+        if self._use_display:
+            pygame.joystick.init()
 
         while self.running:
             for event in pygame.event.get():
@@ -175,6 +199,14 @@ class HUDRenderer:
 
             with self.state_lock:
                 state = self.state
+
+            if not self._post_complete:
+                self._run_post(state)
+
+            if self._post_fault_active:
+                pressed = pygame.key.get_pressed()
+                if pressed[self._ack_key]:
+                    self._post_fault_active = False
 
             self._render_frame(state)
             self.clock.tick(TARGET_FPS)
@@ -201,5 +233,26 @@ class HUDRenderer:
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
+        if self._post_complete and self._post_fault_active:
+            self._render_post_overlay()
         if present and self._use_display:
             pygame.display.flip()
+
+    def _render_post_overlay(self) -> None:
+        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 220))
+        self.screen.blit(overlay, (0, 0))
+        x = 24
+        y = 24
+        title = font(18, bold=True).render("POWER ON SELF TEST", True, AMBER_BRIGHT)
+        self.screen.blit(title, (x, y))
+        y += 28
+        for line, ok in self._post_lines:
+            color = AMBER_GLOW if ok else FAULT_AMBER
+            sz = fit_font_size(line, self.screen.get_width() - 48, 20, start_size=16)
+            surf = font(sz).render(line, True, color)
+            self.screen.blit(surf, (x, y))
+            y += 20
+        ack = f"FAULT ACK REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()}"
+        ack_s = font(16, bold=True).render(ack, True, FAULT_AMBER)
+        self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
