@@ -33,6 +33,8 @@ def font(size: int, *, bold: bool = False) -> pygame.font.Font:
     cached = _FONT_CACHE.get(key)
     if cached is None:
         try:
+            cached = pygame.font.SysFont(THEME_FONT_QUERY, max(8, size), bold=bold)
+        except Exception:
             font_path = pygame.font.match_font(THEME_FONT_QUERY)
         except TypeError:
             font_path = None

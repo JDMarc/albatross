@@ -4,6 +4,7 @@ from __future__ import annotations
 import pygame
 
 from .base import Widget
+from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
 
@@ -19,6 +20,16 @@ class HeaderBar(Widget):
         padding = max(8, int(self.rect.height * 0.15))
         line_height = max(16, int(self.rect.height * 0.35))
 
+        modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
+        mx = self.rect.x + padding
+        my = self.rect.y + padding // 2
+        for mode in modes:
+            active = mode == env.mode
+            size = fit_font_size(mode, int(self.rect.width * 0.1), line_height, start_size=line_height + (5 if active else 0), bold=active)
+            color = AMBER_BRIGHT if active else AMBER_DARK
+            mode_surface = font(size, bold=active).render(mode, True, color)
+            surface.blit(mode_surface, (mx, my + (0 if active else 3)))
+            mx += mode_surface.get_width() + 8
         mode_size = fit_font_size(env.mode, int(self.rect.width * 0.22), line_height, start_size=line_height, bold=True)
         mode_surface = font(mode_size, bold=True).render(env.mode, True, AMBER_BRIGHT)
         surface.blit(mode_surface, (self.rect.x + padding, self.rect.y + padding // 2))
