@@ -3,6 +3,15 @@ from __future__ import annotations
 
 import pygame
 
+THEME_FONT_PREFERRED = (
+    "VT323",
+    "Press Start 2P",
+    "Orbitron",
+    "OCR A Extended",
+    "Eurostile",
+    "DejaVu Sans Mono",
+)
+THEME_FONT_QUERY = ",".join(THEME_FONT_PREFERRED)
 THEME_FONT_PREFERRED = ("VT323", "Press Start 2P", "Orbitron", "OCR A Extended", "Eurostile", "DejaVu Sans Mono")
 
 Color = tuple[int, int, int]
@@ -23,6 +32,12 @@ def font(size: int, *, bold: bool = False) -> pygame.font.Font:
     key = (max(8, size), bold)
     cached = _FONT_CACHE.get(key)
     if cached is None:
+        try:
+            font_path = pygame.font.match_font(THEME_FONT_QUERY)
+        except TypeError:
+            font_path = None
+
+        if font_path is not None:
         font_path = pygame.font.match_font(THEME_FONT_PREFERRED)
         if font_path:
             cached = pygame.font.Font(font_path, max(8, size))
