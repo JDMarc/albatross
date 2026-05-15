@@ -53,6 +53,20 @@ class HUDRenderer:
         self._ack_key = pygame.K_RETURN
         self._create_widgets()
 
+    def _mode_ratios(self, mode: str) -> dict[str, float]:
+        profiles = {
+            "ECO": {"boost": 0.28, "afr": 0.24, "temps": 0.64},
+            "NORMAL": {"boost": 0.32, "afr": 0.25, "temps": 0.60},
+            "SPORT": {"boost": 0.40, "afr": 0.24, "temps": 0.52},
+            "RACE": {"boost": 0.42, "afr": 0.23, "temps": 0.53},
+            "ALBATROSS": {"boost": 0.46, "afr": 0.22, "temps": 0.50},
+        }
+        target = profiles.get(mode, profiles["NORMAL"])
+        # Soft animation toward target ratios so gauges move smoothly.
+        for key in self._mode_layout_state:
+            self._mode_layout_state[key] += (target[key] - self._mode_layout_state[key]) * 0.25
+        return dict(self._mode_layout_state)
+
     def _create_widgets(self) -> None:
         width, height = self.screen.get_size()
         padding = max(int(width * 0.02), 24)
@@ -117,8 +131,12 @@ class HUDRenderer:
             gear_rect = pygame.Rect(speed_rect.right + inner_gap, speed_area.y, gear_size, gear_size)
 
         panel_gap = max(int(height * 0.02), 18)
-        boost_height = max(int(content_height * 0.35), int(height * 0.2))
-        afr_height = max(int(content_height * 0.25), int(height * 0.15))
+        mode = self._modes[self._mode_index]
+        ratios = self._mode_ratios(mode)
+        boost_ratio = ratios["boost"]
+        afr_ratio = ratios["afr"]
+        boost_height = max(int(content_height * boost_ratio), int(height * 0.2))
+        afr_height = max(int(content_height * afr_ratio), int(height * 0.15))
         center_remaining = content_height - boost_height - afr_height - panel_gap
         if center_remaining < 80:
             afr_height = max(afr_height + center_remaining - 80, 80)
@@ -189,6 +207,10 @@ class HUDRenderer:
                 elif event.type == pygame.VIDEORESIZE and self._use_display:
                     self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
                     self._create_widgets()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_TAB, pygame.K_m):
+                        self._mode_index = (self._mode_index + 1) % len(self._modes)
+                        self._create_widgets()
 
             if state_iter is not None:
                 try:
@@ -199,6 +221,38 @@ class HUDRenderer:
 
             with self.state_lock:
                 state = self.state
+            # keep animating mode-based layout transitions
+            self._create_widgets()
+            if state.environment.mode != self._modes[self._mode_index]:
+                env = state.environment
+                state = StateSnapshot(
+                    engine=state.engine,
+                    temps=state.temps,
+                    air_shot=state.air_shot,
+                    wmi=state.wmi,
+                    traction=state.traction,
+                    environment=env.__class__(
+                        mode=self._modes[self._mode_index],
+                        fuel_type=env.fuel_type,
+                        ambient_temp_f=env.ambient_temp_f,
+                        gps_lock=env.gps_lock,
+                        rain=env.rain,
+                        time=env.time,
+                        brightness_pct=env.brightness_pct,
+                        message_line=env.message_line,
+                        fuel_level_pct=env.fuel_level_pct,
+                    ),
+                    shift_light=state.shift_light,
+                    faults=state.faults,
+                )
+
+            if not self._post_complete:
+                self._run_post(state)
+
+            if self._post_fault_active:
+                pressed = pygame.key.get_pressed()
+                if pressed[self._ack_key]:
+                    self._post_fault_active = False
 
             if not self._post_complete:
                 self._run_post(state)
