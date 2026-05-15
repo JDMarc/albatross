@@ -51,9 +51,6 @@ class HUDRenderer:
         self._post_fault_active = False
         self._post_complete = False
         self._ack_key = pygame.K_RETURN
-        self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
-        self._mode_index = 0
-        self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
         self._create_widgets()
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
@@ -147,8 +144,7 @@ class HUDRenderer:
         boost_rect = pygame.Rect(center_x, content_top, center_width, boost_height)
         afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
 
-        temps_ratio = ratios["temps"]
-        temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
+        temps_height = max(int(content_height * 0.57), int(height * 0.34))
         traction_height = max(int(content_height * 0.16), int(height * 0.11))
         airshot_height = max(int(content_height * 0.13), int(height * 0.09))
         wmi_height = max(
@@ -249,6 +245,14 @@ class HUDRenderer:
                     shift_light=state.shift_light,
                     faults=state.faults,
                 )
+
+            if not self._post_complete:
+                self._run_post(state)
+
+            if self._post_fault_active:
+                pressed = pygame.key.get_pressed()
+                if pressed[self._ack_key]:
+                    self._post_fault_active = False
 
             if not self._post_complete:
                 self._run_post(state)
