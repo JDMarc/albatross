@@ -54,7 +54,13 @@ class HUDRenderer:
         self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
         self._mode_index = 0
         self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
+        self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
+        self._traction_index = 1
+        self._traction_callback = None
         self._create_widgets()
+
+    def configure_traction_callback(self, callback) -> None:
+        self._traction_callback = callback
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
         profiles = {
@@ -223,6 +229,14 @@ class HUDRenderer:
                     if event.key in (pygame.K_TAB, pygame.K_m):
                         self._mode_index = (self._mode_index + 1) % len(self._modes)
                         self._create_widgets()
+                    elif event.key in (pygame.K_LEFTBRACKET, pygame.K_COMMA):
+                        self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
+                        if self._traction_callback:
+                            self._traction_callback(self._traction_index + 1)
+                    elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_PERIOD):
+                        self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
+                        if self._traction_callback:
+                            self._traction_callback(self._traction_index + 1)
 
             if state_iter is not None:
                 try:
@@ -254,6 +268,22 @@ class HUDRenderer:
                         message_line=env.message_line,
                         fuel_level_pct=env.fuel_level_pct,
                     ),
+                    shift_light=state.shift_light,
+                    faults=state.faults,
+                )
+            desired_trac = self._traction_levels[self._traction_index]
+            if state.traction.intervention_level != desired_trac:
+                state = StateSnapshot(
+                    engine=state.engine,
+                    temps=state.temps,
+                    air_shot=state.air_shot,
+                    wmi=state.wmi,
+                    traction=state.traction.__class__(
+                        slip_pct=state.traction.slip_pct,
+                        wheelie_pitch_deg=state.traction.wheelie_pitch_deg,
+                        intervention_level=desired_trac,
+                    ),
+                    environment=state.environment,
                     shift_light=state.shift_light,
                     faults=state.faults,
                 )
