@@ -27,7 +27,7 @@ class AlertPanel(Widget):
         lines = list(state.faults) if state.faults else (self._latched_faults if now < self._latch_until else [])
         highlight = bool(lines)
         if not lines:
-            fallback = state.environment.message_line or "GL500 DASH ONLINE"
+            fallback = state.environment.message_line or "NO ACTIVE ALERT"
             lines = [fallback]
 
         # Reserve space for the GL500 heritage label at the top

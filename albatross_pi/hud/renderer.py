@@ -20,7 +20,6 @@ from .widgets.rpm_bar import RpmBar
 from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
 from .widgets.traction_panel import TractionPanel
-from .widgets.wmi_panel import WMIPanel
 from .widgets.ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ..state.snapshot import StateSnapshot
 
@@ -60,7 +59,37 @@ class HUDRenderer:
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
         self._traction_callback = None
+        self._fault_latch_until: dict[str, float] = {}
         self._create_widgets()
+
+    def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
+        active: set[str] = set(state.faults)
+        if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
+            active.add("LOW OIL PRESS")
+        if state.temps.coolant_temp_f > 235:
+            active.add("COOLANT HOT")
+        if state.temps.exhaust_temp_f > 1600:
+            active.add("EGT HOT")
+        if state.engine.boost_psi > max(1.0, state.engine.target_boost_psi + 3.0):
+            active.add("OVERBOOST")
+        if state.engine.knock_events >= 2:
+            active.add("KNOCK ESCALATE")
+        if state.environment.fuel_level_pct <= 12:
+            active.add("LOW FUEL")
+        if state.wmi.fault_active:
+            active.add("WMI FLOW LOW")
+        if state.engine.gear == "?":
+            active.add("GEAR SENSOR")
+        if state.environment.message_line.upper().find("FAULT") >= 0:
+            active.add("SYSTEM FAULT")
+
+        # Latch all active faults for a while so they are visible in alert panel.
+        for fault in active:
+            self._fault_latch_until[fault] = now_s + 8.0
+        latched = {f for f, until in self._fault_latch_until.items() if until > now_s}
+        # prune expired latches
+        self._fault_latch_until = {f: u for f, u in self._fault_latch_until.items() if u > now_s}
+        return tuple(sorted(latched))
 
     def configure_traction_callback(self, callback) -> None:
         self._traction_callback = callback
@@ -169,10 +198,9 @@ class HUDRenderer:
         fuel_height = max(int(content_height * 0.16), int(height * 0.11))
         traction_height = max(int(content_height * 0.14), int(height * 0.1))
         airshot_height = max(int(content_height * 0.14), int(height * 0.09))
-        wmi_height = max(
-            content_height - temps_height - fuel_height - traction_height - airshot_height - 4 * panel_gap,
-            int(height * 0.12),
-        )
+        # WMI panel removed; WMI readouts are merged into TempsGrid.
+        extra_right = max(content_height - temps_height - traction_height - airshot_height - 2 * panel_gap, 0)
+        temps_height += extra_right
         temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
         # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
         fuel_width = center_width
@@ -180,7 +208,11 @@ class HUDRenderer:
         fuel_rect = pygame.Rect(fuel_x, afr_rect.bottom + panel_gap, fuel_width, fuel_height)
         traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
         airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
-        wmi_rect = pygame.Rect(right_x, airshot_rect.bottom + panel_gap, right_width, wmi_height)
+        # Prevent lower panels from overlapping the message line.
+        bottom_limit = message_rect.y - panel_gap
+        for r in (temps_rect, traction_rect, airshot_rect):
+            if r.bottom > bottom_limit:
+                r.height = max(36, r.height - (r.bottom - bottom_limit))
 
         # Prevent lower panels from overlapping the message line.
         bottom_limit = message_rect.y - panel_gap
@@ -200,7 +232,6 @@ class HUDRenderer:
             FuelPanel(fuel_rect),
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
-            WMIPanel(wmi_rect),
         ]
 
     def configure_input_bindings(self, ack_key: int) -> None:
@@ -262,7 +293,9 @@ class HUDRenderer:
 
             with self.state_lock:
                 state = self.state
+            now_s = time.monotonic()
             state = replace(state, environment=replace(state.environment, time=datetime.now()))
+            state = replace(state, faults=self._runtime_faults(state, now_s))
             self.update_state(state)
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)

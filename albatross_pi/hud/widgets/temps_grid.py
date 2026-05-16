@@ -18,6 +18,9 @@ class TempsGrid(Widget):
             ("Battery", lambda s: f"{s.temps.battery_voltage:4.2f}V"),
             ("IAT", lambda s: f"{s.temps.intake_temp_f:5.1f}F"),
             ("EGT", lambda s: f"{s.temps.exhaust_temp_f:5.0f}F"),
+            ("WMI Tank", lambda s: f"{s.wmi.tank_level_pct:4.0f}%"),
+            ("WMI Flow", lambda s: f"{s.wmi.actual_flow_cc_min:4.0f}/{s.wmi.commanded_flow_cc_min:4.0f}"),
+            ("WMI Stat", lambda s: "FAULT" if s.wmi.fault_active else "OK"),
         ]
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
