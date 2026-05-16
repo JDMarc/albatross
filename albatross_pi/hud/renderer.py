@@ -63,7 +63,7 @@ class HUDRenderer:
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
-        active: set[str] = set(state.faults)
+        active: set[str] = set()
         if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
             active.add("LOW OIL PRESS")
         if state.temps.coolant_temp_f > 235:
