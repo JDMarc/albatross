@@ -43,7 +43,9 @@ namespace CanId {
   constexpr uint16_t ARD_TANK_PRESSURE = 0x133;
   constexpr uint16_t ARD_TWIN_TURBO_STATUS = 0x134;
   constexpr uint16_t ARD_WASTEGATE_STATUS = 0x135;
+  constexpr uint16_t ARD_GEAR_POSITION = 0x136;
   constexpr uint16_t ARD_WHEEL_SPEED = 0x137;
+  constexpr uint16_t ARD_FUEL_LEVEL = 0x138;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -95,6 +97,7 @@ struct Outputs {
   uint16_t turbo2_psi_x10 = 0;
   uint8_t wg1_duty = 0;
   uint8_t wg2_duty = 0;
+  uint8_t fuel_level_pct = 75;
 };
 
 Inputs g_inputs;
@@ -115,10 +118,9 @@ static constexpr uint8_t AIRSHOT_SOL_PIN = 9;  // Air shot solenoid output
 static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 10; // Air tank compressor relay
 // Mega 2560 external interrupt-capable pins: 2,3,18,19,20,21
 // Do not duplicate these constants elsewhere in this sketch.
-static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 18;
-static constexpr uint8_t REAR_WHEEL_HALL_PIN = 19;
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 3;
 static constexpr uint8_t REAR_WHEEL_HALL_PIN = 4;
+static constexpr uint8_t NEUTRAL_SWITCH_PIN = 26; // digital input from neutral lamp switch
 
 // Placeholder base boost caps by mode (psi*10).
 uint16_t modeBoostCap(uint8_t mode) {
@@ -244,6 +246,36 @@ struct WheelConfig {
 
 static constexpr WheelConfig FRONT_WHEEL = {1.95f, 6};
 static constexpr WheelConfig REAR_WHEEL = {1.99f, 6};
+
+// Placeholder wheel-speed to RPM ratios by gear for derived gear detection.
+// NOTE: replace these placeholder values with measured real-world ratios.
+static constexpr float GEAR_RATIO_FROM_RPM_MPH[] = {
+  0.0f,
+  280.0f, // 1st
+  210.0f, // 2nd
+  170.0f, // 3rd
+  145.0f, // 4th
+  125.0f, // 5th
+  110.0f  // 6th
+};
+
+uint8_t computeGearFromSpeedRpm(float speed_mph, uint16_t rpm, bool neutral_switch_active) {
+  if (neutral_switch_active) return 0; // Neutral
+  if (speed_mph < 2.0f || rpm < 1000) return g_inputs.gear;
+
+  float observed = rpm / speed_mph;
+  uint8_t best = g_inputs.gear > 0 ? g_inputs.gear : 1;
+  float best_err = 1e9f;
+  for (uint8_t gear = 1; gear <= 6; ++gear) {
+    const float expected = GEAR_RATIO_FROM_RPM_MPH[gear];
+    float err = fabsf(observed - expected);
+    if (err < best_err) {
+      best_err = err;
+      best = gear;
+    }
+  }
+  return best;
+}
 
 void frontWheelPulseISR() { g_front_pulses++; }
 void rearWheelPulseISR() { g_rear_pulses++; }
@@ -382,6 +414,10 @@ void updateControllers() {
   g_outputs.turbo1_psi_x10 = g_inputs.boost_psi_x10;
   g_outputs.turbo2_psi_x10 = g_inputs.boost_psi_x10;
   g_outputs.lean_deg = g_outputs.awc_active ? 8 : 3;
+
+  const bool neutral_active = (digitalRead(NEUTRAL_SWITCH_PIN) == LOW);
+  const float speed_mph = max(g_front_wheel_mps, g_rear_wheel_mps) * 2.236936f;
+  g_inputs.gear = computeGearFromSpeedRpm(speed_mph, g_inputs.rpm, neutral_active);
 }
 
 void publishStatusFrames() {
@@ -406,6 +442,12 @@ void publishStatusFrames() {
   uint8_t wg[2] = {g_outputs.wg1_duty, g_outputs.wg2_duty};
   publishFrame(CanId::ARD_WASTEGATE_STATUS, wg, 2);
 
+  uint8_t gear[1] = {g_inputs.gear};
+  publishFrame(CanId::ARD_GEAR_POSITION, gear, 1);
+
+  uint8_t fuel[1] = {g_outputs.fuel_level_pct};
+  publishFrame(CanId::ARD_FUEL_LEVEL, fuel, 1);
+
   uint16_t front_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_front_wheel_mps * 100.0f), 0, 65535));
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));
   uint8_t wheel[4] = {uint8_t(front_mps_x100 >> 8), uint8_t(front_mps_x100 & 0xFF), uint8_t(rear_mps_x100 >> 8), uint8_t(rear_mps_x100 & 0xFF)};
@@ -426,12 +468,11 @@ void setup() {
   pinMode(AIR_COMPRESSOR_RELAY_PIN, OUTPUT);
   pinMode(FRONT_WHEEL_HALL_PIN, INPUT_PULLUP);
   pinMode(REAR_WHEEL_HALL_PIN, INPUT_PULLUP);
+  pinMode(NEUTRAL_SWITCH_PIN, INPUT_PULLUP);
   const int front_irq = digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN);
   const int rear_irq = digitalPinToInterrupt(REAR_WHEEL_HALL_PIN);
   if (front_irq >= 0) attachInterrupt(front_irq, frontWheelPulseISR, RISING);
   if (rear_irq >= 0) attachInterrupt(rear_irq, rearWheelPulseISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN), frontWheelPulseISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(REAR_WHEEL_HALL_PIN), rearWheelPulseISR, RISING);
 
   digitalWrite(WG1_EN_PIN, LOW);
   digitalWrite(WG2_EN_PIN, LOW);
