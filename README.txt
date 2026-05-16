@@ -3,13 +3,7 @@ Hello All,
 This my major project, which has been active for years, ever since I bought my bike.
 A 1982 Honda GL500, which is exactly what this "albatross" project is for.
 In essence, we are building a twin turbocharged motorcycle in homage to the 80s and the cx500 turbo as a whole, 
-this is done through liberal fault correction and tuning options controlled by 3 main systems, those being:
-Albatross Pi HUD + Control Scaffold
-===================================
-
-The Pi side is the coordinator and display brain for the project. It receives live CAN telemetry,
-renders an 80s-inspired HUD with modern safety overlays, and sends supervisory requests back to
-the control layers when we need to derate, limp, or synchronize mode state.
+this is done through liberal fault correction and tuning options controlled by 3 main systems.
 
 What this repo is trying to accomplish
 --------------------------------------
