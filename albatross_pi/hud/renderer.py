@@ -214,6 +214,12 @@ class HUDRenderer:
             if r.bottom > bottom_limit:
                 r.height = max(36, r.height - (r.bottom - bottom_limit))
 
+        # Prevent lower panels from overlapping the message line.
+        bottom_limit = message_rect.y - panel_gap
+        overflow = max(0, wmi_rect.bottom - bottom_limit)
+        if overflow > 0:
+            wmi_rect.height = max(36, wmi_rect.height - overflow)
+
         self.widgets = [
             HeaderBar(top_bar_rect),
             MessageLine(message_rect),
