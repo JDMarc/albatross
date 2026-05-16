@@ -4,9 +4,6 @@ This my major project, which has been active for years, ever since I bought my b
 A 1982 Honda GL500, which is exactly what this "albatross" project is for.
 In essence, we are building a twin turbocharged motorcycle in homage to the 80s and the cx500 turbo as a whole, 
 this is done through liberal fault correction and tuning options controlled by 3 main systems, those being:
-- RASPBERRY PI -
- - Controls and drives the digital dash, which I often refer to as the "HUD"
-
 Albatross Pi HUD + Control Scaffold
 ===================================
 
