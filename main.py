@@ -11,7 +11,7 @@ from typing import Iterable, Iterator
 
 import pygame
 
-from albatross_pi.canbus import CANStateAggregator, SocketCANInterface
+from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_traction_level_frame
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import StateSnapshot
@@ -41,6 +41,7 @@ def main() -> None:
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument("--bind-inputs", action="store_true", help="Prompt keyboard bindings for demo controls")
     parser.add_argument(
         "--snapshot",
         type=Path,
@@ -53,10 +54,22 @@ def main() -> None:
     if args.snapshot:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
-    renderer = HUDRenderer(
-        screen_size=(args.width, args.height),
-        use_display=args.snapshot is None,
-    )
+    try:
+        renderer = HUDRenderer(
+            screen_size=(args.width, args.height),
+            use_display=args.snapshot is None,
+        )
+    except Exception:
+        logging.exception("HUD renderer failed to initialize")
+        raise
+    if args.bind_inputs and not args.snapshot:
+        ack_name = input("POST acknowledge key (default: return): ").strip().lower() or "return"
+        try:
+            ack_key = pygame.key.key_code(ack_name)
+        except ValueError:
+            logging.warning("Unknown key binding '%s'; using RETURN", ack_name)
+            ack_key = pygame.K_RETURN
+        renderer.configure_input_bindings(ack_key)
     can_interface: SocketCANInterface | None = None
     aggregator: CANStateAggregator | None = None
     simulator: StateSimulator | None = None
@@ -76,6 +89,14 @@ def main() -> None:
             sys.exit(1)
         if not args.snapshot:
             stream = _iter_can_snapshots(aggregator, args.can_rate)
+
+        def _send_traction_level(level_code: int) -> None:
+            frame_id, payload = build_traction_level_frame(level_code)
+            assert can_interface is not None
+            can_interface.send(frame_id, payload)
+            aggregator.mark_sent_frame(frame_id, payload)
+
+        renderer.configure_traction_callback(_send_traction_level)
     else:
         simulator = StateSimulator()
         if not args.snapshot:
@@ -103,6 +124,9 @@ def main() -> None:
         else:
             assert stream is not None
             renderer.run(stream)
+    except Exception:
+        logging.exception("HUD runtime error")
+        raise
     finally:
         if can_interface:
             can_interface.stop()
