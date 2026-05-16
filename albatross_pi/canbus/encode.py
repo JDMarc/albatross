@@ -41,3 +41,15 @@ def build_traction_level_frame(level_code: int) -> tuple[int, bytes]:
     """Return the frame selecting Arduino traction aggressiveness."""
     payload = bytes((level_code & 0xFF,))
     return int(PiToArduinoID.TRACTION_LEVEL), payload
+
+
+def build_media_control_frame(command_code: int, value: int) -> tuple[int, bytes]:
+    """Return a frame for phone/media navigation control events."""
+    payload = bytes((command_code & 0xFF, value & 0xFF))
+    return int(PiToArduinoID.MEDIA_CONTROL), payload
+
+
+def build_phone_link_frame(enabled: bool) -> tuple[int, bytes]:
+    """Return a frame to request phone link enable/disable."""
+    payload = bytes((0x01 if enabled else 0x00,))
+    return int(PiToArduinoID.PHONE_LINK), payload
