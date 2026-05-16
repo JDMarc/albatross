@@ -60,6 +60,16 @@ class HUDRenderer:
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
         self._traction_callback = None
+        self._mode_callback = None
+        self._media_callback = None
+        self._settings_open = False
+        self._settings_cursor = 0
+        self._media_items = ["PHONE LINK", "MEDIA PREV", "MEDIA NEXT", "PLAY/PAUSE"]
+        self._media_index = 0
+        self._setting_items = ["TRACTION", "BRIGHTNESS", "PHONE LINK"]
+        self._phone_link_enabled = False
+        self._brightness_levels = [25, 40, 55, 70, 85, 100]
+        self._brightness_index = 3
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -86,6 +96,12 @@ class HUDRenderer:
 
     def configure_traction_callback(self, callback) -> None:
         self._traction_callback = callback
+
+    def configure_mode_callback(self, callback) -> None:
+        self._mode_callback = callback
+
+    def configure_media_callback(self, callback) -> None:
+        self._media_callback = callback
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
         profiles = {
@@ -297,7 +313,19 @@ class HUDRenderer:
                 elif event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_TAB, pygame.K_m):
                         self._mode_index = (self._mode_index + 1) % len(self._modes)
+                        if self._mode_callback:
+                            self._mode_callback(self._mode_index + 1)
                         self._create_widgets()
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                        self._settings_open = not self._settings_open
+                    elif self._settings_open and event.key == pygame.K_UP:
+                        self._settings_cursor = (self._settings_cursor - 1) % len(self._setting_items)
+                    elif self._settings_open and event.key == pygame.K_DOWN:
+                        self._settings_cursor = (self._settings_cursor + 1) % len(self._setting_items)
+                    elif event.key == pygame.K_RIGHT:
+                        self._handle_dpad_right()
+                    elif event.key == pygame.K_LEFT:
+                        self._handle_dpad_left()
                     elif event.key in (pygame.K_LEFTBRACKET, pygame.K_COMMA):
                         self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
                         if self._traction_callback:
@@ -375,6 +403,9 @@ class HUDRenderer:
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
+        self._render_top_right_media_tile()
+        if self._settings_open:
+            self._render_settings_overlay()
         if self._post_complete and self._post_fault_active:
             self._render_post_overlay()
         if present and self._use_display:
@@ -417,3 +448,71 @@ class HUDRenderer:
         ack = f"FAULT ACK REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()}"
         ack_s = font(16, bold=True).render(ack, True, FAULT_AMBER)
         self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
+
+    def _handle_dpad_right(self) -> None:
+        if self._settings_open:
+            item = self._setting_items[self._settings_cursor]
+            if item == "TRACTION":
+                self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
+                if self._traction_callback:
+                    self._traction_callback(self._traction_index + 1)
+            elif item == "BRIGHTNESS":
+                self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
+            elif item == "PHONE LINK":
+                self._phone_link_enabled = True
+                if self._media_callback:
+                    self._media_callback("phone_link", 1)
+            return
+        self._media_index = (self._media_index + 1) % len(self._media_items)
+        if self._media_callback:
+            self._media_callback("nav", self._media_index)
+
+    def _handle_dpad_left(self) -> None:
+        if self._settings_open:
+            item = self._setting_items[self._settings_cursor]
+            if item == "TRACTION":
+                self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
+                if self._traction_callback:
+                    self._traction_callback(self._traction_index + 1)
+            elif item == "BRIGHTNESS":
+                self._brightness_index = max(self._brightness_index - 1, 0)
+            elif item == "PHONE LINK":
+                self._phone_link_enabled = False
+                if self._media_callback:
+                    self._media_callback("phone_link", 0)
+            return
+        self._media_index = (self._media_index - 1) % len(self._media_items)
+        if self._media_callback:
+            self._media_callback("nav", self._media_index)
+
+    def _render_settings_overlay(self) -> None:
+        panel = pygame.Rect(self.screen.get_width() - 420, 90, 380, 220)
+        overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        overlay.fill((12, 8, 0, 230))
+        self.screen.blit(overlay, panel.topleft)
+        pygame.draw.rect(self.screen, AMBER_GLOW, panel, width=2, border_radius=8)
+        title = font(20, bold=True).render("SETTINGS", True, AMBER_BRIGHT)
+        self.screen.blit(title, (panel.x + 16, panel.y + 10))
+        for idx, item in enumerate(self._setting_items):
+            active = idx == self._settings_cursor
+            color = AMBER_BRIGHT if active else AMBER_GLOW
+            value = self._settings_value(item)
+            text = font(17, bold=active).render(f"{item:<12} {value}", True, color)
+            self.screen.blit(text, (panel.x + 16, panel.y + 52 + idx * 42))
+
+    def _settings_value(self, item: str) -> str:
+        if item == "TRACTION":
+            return self._traction_levels[self._traction_index]
+        if item == "BRIGHTNESS":
+            return f"{self._brightness_levels[self._brightness_index]}%"
+        return "ON" if self._phone_link_enabled else "OFF"
+
+    def _render_top_right_media_tile(self) -> None:
+        tile = pygame.Rect(self.screen.get_width() - 300, 8, 260, 58)
+        pygame.draw.rect(self.screen, AMBER_BG, tile, border_radius=6)
+        pygame.draw.rect(self.screen, AMBER_GLOW, tile, width=1, border_radius=6)
+        label = "BT LINK" if self._phone_link_enabled else "BT OFF"
+        left = font(14, bold=True).render(label, True, AMBER_BRIGHT if self._phone_link_enabled else FAULT_AMBER)
+        right = font(14).render(self._media_items[self._media_index], True, AMBER_GLOW)
+        self.screen.blit(left, (tile.x + 10, tile.y + 8))
+        self.screen.blit(right, (tile.x + 10, tile.y + 30))

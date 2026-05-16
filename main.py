@@ -15,8 +15,8 @@ from typing import Iterable, Iterator
 
 import pygame
 
-from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_traction_level_frame
-from albatross_pi.canbus.encode import build_boost_target_frame, build_flame_mode_frame, build_limp_mode_frame
+from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
+from albatross_pi.canbus.encode import build_boost_target_frame, build_flame_mode_frame, build_limp_mode_frame, build_media_control_frame, build_phone_link_frame
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import StateSnapshot
@@ -105,6 +105,24 @@ def main() -> None:
             aggregator.mark_sent_frame(frame_id, payload)
 
         renderer.configure_traction_callback(_send_traction_level)
+
+        def _send_mode_selection(mode_code: int) -> None:
+            frame = build_mode_selection_frame(mode_code)
+            assert can_interface is not None
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+
+        def _send_media_control(command: str, value: int) -> None:
+            assert can_interface is not None
+            if command == "phone_link":
+                frame = build_phone_link_frame(bool(value))
+            else:
+                frame = build_media_control_frame(0x01, value)
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+
+        renderer.configure_mode_callback(_send_mode_selection)
+        renderer.configure_media_callback(_send_media_control)
 
         def _safety_supervisor() -> None:
             assert aggregator is not None and can_interface is not None
