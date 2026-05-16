@@ -62,16 +62,19 @@ class HUDRenderer:
         self._traction_callback = None
         self._mode_callback = None
         self._media_callback = None
-        self._focus_targets = ["SETTINGS", "MEDIA"]
+        self._focus_targets = ["SETTINGS", "MEDIA_PREV", "MEDIA_PLAY", "MEDIA_NEXT", "PHONE_LINK"]
         self._focus_index = 0
         self._active_menu = "home"
         self._settings_cursor = 0
         self._media_items = ["PREV", "PLAY", "NEXT"]
         self._media_index = 0
-        self._setting_items = ["TRACTION", "BRIGHTNESS", "PHONE LINK"]
+        self._setting_items = ["TRACTION", "BRIGHTNESS", "MODE", "PHONE LINK", "THEME", "AUTO DIM"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
+        self._themes = ["AMBER", "NIGHT", "HIGH-CON"]
+        self._theme_index = 0
+        self._auto_dim_enabled = True
         self._phone_track = ""
         self._phone_artist = ""
         self._phone_position_s = 0.0
@@ -424,6 +427,8 @@ class HUDRenderer:
             self._render_settings_overlay()
         elif self._active_menu == "media":
             self._render_media_overlay()
+        self._render_global_hints()
+        self._apply_brightness_overlay(state)
         if self._post_complete and self._post_fault_active:
             self._render_post_overlay()
         if present and self._use_display:
@@ -476,10 +481,18 @@ class HUDRenderer:
                     self._traction_callback(self._traction_index + 1)
             elif item == "BRIGHTNESS":
                 self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
+            elif item == "MODE":
+                self._mode_index = (self._mode_index + 1) % len(self._modes)
+                if self._mode_callback:
+                    self._mode_callback(self._mode_index + 1)
             elif item == "PHONE LINK":
                 self._phone_link_enabled = True
                 if self._media_callback:
                     self._media_callback("phone_link", 1)
+            elif item == "THEME":
+                self._theme_index = (self._theme_index + 1) % len(self._themes)
+            elif item == "AUTO DIM":
+                self._auto_dim_enabled = True
             return
         if self._active_menu == "media":
             self._media_index = (self._media_index + 1) % len(self._media_items)
@@ -495,10 +508,18 @@ class HUDRenderer:
                     self._traction_callback(self._traction_index + 1)
             elif item == "BRIGHTNESS":
                 self._brightness_index = max(self._brightness_index - 1, 0)
+            elif item == "MODE":
+                self._mode_index = (self._mode_index - 1) % len(self._modes)
+                if self._mode_callback:
+                    self._mode_callback(self._mode_index + 1)
             elif item == "PHONE LINK":
                 self._phone_link_enabled = False
                 if self._media_callback:
                     self._media_callback("phone_link", 0)
+            elif item == "THEME":
+                self._theme_index = (self._theme_index - 1) % len(self._themes)
+            elif item == "AUTO DIM":
+                self._auto_dim_enabled = False
             return
         if self._active_menu == "media":
             self._media_index = (self._media_index - 1) % len(self._media_items)
@@ -508,14 +529,33 @@ class HUDRenderer:
     def _handle_up(self) -> None:
         if self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor - 1) % len(self._setting_items)
+        elif self._active_menu == "media":
+            self._media_index = (self._media_index - 1) % len(self._media_items)
 
     def _handle_down(self) -> None:
         if self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor + 1) % len(self._setting_items)
+        elif self._active_menu == "media":
+            self._media_index = (self._media_index + 1) % len(self._media_items)
 
     def _handle_select(self) -> None:
         if self._active_menu == "home":
-            self._active_menu = "settings" if self._focus_targets[self._focus_index] == "SETTINGS" else "media"
+            target = self._focus_targets[self._focus_index]
+            if target == "SETTINGS":
+                self._active_menu = "settings"
+            elif target == "PHONE_LINK":
+                self._phone_link_enabled = not self._phone_link_enabled
+                if self._media_callback:
+                    self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+            elif target == "MEDIA_PREV":
+                self._media_index = 0
+                self._activate_media_action()
+            elif target == "MEDIA_PLAY":
+                self._media_index = 1
+                self._activate_media_action()
+            elif target == "MEDIA_NEXT":
+                self._media_index = 2
+                self._activate_media_action()
             return
         if self._active_menu == "media":
             self._activate_media_action()
@@ -539,7 +579,7 @@ class HUDRenderer:
             self._media_callback("next", 1)
 
     def _render_settings_overlay(self) -> None:
-        panel = pygame.Rect(40, 90, 380, 220)
+        panel = pygame.Rect(40, 90, 420, 290)
         overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
         overlay.fill((12, 8, 0, 230))
         self.screen.blit(overlay, panel.topleft)
@@ -551,8 +591,11 @@ class HUDRenderer:
             color = AMBER_BRIGHT if active else AMBER_GLOW
             value = self._settings_value(item)
             text = font(17, bold=active).render(f"{item:<12} {value}", True, color)
-            self.screen.blit(text, (panel.x + 16, panel.y + 52 + idx * 42))
-        y = panel.y + 182
+            row_y = panel.y + 52 + idx * 34
+            self.screen.blit(text, (panel.x + 16, row_y))
+            if active:
+                pygame.draw.line(self.screen, AMBER_BRIGHT, (panel.x + 14, row_y + 24), (panel.right - 14, row_y + 24), 1)
+        y = panel.bottom - 26
         dev_title = font(12, bold=True).render("BT DEVICES", True, AMBER_GLOW)
         self.screen.blit(dev_title, (panel.x + 16, y))
         if self._available_devices:
@@ -574,31 +617,81 @@ class HUDRenderer:
         ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
         pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=4)
-        y = panel.y + 112
-        icons = ["⏮", "⏯", "⏭"]
-        for idx, ic in enumerate(icons):
-            active = self._media_index == idx
-            c = AMBER_BRIGHT if active else AMBER_GLOW
-            self.screen.blit(font(30, bold=active).render(ic, True, c), (panel.x + 70 + idx * 110, y))
+        y = panel.y + 114
+        self._draw_media_icons(panel.x + 64, y, active_index=self._media_index)
+
+    def _draw_media_icons(self, x: int, y: int, *, active_index: int) -> None:
+        for idx in range(3):
+            c = AMBER_BRIGHT if idx == active_index else AMBER_GLOW
+            cx = x + idx * 110
+            if idx == 0:  # PREV (double left triangles)
+                pygame.draw.polygon(self.screen, c, [(cx + 30, y), (cx + 6, y + 16), (cx + 30, y + 32)])
+                pygame.draw.polygon(self.screen, c, [(cx + 52, y), (cx + 28, y + 16), (cx + 52, y + 32)])
+            elif idx == 1:  # PLAY/PAUSE (toggle-style icon)
+                pygame.draw.rect(self.screen, c, pygame.Rect(cx + 12, y + 2, 8, 28))
+                pygame.draw.rect(self.screen, c, pygame.Rect(cx + 26, y + 2, 8, 28))
+            else:  # NEXT (double right triangles)
+                pygame.draw.polygon(self.screen, c, [(cx + 10, y), (cx + 34, y + 16), (cx + 10, y + 32)])
+                pygame.draw.polygon(self.screen, c, [(cx + 32, y), (cx + 56, y + 16), (cx + 32, y + 32)])
 
     def _settings_value(self, item: str) -> str:
         if item == "TRACTION":
             return self._traction_levels[self._traction_index]
         if item == "BRIGHTNESS":
             return f"{self._brightness_levels[self._brightness_index]}%"
-        return "ON" if self._phone_link_enabled else "OFF"
+        if item == "MODE":
+            return self._modes[self._mode_index]
+        if item == "PHONE LINK":
+            return "ON" if self._phone_link_enabled else "OFF"
+        if item == "THEME":
+            return self._themes[self._theme_index]
+        return "ON" if self._auto_dim_enabled else "OFF"
+
+    def _render_global_hints(self) -> None:
+        hint = "ARROWS: NAV  |  ENTER: SELECT  |  ESC: BACK"
+        s = font(12).render(hint, True, AMBER_GLOW)
+        self.screen.blit(s, (40, self.screen.get_height() - 20))
+
+    def _apply_brightness_overlay(self, state: StateSnapshot) -> None:
+        level = float(self._brightness_levels[self._brightness_index])
+        if self._auto_dim_enabled:
+            hour = state.environment.time.hour
+            if hour >= 20 or hour < 6:
+                level = min(level, 55.0)
+        alpha = int(max(0.0, min(200.0, (100.0 - level) * 1.8)))
+        if alpha > 0:
+            shade = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            shade.fill((0, 0, 0, alpha))
+            self.screen.blit(shade, (0, 0))
 
     def _render_top_right_media_tile(self) -> None:
-        tile = pygame.Rect(self.screen.get_width() - 300, 8, 260, 58)
+        tile = pygame.Rect(180, 8, 340, 74)
         pygame.draw.rect(self.screen, AMBER_BG, tile, border_radius=6)
-        focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "MEDIA"
+        focused = self._active_menu == "home" and self._focus_targets[self._focus_index].startswith("MEDIA_")
         pygame.draw.rect(self.screen, AMBER_BRIGHT if focused else AMBER_GLOW, tile, width=2 if focused else 1, border_radius=6)
         label = "BT LINK" if self._phone_link_enabled else "BT OFF"
         left = font(14, bold=True).render(label, True, AMBER_BRIGHT if self._phone_link_enabled else FAULT_AMBER)
-        right = font(14).render(self._media_items[self._media_index], True, AMBER_GLOW)
+        title_line = f"{self._phone_artist} - {self._phone_track}".strip(" -") or "NO TRACK"
+        right = font(13).render(title_line[:32], True, AMBER_GLOW)
         self.screen.blit(left, (tile.x + 10, tile.y + 8))
-        self.screen.blit(right, (tile.x + 10, tile.y + 30))
-        settings_rect = pygame.Rect(tile.x - 130, tile.y, 120, 58)
+        self.screen.blit(right, (tile.x + 10, tile.y + 26))
+        bar = pygame.Rect(tile.x + 10, tile.y + 48, 220, 10)
+        pygame.draw.rect(self.screen, (45, 30, 0), bar, border_radius=3)
+        ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
+        fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
+        pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=3)
+        home_media_focus = self._media_index
+        if self._active_menu == "home":
+            target = self._focus_targets[self._focus_index]
+            if target == "MEDIA_PREV":
+                home_media_focus = 0
+            elif target == "MEDIA_PLAY":
+                home_media_focus = 1
+            elif target == "MEDIA_NEXT":
+                home_media_focus = 2
+        self._draw_media_icons(tile.x + 238, tile.y + 39, active_index=home_media_focus)
+
+        settings_rect = pygame.Rect(40, 8, 120, 74)
         pygame.draw.rect(self.screen, AMBER_BG, settings_rect, border_radius=6)
         s_focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "SETTINGS"
         pygame.draw.rect(self.screen, AMBER_BRIGHT if s_focused else AMBER_GLOW, settings_rect, width=2 if s_focused else 1, border_radius=6)
@@ -606,3 +699,12 @@ class HUDRenderer:
         s_hint = font(12).render("SELECT", True, AMBER_GLOW)
         self.screen.blit(s_label, (settings_rect.x + 12, settings_rect.y + 10))
         self.screen.blit(s_hint, (settings_rect.x + 30, settings_rect.y + 32))
+
+        phone_rect = pygame.Rect(530, 8, 150, 74)
+        pygame.draw.rect(self.screen, AMBER_BG, phone_rect, border_radius=6)
+        p_focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "PHONE_LINK"
+        pygame.draw.rect(self.screen, AMBER_BRIGHT if p_focused else AMBER_GLOW, phone_rect, width=2 if p_focused else 1, border_radius=6)
+        p_label = font(13, bold=True).render("PHONE LINK", True, AMBER_GLOW)
+        p_state = font(14, bold=True).render("ON" if self._phone_link_enabled else "OFF", True, AMBER_BRIGHT if self._phone_link_enabled else FAULT_AMBER)
+        self.screen.blit(p_label, (phone_rect.x + 14, phone_rect.y + 10))
+        self.screen.blit(p_state, (phone_rect.x + 54, phone_rect.y + 36))
