@@ -24,9 +24,18 @@ class MessageLine(Widget):
         has_arduino = (
             state.air_shot.pressure_psi > 0
             or state.air_shot.charges_remaining > 0
-            or state.traction.intervention_level != ""
+            or state.wmi.commanded_flow_cc_min > 0
+            or state.wmi.actual_flow_cc_min > 0
+            or state.traction.slip_pct > 0
+            or abs(state.traction.wheelie_pitch_deg) > 0.01
         )
-        has_can = has_ecu or has_arduino or state.environment.message_line != ""
+        has_can = (
+            has_ecu
+            or has_arduino
+            or state.engine.speed_mph > 0
+            or state.engine.boost_psi > 0
+            or state.environment.message_line != ""
+        )
 
         comm_line = " | ".join(
             [
