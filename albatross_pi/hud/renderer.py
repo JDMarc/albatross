@@ -207,6 +207,14 @@ class HUDRenderer:
             if r.bottom > bottom_limit:
                 r.height = max(36, r.height - (r.bottom - bottom_limit))
 
+        prior_latched_faults: list[str] = []
+        prior_latch_until = 0.0
+        for widget in self.widgets:
+            if isinstance(widget, AlertPanel):
+                prior_latched_faults = list(widget._latched_faults)
+                prior_latch_until = widget._latch_until
+                break
+
         self.widgets = [
             HeaderBar(top_bar_rect),
             MessageLine(message_rect),
@@ -220,6 +228,11 @@ class HUDRenderer:
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
         ]
+        for widget in self.widgets:
+            if isinstance(widget, AlertPanel):
+                widget._latched_faults = prior_latched_faults
+                widget._latch_until = prior_latch_until
+                break
 
     def configure_input_bindings(self, ack_key: int) -> None:
         self._ack_key = ack_key
