@@ -40,7 +40,7 @@ System roles
 
 This is the short version of how everything works:
 
-- **Raspberry Pi (this repo)**
+- **Raspberry Pi**
   - Runs HUD, handles top-level state presentation, and sends high-level requests.
   - Supervises and coordinates behavior; does not try to be hard real-time torque control.
 
