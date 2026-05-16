@@ -30,7 +30,9 @@ class ArduinoToHudID(IntEnum):
     TANK_PRESSURE = 0x133
     TWIN_TURBO_STATUS = 0x134
     WASTEGATE_STATUS = 0x135
+    GEAR_POSITION = 0x136
     WHEEL_SPEED = 0x137
+    FUEL_LEVEL = 0x138
 
 
 class PiToArduinoID(IntEnum):
