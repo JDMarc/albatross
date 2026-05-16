@@ -112,7 +112,25 @@ def main() -> None:
         host, port_s = addr.split(":")
         port = int(port_s)
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((host, port))
+        try:
+            sock.bind((host, port))
+        except PermissionError:
+            logging.warning(
+                "Unable to bind demo UDP listener on %s:%s (permission denied). "
+                "Trying localhost fallback port 5505.",
+                host,
+                port,
+            )
+            sock.bind(("127.0.0.1", 5505))
+        except OSError as exc:
+            logging.warning(
+                "Unable to bind demo UDP listener on %s:%s (%s). "
+                "Demo UDP listener disabled.",
+                host,
+                port,
+                exc,
+            )
+            return
         sock.settimeout(0.2)
 
         def loop() -> None:
