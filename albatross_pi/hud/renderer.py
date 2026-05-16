@@ -60,7 +60,6 @@ class HUDRenderer:
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
         self._traction_callback = None
-        self._fault_latch_until: dict[str, float] = {}
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -84,13 +83,8 @@ class HUDRenderer:
         if state.environment.message_line.upper().find("FAULT") >= 0:
             active.add("SYSTEM FAULT")
 
-        # Latch all active faults for a while so they are visible in alert panel.
-        for fault in active:
-            self._fault_latch_until[fault] = now_s + 8.0
-        latched = {f for f, until in self._fault_latch_until.items() if until > now_s}
-        # prune expired latches
-        self._fault_latch_until = {f: u for f, u in self._fault_latch_until.items() if u > now_s}
-        return tuple(sorted(latched))
+        # Return only currently active faults; AlertPanel handles post-clear hold timing.
+        return tuple(sorted(active))
 
     def configure_traction_callback(self, callback) -> None:
         self._traction_callback = callback
