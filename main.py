@@ -15,11 +15,12 @@ from typing import Iterable, Iterator
 
 import pygame
 
-from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_traction_level_frame
-from albatross_pi.canbus.encode import build_boost_target_frame, build_flame_mode_frame, build_limp_mode_frame
+from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
+from albatross_pi.canbus.encode import build_boost_target_frame, build_flame_mode_frame, build_limp_mode_frame, build_media_control_frame, build_phone_link_frame
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import StateSnapshot
+from albatross_pi.phone import PhoneBridge, PhoneStatus
 from dataclasses import replace
 
 
@@ -49,6 +50,8 @@ def main() -> None:
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument("--phone-bt-mac", help="Paired phone Bluetooth MAC for media/weather/GPS bridge")
+    parser.add_argument("--phone-telemetry-udp", default="127.0.0.1:5010", help="UDP host:port for phone weather/GPS telemetry")
     parser.add_argument("--bind-inputs", action="store_true", help="Prompt keyboard bindings for demo controls")
     parser.add_argument(
         "--snapshot",
@@ -78,6 +81,23 @@ def main() -> None:
             logging.warning("Unknown key binding '%s'; using RETURN", ack_name)
             ack_key = pygame.K_RETURN
         renderer.configure_input_bindings(ack_key)
+    phone_bridge: PhoneBridge | None = None
+
+    def _apply_phone_status(status: PhoneStatus) -> None:
+        snap = renderer.state
+        env = replace(
+            snap.environment,
+            ambient_temp_f=status.ambient_temp_f if status.ambient_temp_f is not None else snap.environment.ambient_temp_f,
+            gps_lock=status.gps_lock if status.gps_lock is not None else snap.environment.gps_lock,
+            rain=status.rain if status.rain is not None else snap.environment.rain,
+            message_line=(f"♫ {status.artist} - {status.track}"[:96] if status.track else snap.environment.message_line),
+        )
+        renderer.update_state(replace(snap, environment=env))
+
+    if args.phone_bt_mac:
+        phone_bridge = PhoneBridge(args.phone_bt_mac, _apply_phone_status, telemetry_udp=args.phone_telemetry_udp)
+        phone_bridge.start()
+
     can_interface: SocketCANInterface | None = None
     aggregator: CANStateAggregator | None = None
     simulator: StateSimulator | None = None
@@ -105,6 +125,30 @@ def main() -> None:
             aggregator.mark_sent_frame(frame_id, payload)
 
         renderer.configure_traction_callback(_send_traction_level)
+
+        def _send_mode_selection(mode_code: int) -> None:
+            frame = build_mode_selection_frame(mode_code)
+            assert can_interface is not None
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+
+        def _send_media_control(command: str, value: int) -> None:
+            assert can_interface is not None
+            if command == "phone_link":
+                enabled = bool(value)
+                if phone_bridge is not None:
+                    phone_bridge.set_link(enabled)
+                frame = build_phone_link_frame(enabled)
+            else:
+                if phone_bridge is not None:
+                    phone_bridge.media_command(command)
+                command_map = {"prev": 0x10, "play_pause": 0x11, "next": 0x12}
+                frame = build_media_control_frame(command_map.get(command, 0x00), value)
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+
+        renderer.configure_mode_callback(_send_mode_selection)
+        renderer.configure_media_callback(_send_media_control)
 
         def _safety_supervisor() -> None:
             assert aggregator is not None and can_interface is not None
