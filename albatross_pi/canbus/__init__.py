@@ -6,6 +6,7 @@ from .encode import (
     build_boost_target_frame,
     build_mode_selection_frame,
     build_nfc_auth_frame,
+    build_traction_level_frame,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "build_boost_target_frame",
     "build_mode_selection_frame",
     "build_nfc_auth_frame",
+    "build_traction_level_frame",
 ]
