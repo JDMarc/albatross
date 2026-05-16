@@ -84,6 +84,9 @@ class HUDRenderer:
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
         active: set[str] = set()
+        age_s = max(0.0, (datetime.now() - state.environment.time).total_seconds())
+        if age_s > 1.5:
+            active.add("CAN STALE")
         if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
             active.add("LOW OIL PRESS")
         if state.temps.coolant_temp_f > 235:
@@ -289,7 +292,8 @@ class HUDRenderer:
                 abs(state.traction.wheelie_pitch_deg) > 0.01,
             )
         )
-        has_can_signal = has_ecu_signal or has_arduino_signal or state.engine.speed_mph > 0 or state.engine.boost_psi > 0
+        age_s = max(0.0, (datetime.now() - state.environment.time).total_seconds())
+        has_can_signal = (has_ecu_signal or has_arduino_signal or state.engine.speed_mph > 0 or state.engine.boost_psi > 0) and age_s <= 1.5
 
         checks = [
             ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
@@ -367,7 +371,6 @@ class HUDRenderer:
             with self.state_lock:
                 state = self.state
             now_s = time.monotonic()
-            state = replace(state, environment=replace(state.environment, time=datetime.now()))
             state = replace(state, faults=self._runtime_faults(state, now_s))
             self.update_state(state)
             if state.environment.mode in self._modes:
