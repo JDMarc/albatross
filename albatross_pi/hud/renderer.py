@@ -66,12 +66,17 @@ class HUDRenderer:
         self._focus_index = 0
         self._active_menu = "home"
         self._settings_cursor = 0
-        self._media_items = ["PREV", "PLAY", "NEXT", "PHONE"]
+        self._media_items = ["PREV", "PLAY", "NEXT"]
         self._media_index = 0
         self._setting_items = ["TRACTION", "BRIGHTNESS", "PHONE LINK"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
+        self._phone_track = ""
+        self._phone_artist = ""
+        self._phone_position_s = 0.0
+        self._phone_length_s = 0.0
+        self._available_devices: tuple[str, ...] = ()
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -104,6 +109,13 @@ class HUDRenderer:
 
     def configure_media_callback(self, callback) -> None:
         self._media_callback = callback
+
+    def update_phone_status(self, *, artist: str, track: str, position_s: float, length_s: float, devices: tuple[str, ...]) -> None:
+        self._phone_artist = artist
+        self._phone_track = track
+        self._phone_position_s = max(0.0, position_s)
+        self._phone_length_s = max(0.0, length_s)
+        self._available_devices = devices
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
         profiles = {
@@ -525,13 +537,9 @@ class HUDRenderer:
             self._media_callback("play_pause", 1)
         elif action == "NEXT" and self._media_callback:
             self._media_callback("next", 1)
-        elif action == "PHONE":
-            self._phone_link_enabled = not self._phone_link_enabled
-            if self._media_callback:
-                self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
 
     def _render_settings_overlay(self) -> None:
-        panel = pygame.Rect(self.screen.get_width() - 420, 90, 380, 220)
+        panel = pygame.Rect(40, 90, 380, 220)
         overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
         overlay.fill((12, 8, 0, 230))
         self.screen.blit(overlay, panel.topleft)
@@ -544,27 +552,34 @@ class HUDRenderer:
             value = self._settings_value(item)
             text = font(17, bold=active).render(f"{item:<12} {value}", True, color)
             self.screen.blit(text, (panel.x + 16, panel.y + 52 + idx * 42))
-        hint = font(13).render("BACK: ESC/BSP   SELECT: ENTER", True, AMBER_GLOW)
-        self.screen.blit(hint, (panel.x + 16, panel.bottom - 24))
+        y = panel.y + 182
+        dev_title = font(12, bold=True).render("BT DEVICES", True, AMBER_GLOW)
+        self.screen.blit(dev_title, (panel.x + 16, y))
+        if self._available_devices:
+            devs = ", ".join(self._available_devices[:3])
+            self.screen.blit(font(12).render(devs[:44], True, AMBER_BRIGHT), (panel.x + 100, y))
 
     def _render_media_overlay(self) -> None:
-        panel = pygame.Rect(self.screen.get_width() - 420, 90, 380, 160)
+        panel = pygame.Rect(40, 90, 440, 180)
         overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
         overlay.fill((12, 8, 0, 230))
         self.screen.blit(overlay, panel.topleft)
         pygame.draw.rect(self.screen, AMBER_GLOW, panel, width=2, border_radius=8)
         title = font(20, bold=True).render("MEDIA", True, AMBER_BRIGHT)
         self.screen.blit(title, (panel.x + 16, panel.y + 10))
-        x = panel.x + 16
-        for idx, item in enumerate(self._media_items):
-            active = idx == self._media_index
-            color = AMBER_BRIGHT if active else AMBER_GLOW
-            label = "PHONE ON" if item == "PHONE" and self._phone_link_enabled else item
-            text = font(16, bold=active).render(label, True, color)
-            self.screen.blit(text, (x, panel.y + 62))
-            x += 84
-        hint = font(13).render("LEFT/RIGHT to pick, SELECT to run", True, AMBER_GLOW)
-        self.screen.blit(hint, (panel.x + 16, panel.bottom - 24))
+        title_line = f"{self._phone_artist} - {self._phone_track}".strip(" -") or "NO TRACK"
+        self.screen.blit(font(14).render(title_line[:48], True, AMBER_GLOW), (panel.x + 16, panel.y + 40))
+        bar = pygame.Rect(panel.x + 16, panel.y + 66, panel.width - 32, 16)
+        pygame.draw.rect(self.screen, (45, 30, 0), bar, border_radius=4)
+        ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
+        fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
+        pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=4)
+        y = panel.y + 112
+        icons = ["⏮", "⏯", "⏭"]
+        for idx, ic in enumerate(icons):
+            active = self._media_index == idx
+            c = AMBER_BRIGHT if active else AMBER_GLOW
+            self.screen.blit(font(30, bold=active).render(ic, True, c), (panel.x + 70 + idx * 110, y))
 
     def _settings_value(self, item: str) -> str:
         if item == "TRACTION":

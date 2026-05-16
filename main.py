@@ -92,6 +92,13 @@ def main() -> None:
             rain=status.rain if status.rain is not None else snap.environment.rain,
             message_line=(f"♫ {status.artist} - {status.track}"[:96] if status.track else snap.environment.message_line),
         )
+        renderer.update_phone_status(
+            artist=status.artist,
+            track=status.track,
+            position_s=status.position_s,
+            length_s=status.length_s,
+            devices=status.devices,
+        )
         renderer.update_state(replace(snap, environment=env))
 
     if args.phone_bt_mac:

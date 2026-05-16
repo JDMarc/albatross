@@ -19,6 +19,9 @@ class PhoneStatus:
     ambient_temp_f: float | None = None
     gps_lock: bool | None = None
     rain: bool | None = None
+    position_s: float = 0.0
+    length_s: float = 0.0
+    devices: tuple[str, ...] = ()
 
 
 class PhoneBridge:
@@ -40,6 +43,7 @@ class PhoneBridge:
         threading.Thread(target=self._connect_loop, daemon=True, name="phone-bt-connect").start()
         threading.Thread(target=self._metadata_loop, daemon=True, name="phone-metadata").start()
         threading.Thread(target=self._telemetry_loop, daemon=True, name="phone-telemetry").start()
+        threading.Thread(target=self._device_scan_loop, daemon=True, name="phone-device-scan").start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -70,16 +74,19 @@ class PhoneBridge:
         while not self._stop.is_set():
             try:
                 res = subprocess.run(
-                    ["playerctl", "metadata", "--format", "{{artist}}|{{title}}"],
+                    ["playerctl", "metadata", "--format", "{{artist}}|{{title}}|{{position}}|{{mpris:length}}"],
                     check=False,
                     capture_output=True,
                     text=True,
                 )
                 line = (res.stdout or "").strip()
-                if "|" in line:
-                    artist, title = line.split("|", 1)
+                parts = line.split("|")
+                if len(parts) >= 4:
+                    artist, title, pos_s, len_us = parts[:4]
                     self._status.artist = artist.strip()
                     self._status.track = title.strip()
+                    self._status.position_s = float(pos_s or 0.0)
+                    self._status.length_s = max(0.0, float(len_us or 0.0) / 1_000_000.0)
                     self._on_status(self._status)
             except Exception:
                 logging.exception("Phone metadata polling failed")
@@ -111,3 +118,16 @@ class PhoneBridge:
         p = subprocess.run(["bluetoothctl", *cmd], check=False, capture_output=True, text=True)
         return (p.stdout or "") + (p.stderr or "")
 
+    def _device_scan_loop(self) -> None:
+        while not self._stop.is_set():
+            out = self._run_bt("devices")
+            devices: list[str] = []
+            for line in out.splitlines():
+                if not line.startswith("Device "):
+                    continue
+                parts = line.split(" ", 2)
+                if len(parts) >= 3:
+                    devices.append(parts[2].strip())
+            self._status.devices = tuple(devices[:8])
+            self._on_status(self._status)
+            time.sleep(8.0)
