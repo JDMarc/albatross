@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
+from datetime import datetime
 from typing import Iterable, List
 
 import pygame
@@ -11,13 +13,14 @@ from .widgets.airshot_panel import AirShotPanel
 from .widgets.afr_panel import AfrPanel
 from .widgets.alert_panel import AlertPanel
 from .widgets.boost_panel import BoostPanel
+from .widgets.fuel_panel import FuelPanel
 from .widgets.header_bar import HeaderBar
 from .widgets.message_line import MessageLine
 from .widgets.rpm_bar import RpmBar
 from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
 from .widgets.traction_panel import TractionPanel
-from .widgets.wmi_panel import WMIPanel
+from .widgets.ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
@@ -46,9 +49,74 @@ class HUDRenderer:
         self.state = StateSnapshot()
         self.state_lock = threading.Lock()
         self.widgets: List = []
+        self._post_lines: list[tuple[str, bool]] = []
+        self._post_fault_active = False
+        self._post_complete = False
+        self._ack_key = pygame.K_RETURN
+        self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
+        self._mode_index = 0
+        self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
+        self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
+        self._traction_index = 1
+        self._traction_callback = None
+        self._fault_latch_until: dict[str, float] = {}
         self._create_widgets()
 
+    def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
+        active: set[str] = set(state.faults)
+        if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
+            active.add("LOW OIL PRESS")
+        if state.temps.coolant_temp_f > 235:
+            active.add("COOLANT HOT")
+        if state.temps.exhaust_temp_f > 1600:
+            active.add("EGT HOT")
+        if state.engine.boost_psi > max(1.0, state.engine.target_boost_psi + 3.0):
+            active.add("OVERBOOST")
+        if state.engine.knock_events >= 2:
+            active.add("KNOCK ESCALATE")
+        if state.environment.fuel_level_pct <= 12:
+            active.add("LOW FUEL")
+        if state.wmi.fault_active:
+            active.add("WMI FLOW LOW")
+        if state.engine.gear == "?":
+            active.add("GEAR SENSOR")
+        if state.environment.message_line.upper().find("FAULT") >= 0:
+            active.add("SYSTEM FAULT")
+
+        # Latch all active faults for a while so they are visible in alert panel.
+        for fault in active:
+            self._fault_latch_until[fault] = now_s + 8.0
+        latched = {f for f, until in self._fault_latch_until.items() if until > now_s}
+        # prune expired latches
+        self._fault_latch_until = {f: u for f, u in self._fault_latch_until.items() if u > now_s}
+        return tuple(sorted(latched))
+
+    def configure_traction_callback(self, callback) -> None:
+        self._traction_callback = callback
+
+    def _mode_ratios(self, mode: str) -> dict[str, float]:
+        profiles = {
+            "ECO": {"boost": 0.28, "afr": 0.24, "temps": 0.64},
+            "NORMAL": {"boost": 0.32, "afr": 0.25, "temps": 0.60},
+            "SPORT": {"boost": 0.40, "afr": 0.24, "temps": 0.52},
+            "RACE": {"boost": 0.42, "afr": 0.23, "temps": 0.53},
+            "ALBATROSS": {"boost": 0.46, "afr": 0.22, "temps": 0.50},
+        }
+        target = profiles.get(mode, profiles["NORMAL"])
+        # Soft animation toward target ratios so gauges move smoothly.
+        for key in self._mode_layout_state:
+            self._mode_layout_state[key] += (target[key] - self._mode_layout_state[key]) * 0.25
+        return dict(self._mode_layout_state)
+
     def _create_widgets(self) -> None:
+        # Defensive initialization for partially-merged working copies.
+        if not hasattr(self, "_modes"):
+            self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
+        if not hasattr(self, "_mode_index"):
+            self._mode_index = 0
+        if not hasattr(self, "_mode_layout_state"):
+            self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
+
         width, height = self.screen.get_size()
         padding = max(int(width * 0.02), 24)
         gutter = max(int(height * 0.02), 18)
@@ -67,9 +135,9 @@ class HUDRenderer:
         column_gutter = max(int(width * 0.015), 16)
         usable_width = max(available_width - 2 * column_gutter, 300)
 
-        min_left = max(int(width * 0.18), 220)
-        min_center = max(int(width * 0.25), 260)
-        min_right = max(int(width * 0.2), 220)
+        min_left = max(int(width * 0.16), 200)
+        min_center = max(int(width * 0.22), 230)
+        min_right = max(int(width * 0.3), 320)
         if usable_width <= min_left + min_center + min_right:
             scale = usable_width / float(min_left + min_center + min_right)
             left_width = max(int(min_left * scale), 160)
@@ -112,8 +180,12 @@ class HUDRenderer:
             gear_rect = pygame.Rect(speed_rect.right + inner_gap, speed_area.y, gear_size, gear_size)
 
         panel_gap = max(int(height * 0.02), 18)
-        boost_height = max(int(content_height * 0.35), int(height * 0.2))
-        afr_height = max(int(content_height * 0.25), int(height * 0.15))
+        mode = self._modes[self._mode_index]
+        ratios = self._mode_ratios(mode)
+        boost_ratio = ratios["boost"]
+        afr_ratio = ratios["afr"]
+        boost_height = max(int(content_height * boost_ratio), int(height * 0.2))
+        afr_height = max(int(content_height * afr_ratio), int(height * 0.15))
         center_remaining = content_height - boost_height - afr_height - panel_gap
         if center_remaining < 80:
             afr_height = max(afr_height + center_remaining - 80, 80)
@@ -121,17 +193,26 @@ class HUDRenderer:
         boost_rect = pygame.Rect(center_x, content_top, center_width, boost_height)
         afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
 
-        temps_height = max(int(content_height * 0.45), int(height * 0.24))
-        traction_height = max(int(content_height * 0.2), int(height * 0.14))
-        airshot_height = max(int(content_height * 0.16), int(height * 0.12))
-        wmi_height = max(
-            content_height - temps_height - traction_height - airshot_height - 3 * panel_gap,
-            int(height * 0.12),
-        )
+        temps_ratio = ratios["temps"]
+        temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
+        fuel_height = max(int(content_height * 0.16), int(height * 0.11))
+        traction_height = max(int(content_height * 0.14), int(height * 0.1))
+        airshot_height = max(int(content_height * 0.14), int(height * 0.09))
+        # WMI panel removed; WMI readouts are merged into TempsGrid.
+        extra_right = max(content_height - temps_height - traction_height - airshot_height - 2 * panel_gap, 0)
+        temps_height += extra_right
         temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
+        # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
+        fuel_width = center_width
+        fuel_x = center_x
+        fuel_rect = pygame.Rect(fuel_x, afr_rect.bottom + panel_gap, fuel_width, fuel_height)
         traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
         airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
-        wmi_rect = pygame.Rect(right_x, airshot_rect.bottom + panel_gap, right_width, wmi_height)
+        # Prevent lower panels from overlapping the message line.
+        bottom_limit = message_rect.y - panel_gap
+        for r in (temps_rect, traction_rect, airshot_rect):
+            if r.bottom > bottom_limit:
+                r.height = max(36, r.height - (r.bottom - bottom_limit))
 
         self.widgets = [
             HeaderBar(top_bar_rect),
@@ -142,10 +223,27 @@ class HUDRenderer:
             AfrPanel(afr_rect),
             AlertPanel(alert_rect),
             TempsGrid(temps_rect),
+            FuelPanel(fuel_rect),
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
-            WMIPanel(wmi_rect),
         ]
+
+    def configure_input_bindings(self, ack_key: int) -> None:
+        self._ack_key = ack_key
+
+    def _run_post(self, state: StateSnapshot) -> None:
+        checks = [
+            ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
+            ("COOLANT SENSOR", state.temps.coolant_temp_f > 0),
+            ("OIL TEMP SENSOR", state.temps.oil_temp_f > 0),
+            ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
+            ("FUEL LEVEL SENSOR", state.environment.fuel_level_pct >= 0),
+            ("CAN LINK", bool(state.environment.message_line) or state.engine.rpm > 0),
+            ("USB INPUT", pygame.joystick.get_count() > 0),
+        ]
+        self._post_lines = [(f"TEST {name:<18} {'OK' if ok else 'FAULT'}", ok) for name, ok in checks]
+        self._post_fault_active = any(not ok for _, ok in checks)
+        self._post_complete = True
 
     def update_state(self, snapshot: StateSnapshot) -> None:
         with self.state_lock:
@@ -157,6 +255,8 @@ class HUDRenderer:
         last_tick = time.perf_counter()
 
         state_iter = iter(state_source) if state_source else None
+        if self._use_display:
+            pygame.joystick.init()
 
         while self.running:
             for event in pygame.event.get():
@@ -165,6 +265,18 @@ class HUDRenderer:
                 elif event.type == pygame.VIDEORESIZE and self._use_display:
                     self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
                     self._create_widgets()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_TAB, pygame.K_m):
+                        self._mode_index = (self._mode_index + 1) % len(self._modes)
+                        self._create_widgets()
+                    elif event.key in (pygame.K_LEFTBRACKET, pygame.K_COMMA):
+                        self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
+                        if self._traction_callback:
+                            self._traction_callback(self._traction_index + 1)
+                    elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_PERIOD):
+                        self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
+                        if self._traction_callback:
+                            self._traction_callback(self._traction_index + 1)
 
             if state_iter is not None:
                 try:
@@ -175,6 +287,39 @@ class HUDRenderer:
 
             with self.state_lock:
                 state = self.state
+            now_s = time.monotonic()
+            state = replace(state, environment=replace(state.environment, time=datetime.now()))
+            state = replace(state, faults=self._runtime_faults(state, now_s))
+            self.update_state(state)
+            if state.environment.mode in self._modes:
+                self._mode_index = self._modes.index(state.environment.mode)
+            # keep animating mode-based layout transitions
+            self._create_widgets()
+            # Respect externally supplied mode telemetry.
+            desired_trac = self._traction_levels[self._traction_index]
+            if state.traction.intervention_level != desired_trac:
+                state = StateSnapshot(
+                    engine=state.engine,
+                    temps=state.temps,
+                    air_shot=state.air_shot,
+                    wmi=state.wmi,
+                    traction=state.traction.__class__(
+                        slip_pct=state.traction.slip_pct,
+                        wheelie_pitch_deg=state.traction.wheelie_pitch_deg,
+                        intervention_level=desired_trac,
+                    ),
+                    environment=state.environment,
+                    shift_light=state.shift_light,
+                    faults=state.faults,
+                )
+
+            if not self._post_complete:
+                self._run_post(state)
+
+            if self._post_fault_active:
+                pressed = pygame.key.get_pressed()
+                if pressed[self._ack_key]:
+                    self._post_fault_active = False
 
             self._render_frame(state)
             self.clock.tick(TARGET_FPS)
@@ -201,5 +346,26 @@ class HUDRenderer:
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
+        if self._post_complete and self._post_fault_active:
+            self._render_post_overlay()
         if present and self._use_display:
             pygame.display.flip()
+
+    def _render_post_overlay(self) -> None:
+        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 220))
+        self.screen.blit(overlay, (0, 0))
+        x = 24
+        y = 24
+        title = font(18, bold=True).render("POWER ON SELF TEST", True, AMBER_BRIGHT)
+        self.screen.blit(title, (x, y))
+        y += 28
+        for line, ok in self._post_lines:
+            color = AMBER_GLOW if ok else FAULT_AMBER
+            sz = fit_font_size(line, self.screen.get_width() - 48, 20, start_size=16)
+            surf = font(sz).render(line, True, color)
+            self.screen.blit(surf, (x, y))
+            y += 20
+        ack = f"FAULT ACK REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()}"
+        ack_s = font(16, bold=True).render(ack, True, FAULT_AMBER)
+        self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
