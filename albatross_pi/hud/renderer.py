@@ -313,6 +313,7 @@ class HUDRenderer:
 
     def run(self, state_source: Iterable[StateSnapshot] | None = None) -> None:
         self.running = True
+        self._active_menu = "home"
         frame_duration = 1.0 / TARGET_FPS
         last_tick = time.perf_counter()
 
@@ -645,7 +646,7 @@ class HUDRenderer:
     def _render_global_hints(self) -> None:
         hint = "ARROWS: NAV  |  ENTER: SELECT  |  ESC: BACK"
         s = font(12).render(hint, True, AMBER_GLOW)
-        self.screen.blit(s, (40, self.screen.get_height() - 20))
+        self.screen.blit(s, (self.screen.get_width() - s.get_width() - 24, self.screen.get_height() - 20))
 
     def _apply_brightness_overlay(self, state: StateSnapshot) -> None:
         level = float(self._brightness_levels[self._brightness_index])
@@ -660,8 +661,16 @@ class HUDRenderer:
             self.screen.blit(shade, (0, 0))
 
     def _render_top_right_media_tile(self) -> None:
-        right_anchor = self.screen.get_width() - 300
-        tile = pygame.Rect(right_anchor, 8, 280, 74)
+        width = self.screen.get_width()
+        center_x = width // 2
+        settings_rect = pygame.Rect(center_x + 110, 8, 128, 74)
+        tile = pygame.Rect(settings_rect.right + 8, 8, 280, 74)
+        # Clamp so the right edge stays clear of ambient/GPS area.
+        right_limit = width - 220
+        if tile.right > right_limit:
+            shift = tile.right - right_limit
+            tile.x -= shift
+            settings_rect.x -= shift
         pygame.draw.rect(self.screen, AMBER_BG, tile, border_radius=6)
         focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "MEDIA"
         pygame.draw.rect(self.screen, AMBER_BRIGHT if focused else AMBER_GLOW, tile, width=2 if focused else 1, border_radius=6)
@@ -676,9 +685,16 @@ class HUDRenderer:
         ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
         pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=3)
-        self._draw_media_icons(tile.x + 198, tile.y + 39, active_index=self._media_index)
+        controls_visible = self._active_menu == "media" or focused
+        if controls_visible:
+            self._draw_media_icons(tile.x + 198, tile.y + 39, active_index=self._media_index)
+        else:
+            remaining = max(0.0, self._phone_length_s - self._phone_position_s)
+            mm = int(remaining // 60)
+            ss = int(remaining % 60)
+            rem_text = font(13, bold=True).render(f"-{mm}:{ss:02d}", True, AMBER_GLOW)
+            self.screen.blit(rem_text, (tile.x + 214, tile.y + 44))
 
-        settings_rect = pygame.Rect(tile.x - 138, 8, 128, 74)
         pygame.draw.rect(self.screen, AMBER_BG, settings_rect, border_radius=6)
         s_focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "SETTINGS"
         pygame.draw.rect(self.screen, AMBER_BRIGHT if s_focused else AMBER_GLOW, settings_rect, width=2 if s_focused else 1, border_radius=6)
