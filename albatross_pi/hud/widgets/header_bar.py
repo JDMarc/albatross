@@ -3,24 +3,10 @@ from __future__ import annotations
 
 import pygame
 
-from .base import Color, Widget
+from .base import Widget
+from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
 
-BG_COLOR: Color = (5, 5, 5)
-TEXT_COLOR: Color = (255, 180, 120)
-ICON_COLOR: Color = (120, 200, 255)
-WARN_COLOR: Color = (255, 80, 80)
-
-_FONT_CACHE: dict[int, pygame.font.Font] = {}
-
-
-def _font(size: int, *, bold: bool = False) -> pygame.font.Font:
-    key = (size, bold)
-    font = _FONT_CACHE.get(key)
-    if font is None:
-        font = pygame.font.SysFont("Courier", size, bold=bold)
-        _FONT_CACHE[key] = font
-    return font
 
 
 class HeaderBar(Widget):
@@ -28,22 +14,28 @@ class HeaderBar(Widget):
         self.rect = rect
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, BG_COLOR, self.rect)
+        pygame.draw.rect(surface, AMBER_BG, self.rect)
         env = state.environment
         padding = max(8, int(self.rect.height * 0.15))
         line_height = max(16, int(self.rect.height * 0.35))
 
-        mode_surface = _font(line_height, bold=True).render(env.mode, True, TEXT_COLOR)
-        surface.blit(mode_surface, (self.rect.x + padding, self.rect.y + padding // 2))
+        modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
+        mx = self.rect.x + padding
+        my = self.rect.y + padding // 2
+        for mode in modes:
+            active = mode == env.mode
+            size = fit_font_size(mode, int(self.rect.width * 0.1), line_height, start_size=line_height + (5 if active else 0), bold=active)
+            color = AMBER_BRIGHT if active else AMBER_DARK
+            mode_surface = font(size, bold=active).render(mode, True, color)
+            surface.blit(mode_surface, (mx, my + (0 if active else 3)))
+            mx += mode_surface.get_width() + 8
 
-        fuel_surface = _font(max(14, int(line_height * 0.75))).render(
-            f"Fuel {env.fuel_type}", True, TEXT_COLOR
-        )
+        fuel_text = f"Fuel {env.fuel_type}"
+        fuel_size = fit_font_size(fuel_text, int(self.rect.width * 0.22), line_height, start_size=max(14, int(line_height * 0.75)))
+        fuel_surface = font(fuel_size).render(fuel_text, True, AMBER_GLOW)
         surface.blit(fuel_surface, (self.rect.x + padding, self.rect.y + padding // 2 + line_height))
 
-        time_surface = _font(max(14, int(line_height * 0.8))).render(
-            env.time.strftime("%H:%M:%S"), True, ICON_COLOR
-        )
+        time_surface = font(max(14, int(line_height * 0.8))).render(env.time.strftime("%H:%M:%S"), True, AMBER_GLOW)
         surface.blit(
             time_surface,
             (
@@ -52,9 +44,7 @@ class HeaderBar(Widget):
             ),
         )
 
-        ambient_surface = _font(max(14, int(line_height * 0.7))).render(
-            f"{env.ambient_temp_f:3.0f}F", True, TEXT_COLOR
-        )
+        ambient_surface = font(max(14, int(line_height * 0.7))).render(f"{env.ambient_temp_f:3.0f}F", True, AMBER_BRIGHT)
         surface.blit(
             ambient_surface,
             (
@@ -64,8 +54,8 @@ class HeaderBar(Widget):
         )
 
         gps_text = "GPS" if env.gps_lock else "GPS?"
-        gps_color = ICON_COLOR if env.gps_lock else WARN_COLOR
-        gps_surface = _font(max(14, int(line_height * 0.7))).render(gps_text, True, gps_color)
+        gps_color = AMBER_GLOW if env.gps_lock else FAULT_AMBER
+        gps_surface = font(max(14, int(line_height * 0.7))).render(gps_text, True, gps_color)
         surface.blit(
             gps_surface,
             (
@@ -75,7 +65,7 @@ class HeaderBar(Widget):
         )
 
         if env.rain:
-            rain_surface = _font(max(14, int(line_height * 0.7))).render("RAIN", True, WARN_COLOR)
+            rain_surface = font(max(14, int(line_height * 0.7))).render("RAIN", True, FAULT_AMBER)
             surface.blit(
                 rain_surface,
                 (
