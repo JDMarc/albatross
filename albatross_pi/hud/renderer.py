@@ -80,8 +80,6 @@ class HUDRenderer:
             active.add("WMI FLOW LOW")
         if state.engine.gear == "?":
             active.add("GEAR SENSOR")
-        if state.environment.message_line.upper().find("FAULT") >= 0:
-            active.add("SYSTEM FAULT")
 
         # Return only currently active faults; AlertPanel handles post-clear hold timing.
         return tuple(sorted(active))
