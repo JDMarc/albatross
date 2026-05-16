@@ -91,8 +91,7 @@ class App:
             ("EGT Bank1 F", "egt_b1", 500, 2000),
             ("EGT Bank2 F", "egt_b2", 500, 2000),
             ("Speed mph", "speed", 0, 220),
-            ("Airshot Charges", "airshot_charges", 0, 5),
-            ("Tank Pressure psi", "tank_psi", 0, 200),
+                        ("Tank Pressure psi", "tank_psi", 0, 200),
             ("AWC Lean deg", "lean_deg", -15, 15),
             ("Turbo1 psi", "turbo1", 0, 30),
             ("Turbo2 psi", "turbo2", 0, 30),
@@ -103,6 +102,10 @@ class App:
             self._slider(f, label, key, lo, hi, row)
 
         row = len(sliders)
+        ttk.Label(f, text="Airshot Charges").grid(row=row, column=0, sticky="w")
+        ttk.Combobox(f, textvariable=self.vars["airshot_charges"], values=[0, 1, 2, 3, 4, 5], width=8, state="readonly").grid(row=row, column=1, sticky="w")
+
+        row += 1
         ttk.Label(f, text="Gear").grid(row=row, column=0, sticky="w")
         ttk.Combobox(f, textvariable=self.vars["gear"], values=["N", "1", "2", "3", "4", "5", "6"], width=8).grid(row=row, column=1, sticky="w")
         ttk.Label(f, text="Mode").grid(row=row, column=2, sticky="w")
