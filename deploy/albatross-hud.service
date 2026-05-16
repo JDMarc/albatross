@@ -1,0 +1,17 @@
+[Unit]
+Description=Albatross Pi HUD
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/albatross
+Environment=PYTHONUNBUFFERED=1
+# If using X11, ensure DISPLAY is exported by your environment/service manager.
+ExecStart=/usr/bin/python3 /home/pi/albatross/main.py --can-interface can0 --width 1280 --height 480
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

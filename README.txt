@@ -64,6 +64,41 @@ It consumes the same CAN map and performs Arduino-side tasks including electroni
 status publishing on IDs ``0x130``–``0x135`` plus wheel-speed output (`0x137`) used by the HUD speedometer. It also includes traction-control plumbing (Pi traction level command + Arduino slip calculation + ECU torque-cut request). See ``arduino/README.md`` for tuning parameters.
 
 
+
+Boot straight into the HUD on power-up (Raspberry Pi)
+------------------------------------------------------
+
+Yes — use a systemd service so the Pi launches the HUD automatically whenever it receives power and boots.
+
+1. Copy the provided service template and update paths/options if needed:
+
+```
+sudo cp deploy/albatross-hud.service /etc/systemd/system/albatross-hud.service
+```
+
+2. If your repo path, username, or launch flags differ, edit:
+
+```
+sudo nano /etc/systemd/system/albatross-hud.service
+```
+
+3. Enable and start it:
+
+```
+sudo systemctl daemon-reload
+sudo systemctl enable albatross-hud.service
+sudo systemctl start albatross-hud.service
+```
+
+4. Verify status and logs:
+
+```
+systemctl status albatross-hud.service
+journalctl -u albatross-hud.service -f
+```
+
+This will make boot behavior hands-off: power on the Pi, and it should go directly into the HUD program.
+
 MS3Pro setup guide
 ------------------
 
