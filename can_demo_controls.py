@@ -7,6 +7,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import socket
 import struct
 import tkinter as tk
 from tkinter import ttk
@@ -16,11 +18,14 @@ from albatross_pi.canbus.iface import SocketCANInterface
 
 
 class App:
-    def __init__(self, root: tk.Tk, channel: str, dry_run: bool) -> None:
+    def __init__(self, root: tk.Tk, channel: str, dry_run: bool, udp_target: str) -> None:
         self.root = root
         self.root.title("Albatross CAN Demo Controls")
         self.dry_run = dry_run
         self.iface = None if dry_run else SocketCANInterface(channel=channel)
+        self.udp_host, self.udp_port = udp_target.split(":")
+        self.udp_port = int(self.udp_port)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if self.iface:
             try:
                 self.iface.start()
@@ -112,6 +117,21 @@ class App:
         self._send(0x137, struct.pack(">HH", mps100, mps100))
         self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
         self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))
+        payload = {
+            "rpm": rpm,
+            "tps": tps,
+            "boost": boost,
+            "speed_mph": float(self.vars["speed"].get()),
+            "oilp": oilp,
+            "oilt_f": float(self.vars["oilt"].get()),
+            "clt_f": float(self.vars["clt"].get()),
+            "fuel": fuel,
+            "gear": self.vars["gear"].get(),
+            "mode": self.vars["mode"].get(),
+            "traction": self.vars["traction"].get(),
+            "msg": self.vars["msg"].get(),
+        }
+        self.sock.sendto(json.dumps(payload).encode("utf-8"), (self.udp_host, self.udp_port))
 
     def _tick(self) -> None:
         self.send_all()
@@ -127,10 +147,11 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--channel", default="can0")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--udp-target", default="127.0.0.1:5005")
     args = p.parse_args()
 
     root = tk.Tk()
-    app = App(root, args.channel, args.dry_run)
+    app = App(root, args.channel, args.dry_run, args.udp_target)
     root.protocol("WM_DELETE_WINDOW", app.close)
     root.mainloop()
 

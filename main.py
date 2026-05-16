@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import socket
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -15,6 +18,7 @@ from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_tr
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import StateSnapshot
+from dataclasses import replace
 
 
 def _iter_can_snapshots(
@@ -39,6 +43,7 @@ def main() -> None:
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--can-interface", help="SocketCAN interface name (e.g., can0)")
     parser.add_argument("--simulator", action="store_true", help="Use built-in simulator when CAN is not provided")
+    parser.add_argument("--demo-udp-listen", default="127.0.0.1:5005", help="listen host:port for demo control UDP")
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
@@ -103,6 +108,52 @@ def main() -> None:
         if not args.snapshot:
             stream = simulator.stream()
 
+    def _start_demo_udp_listener(addr: str) -> None:
+        host, port_s = addr.split(":")
+        port = int(port_s)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((host, port))
+        sock.settimeout(0.2)
+
+        def loop() -> None:
+            while True:
+                try:
+                    data, _ = sock.recvfrom(65535)
+                except socket.timeout:
+                    continue
+                try:
+                    obj = json.loads(data.decode("utf-8"))
+                except Exception:
+                    continue
+                snap = renderer.state
+                eng = replace(
+                    snap.engine,
+                    rpm=int(obj.get("rpm", snap.engine.rpm)),
+                    speed_mph=float(obj.get("speed_mph", snap.engine.speed_mph)),
+                    boost_psi=float(obj.get("boost", snap.engine.boost_psi)),
+                    throttle_pct=float(obj.get("tps", snap.engine.throttle_pct)),
+                    gear=str(obj.get("gear", snap.engine.gear)),
+                )
+                temps = replace(
+                    snap.temps,
+                    coolant_temp_f=float(obj.get("clt_f", snap.temps.coolant_temp_f)),
+                    oil_temp_f=float(obj.get("oilt_f", snap.temps.oil_temp_f)),
+                    oil_pressure_psi=float(obj.get("oilp", snap.temps.oil_pressure_psi)),
+                )
+                env = replace(
+                    snap.environment,
+                    mode=str(obj.get("mode", snap.environment.mode)),
+                    fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
+                    message_line=str(obj.get("msg", snap.environment.message_line)),
+                )
+                trac = replace(snap.traction, intervention_level=str(obj.get("traction", snap.traction.intervention_level)))
+                renderer.update_state(replace(snap, engine=eng, temps=temps, environment=env, traction=trac))
+
+        threading.Thread(target=loop, name="demo-udp", daemon=True).start()
+
+    if not args.can_interface and not args.simulator and not args.snapshot:
+        _start_demo_udp_listener(args.demo_udp_listen)
+
     def _shutdown_handler(*_: object) -> None:
         if can_interface:
             can_interface.stop()
@@ -123,6 +174,8 @@ def main() -> None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             pygame.image.save(surface, str(output_path))
         else:
+            if stream is None:
+                stream = []
             renderer.run(stream)
     except Exception:
         logging.exception("HUD runtime error")
