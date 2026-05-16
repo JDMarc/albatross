@@ -32,12 +32,12 @@ At a practical level, this repository exists to do four things reliably:
    - Works in simulator/demo mode for desktop iteration.
    - Works in live CAN mode on Pi hardware with SocketCAN.
 
-System roles
+System roles (quick memory aid for me)
 --------------------------------------
 
-This is the short version of how everything works:
+This is the short version I want to remember when I revisit after a break:
 
-- **Raspberry Pi**
+- **Raspberry Pi (this repo)**
   - Runs HUD, handles top-level state presentation, and sends high-level requests.
   - Supervises and coordinates behavior; does not try to be hard real-time torque control.
 
@@ -48,6 +48,40 @@ This is the short version of how everything works:
 - **MS3Pro Mini ECU**
   - Owns core engine management, primary telemetry, and ECU-side strategy.
   - Receives selected control intents/limits from the network.
+
+
+
+- **Arduino Mega 2560 controller (`arduino/albatross_controller`)**
+  - Runs dual electronic wastegate actuator outputs (`PWM/DIR/EN` per channel).
+  - Manages Air Shot compressor + shot latch/rearm logic.
+  - Computes wheel speed + slip, accepts Pi traction level command (`0x124`), and publishes torque-reduction request (`0x125`) for ECU cooperation.
+  - Enforces WMI/flame interlocks and limp-aware behavior.
+
+Arduino firmware notes (important)
+----------------------------------
+
+The Arduino code is not just placeholder code; it is part of the active control stack.
+Current sketch target is **Arduino Mega 2560 Rev3** with an MCP2515 CAN interface.
+
+Quick references:
+
+- Main sketch: `arduino/albatross_controller/albatross_controller.ino`
+- Arduino details/tuning notes: `arduino/README.md`
+
+What Arduino currently publishes for the HUD/stack:
+
+- Air Shot status (`0x130`)
+- AWC/lean status (`0x131`)
+- Tank pressure (`0x133`)
+- Twin turbo feedback (`0x134`)
+- Wastegate status (`0x135`)
+- Gear + wheel speed/fuel support frames (`0x136`–`0x138`)
+
+Bring-up reminder for this repo architecture:
+
+1) Flash Arduino sketch and verify CAN traffic exists first.
+2) Confirm Pi receives expected IDs on `can0`.
+3) Then validate HUD rendering/state transitions.
 
 Repository layout
 -----------------
@@ -145,6 +179,7 @@ If you are adapting this to a different bike/car/ECU stack:
 
 1) **Start with your CAN map first**
    - Update IDs/scaling in `albatross_pi/canbus/ids.py` and decode paths.
+   - Mirror those changes in your controller firmware map (Arduino/other MCU) so both sides agree.
    - Validate with logged sample frames before touching UI styling.
 
 2) **Define your safety contract early**
