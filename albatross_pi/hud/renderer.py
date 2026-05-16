@@ -170,7 +170,7 @@ class HUDRenderer:
         traction_height = max(int(content_height * 0.14), int(height * 0.1))
         airshot_height = max(int(content_height * 0.14), int(height * 0.09))
         wmi_height = max(
-            content_height - temps_height - traction_height - airshot_height - 3 * panel_gap,
+            content_height - temps_height - fuel_height - traction_height - airshot_height - 4 * panel_gap,
             int(height * 0.12),
         )
         temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
