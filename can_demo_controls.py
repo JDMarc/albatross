@@ -71,11 +71,20 @@ class App:
         self._tick()
 
     def _build(self) -> None:
-        f = ttk.Frame(self.root, padding=8)
-        f.grid(sticky="nsew")
+        rootf = ttk.Frame(self.root, padding=8)
+        rootf.grid(sticky="nsew")
         self.root.columnconfigure(0, weight=1)
+        rootf.columnconfigure(0, weight=1)
+        rootf.columnconfigure(1, weight=1)
 
-        sliders = [
+        ecu = ttk.LabelFrame(rootf, text="ECU -> HUD", padding=8)
+        ecu.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        ard = ttk.LabelFrame(rootf, text="Arduino -> HUD", padding=8)
+        ard.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
+        cmds = ttk.LabelFrame(rootf, text="Pi Commands / Misc", padding=8)
+        cmds.grid(row=1, column=0, columnspan=2, sticky="nsew")
+
+        ecu_sliders = [
             ("RPM", "rpm", 0, 14000),
             ("TPS %", "tps", 0, 100),
             ("Boost psi", "boost", 0, 30),
@@ -91,41 +100,42 @@ class App:
             ("EGT Bank1 F", "egt_b1", 500, 2000),
             ("EGT Bank2 F", "egt_b2", 500, 2000),
             ("Speed mph", "speed", 0, 220),
-                        ("Tank Pressure psi", "tank_psi", 0, 200),
+        ]
+        for row, (label, key, lo, hi) in enumerate(ecu_sliders):
+            self._slider(ecu, label, key, lo, hi, row)
+
+        ard_sliders = [
+            ("Tank Pressure psi", "tank_psi", 0, 200),
             ("AWC Lean deg", "lean_deg", -15, 15),
             ("Turbo1 psi", "turbo1", 0, 30),
             ("Turbo2 psi", "turbo2", 0, 30),
             ("Wastegate1 %", "wg1", 0, 100),
             ("Wastegate2 %", "wg2", 0, 100),
         ]
-        for row, (label, key, lo, hi) in enumerate(sliders):
-            self._slider(f, label, key, lo, hi, row)
+        for row, (label, key, lo, hi) in enumerate(ard_sliders):
+            self._slider(ard, label, key, lo, hi, row)
 
-        row = len(sliders)
-        ttk.Label(f, text="Airshot Charges").grid(row=row, column=0, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["airshot_charges"], values=[0, 1, 2, 3, 4, 5], width=8, state="readonly").grid(row=row, column=1, sticky="w")
-
-        row += 1
-        ttk.Label(f, text="Gear").grid(row=row, column=0, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["gear"], values=["N", "1", "2", "3", "4", "5", "6"], width=8).grid(row=row, column=1, sticky="w")
-        ttk.Label(f, text="Mode").grid(row=row, column=2, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["mode"], values=["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"], width=12).grid(row=row, column=3, sticky="w")
+        row = len(ard_sliders)
+        ttk.Label(ard, text="Airshot Charges").grid(row=row, column=0, sticky="w")
+        ttk.Combobox(ard, textvariable=self.vars["airshot_charges"], values=[0, 1, 2, 3, 4, 5], width=8, state="readonly").grid(row=row, column=1, sticky="w")
+        ttk.Checkbutton(ard, text="Airshot Firing", variable=self.vars["airshot_firing"]).grid(row=row, column=2, sticky="w")
 
         row += 1
-        ttk.Label(f, text="Traction").grid(row=row, column=0, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["traction"], values=["LOW", "MED", "HIGH", "OFF"], width=8).grid(row=row, column=1, sticky="w")
-        ttk.Checkbutton(f, text="Airshot Firing", variable=self.vars["airshot_firing"]).grid(row=row, column=2, sticky="w")
-        ttk.Checkbutton(f, text="AWC Enabled", variable=self.vars["awc_enabled"]).grid(row=row, column=3, sticky="w")
+        ttk.Checkbutton(ard, text="AWC Enabled", variable=self.vars["awc_enabled"]).grid(row=row, column=0, sticky="w")
 
-        row += 1
-        ttk.Checkbutton(f, text="NFC Auth OK", variable=self.vars["nfc_ok"]).grid(row=row, column=0, sticky="w")
-        ttk.Label(f, text="Message").grid(row=row, column=1, sticky="e")
-        ttk.Entry(f, textvariable=self.vars["msg"], width=42).grid(row=row, column=2, columnspan=2, sticky="ew")
+        ttk.Label(cmds, text="Gear").grid(row=0, column=0, sticky="w")
+        ttk.Combobox(cmds, textvariable=self.vars["gear"], values=["N", "1", "2", "3", "4", "5", "6"], width=8).grid(row=0, column=1, sticky="w")
+        ttk.Label(cmds, text="Mode").grid(row=0, column=2, sticky="w")
+        ttk.Combobox(cmds, textvariable=self.vars["mode"], values=["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"], width=12).grid(row=0, column=3, sticky="w")
+        ttk.Label(cmds, text="Traction").grid(row=0, column=4, sticky="w")
+        ttk.Combobox(cmds, textvariable=self.vars["traction"], values=["LOW", "MED", "HIGH", "OFF"], width=8).grid(row=0, column=5, sticky="w")
 
-        row += 1
-        ttk.Button(f, text="Send Once", command=self.send_all).grid(row=row, column=0, sticky="w")
-        ttk.Button(f, text="Quit", command=self.close).grid(row=row, column=1, sticky="w")
+        ttk.Checkbutton(cmds, text="NFC Auth OK", variable=self.vars["nfc_ok"]).grid(row=1, column=0, sticky="w")
+        ttk.Label(cmds, text="Message").grid(row=1, column=1, sticky="e")
+        ttk.Entry(cmds, textvariable=self.vars["msg"], width=60).grid(row=1, column=2, columnspan=4, sticky="ew")
 
+        ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(cmds, text="Quit", command=self.close).grid(row=2, column=1, sticky="w", pady=(6, 0))
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
         s = ttk.Scale(parent, from_=lo, to=hi, variable=self.vars[key], orient="horizontal")
