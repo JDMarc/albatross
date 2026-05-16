@@ -169,6 +169,9 @@ Advice for others porting this to their own build
 
 If you are adapting this to a different bike/car/ECU stack:
 
+FIRSTLY, know that i may branch this eventually with a release that has everything you need to edit in the headers of the code,
+but i cant be bothered to do this right now (as of 5/16/26)
+
 1) Start with your CAN map first
    - Update IDs/scaling in albatross_pi/canbus/ids.py and decode paths.
    - Mirror those changes in your controller firmware map (Arduino/other MCU) so both sides agree.
