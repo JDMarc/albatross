@@ -38,6 +38,7 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--can-interface", help="SocketCAN interface name (e.g., can0)")
+    parser.add_argument("--simulator", action="store_true", help="Use built-in simulator when CAN is not provided")
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
@@ -97,7 +98,7 @@ def main() -> None:
             aggregator.mark_sent_frame(frame_id, payload)
 
         renderer.configure_traction_callback(_send_traction_level)
-    else:
+    elif args.simulator:
         simulator = StateSimulator()
         if not args.snapshot:
             stream = simulator.stream()
@@ -122,7 +123,6 @@ def main() -> None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             pygame.image.save(surface, str(output_path))
         else:
-            assert stream is not None
             renderer.run(stream)
     except Exception:
         logging.exception("HUD runtime error")

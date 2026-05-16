@@ -22,7 +22,13 @@ class App:
         self.dry_run = dry_run
         self.iface = None if dry_run else SocketCANInterface(channel=channel)
         if self.iface:
-            self.iface.start()
+            try:
+                self.iface.start()
+            except RuntimeError as exc:
+                print(f"[can-demo] {exc}")
+                print("[can-demo] Falling back to --dry-run (printing frames).")
+                self.iface = None
+                self.dry_run = True
 
         self.vars = {
             "rpm": tk.IntVar(value=2000),
