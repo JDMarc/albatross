@@ -35,10 +35,10 @@ At a practical level, this repository exists to do four things reliably:
    - Works in simulator/demo mode for desktop iteration.
    - Works in live CAN mode on Pi hardware with SocketCAN.
 
-System roles (quick memory aid for me)
+System roles
 --------------------------------------
 
-This is the short version I want to remember when I revisit after a break:
+This is the short version of how everything works:
 
 - **Raspberry Pi (this repo)**
   - Runs HUD, handles top-level state presentation, and sends high-level requests.
