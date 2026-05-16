@@ -24,8 +24,11 @@ class AlertPanel(Widget):
             self._latched_faults = list(state.faults)
             self._latch_until = now + 3.5
 
-        lines = list(state.faults) if state.faults else (self._latched_faults if now < self._latch_until else [])
+        active_faults = list(state.faults)
+        latched_faults = self._latched_faults if now < self._latch_until else []
+        lines = active_faults if active_faults else latched_faults
         highlight = bool(lines)
+        is_active_fault_display = bool(active_faults)
         if not lines:
             fallback = state.environment.message_line or "NO ACTIVE ALERT"
             lines = [fallback]
@@ -47,11 +50,16 @@ class AlertPanel(Widget):
             line_height = available_height // max(1, len(lines))
         else:
             line_height = available_height
+        # Flash only while faults are actively present; latched post-clear faults remain steady.
+        flash_on = (int(now * 4) % 2) == 0
         color = FAULT_AMBER if highlight else AMBER_GLOW
 
         for index, line in enumerate(lines):
             size = fit_font_size(line, self.rect.width - 10, line_height - 2, start_size=max(12, int(line_height * 0.65)), bold=highlight)
-            text_surface = font(size, bold=highlight).render(line, True, color)
+            if is_active_fault_display and not flash_on:
+                text_surface = font(size, bold=highlight).render(line, True, AMBER_BG)
+            else:
+                text_surface = font(size, bold=highlight).render(line, True, color)
             x = self.rect.centerx - text_surface.get_width() // 2
             y = self.rect.y + header_height + 5 + index * line_height + max(
                 0, (line_height - text_surface.get_height()) // 2
