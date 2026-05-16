@@ -188,13 +188,17 @@ but i cant be bothered to do this right now (as of 5/16/26)
 4) Design UI around glanceability, not density
    - Prioritize warning hierarchy and readability over showing every metric at once.
 
-5) Treat this as supervisory, not absolute authority
+5) Treat this as supervisory, not absolute authority*
    - Hard real-time controls should remain in dedicated controller/ECU layers.
    - Let the Pi coordinate, visualize, and request safe limits.
 
 6) Log aggressively during integration
    - Bring-up is mostly about proving assumptions wrong safely.
    - Keep a reproducible test loop: capture frames -> replay -> verify state -> verify actions.
+*NOTE: This is something you SHOULD do but you dont HAVE to, i have a lot of error handling on my MS3, 
+but a lot is also done by the rest of the system (mainly the pi) to ensure major faults do not occur,
+now i trust them to be fast enough and responsive enough to do this, but if you do the same,
+I AM NOT RESPONSIBLE IF SOMETHING BLOWS UP!!!!!!
 
 MS3Pro-specific setup details are in docs/ms3_tunerstudio_setup.md.
 Full project vision/spec notes are in docs/albatross_pi_spec.md.
