@@ -425,6 +425,7 @@ class HUDRenderer:
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
+        self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
         if self._active_menu == "settings":
             self._render_modal_dimmer()
@@ -574,54 +575,57 @@ class HUDRenderer:
             self._media_callback("next", 1)
 
     def _render_settings_overlay(self) -> None:
+        bg, bright, glow, _fault = self._theme_colors()
         sw, sh = self.screen.get_size()
         panel = pygame.Rect(0, 0, min(760, sw - 80), min(520, sh - 80))
         panel.center = (sw // 2, sh // 2)
         overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
         overlay.fill((12, 8, 0, 230))
         self.screen.blit(overlay, panel.topleft)
-        pygame.draw.rect(self.screen, AMBER_GLOW, panel, width=2, border_radius=8)
-        title = font(20, bold=True).render("SETTINGS", True, AMBER_BRIGHT)
+        pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
+        title = font(20, bold=True).render("SETTINGS", True, bright)
         self.screen.blit(title, (panel.x + 16, panel.y + 10))
         for idx, item in enumerate(self._setting_items):
             active = idx == self._settings_cursor
-            color = AMBER_BRIGHT if active else AMBER_GLOW
+            color = bright if active else glow
             value = self._settings_value(item)
             text = font(17, bold=active).render(f"{item:<12} {value}", True, color)
             row_y = panel.y + 52 + idx * 34
             self.screen.blit(text, (panel.x + 16, row_y))
             if active:
-                pygame.draw.line(self.screen, AMBER_BRIGHT, (panel.x + 14, row_y + 24), (panel.right - 14, row_y + 24), 1)
+                pygame.draw.line(self.screen, bright, (panel.x + 14, row_y + 24), (panel.right - 14, row_y + 24), 1)
         y = panel.bottom - 26
-        dev_title = font(12, bold=True).render("BT DEVICES", True, AMBER_GLOW)
+        dev_title = font(12, bold=True).render("BT DEVICES", True, glow)
         self.screen.blit(dev_title, (panel.x + 16, y))
         if self._available_devices:
             devs = ", ".join(self._available_devices[:3])
-            self.screen.blit(font(12).render(devs[:44], True, AMBER_BRIGHT), (panel.x + 100, y))
+            self.screen.blit(font(12).render(devs[:44], True, bright), (panel.x + 100, y))
 
     def _render_media_overlay(self) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
         panel = pygame.Rect(self.screen.get_width() - 520, 90, 460, 210)
         overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
         overlay.fill((12, 8, 0, 230))
         self.screen.blit(overlay, panel.topleft)
-        pygame.draw.rect(self.screen, AMBER_GLOW, panel, width=2, border_radius=8)
-        title = font(20, bold=True).render("MEDIA", True, AMBER_BRIGHT)
+        pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
+        title = font(20, bold=True).render("MEDIA", True, bright)
         self.screen.blit(title, (panel.x + 16, panel.y + 10))
         title_line = f"{self._phone_artist} - {self._phone_track}".strip(" -") or "NO TRACK"
-        self.screen.blit(font(14).render(title_line[:48], True, AMBER_GLOW), (panel.x + 16, panel.y + 40))
+        self.screen.blit(font(14).render(title_line[:48], True, glow), (panel.x + 16, panel.y + 40))
         bar = pygame.Rect(panel.x + 16, panel.y + 66, panel.width - 32, 16)
         pygame.draw.rect(self.screen, (45, 30, 0), bar, border_radius=4)
         ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
-        pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=4)
+        pygame.draw.rect(self.screen, bright, fill, border_radius=4)
         y = panel.y + 122
         self._draw_media_icons(panel.x + 142, y, active_index=self._media_index)
 
     def _draw_media_icons(self, x: int, y: int, *, active_index: int) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
         for idx in range(3):
-            c = AMBER_BRIGHT if idx == active_index else AMBER_GLOW
+            c = bright if idx == active_index else glow
             cx = x + idx * 110
-            pygame.draw.rect(self.screen, AMBER_BRIGHT if idx == active_index else (70, 45, 0), pygame.Rect(cx, y - 4, 64, 40), width=2, border_radius=5)
+            pygame.draw.rect(self.screen, bright if idx == active_index else (70, 45, 0), pygame.Rect(cx, y - 4, 64, 40), width=2, border_radius=5)
             if idx == 0:  # PREV (double left triangles)
                 pygame.draw.polygon(self.screen, c, [(cx + 30, y), (cx + 6, y + 16), (cx + 30, y + 32)])
                 pygame.draw.polygon(self.screen, c, [(cx + 52, y), (cx + 28, y + 16), (cx + 52, y + 32)])
@@ -646,8 +650,9 @@ class HUDRenderer:
         return "ON" if self._auto_dim_enabled else "OFF"
 
     def _render_global_hints(self) -> None:
+        _bg, _bright, glow, _fault = self._theme_colors()
         hint = "ARROWS: NAV  |  ENTER: SELECT  |  ESC: BACK"
-        s = font(12).render(hint, True, AMBER_GLOW)
+        s = font(12).render(hint, True, glow)
         self.screen.blit(s, (self.screen.get_width() - s.get_width() - 24, self.screen.get_height() - 20))
 
     def _apply_brightness_overlay(self, state: StateSnapshot) -> None:
@@ -663,9 +668,10 @@ class HUDRenderer:
             self.screen.blit(shade, (0, 0))
 
     def _render_top_right_media_tile(self) -> None:
+        bg, bright, glow, fault = self._theme_colors()
         width = self.screen.get_width()
         center_x = width // 2
-        settings_rect = pygame.Rect(center_x + 260, 8, 128, 74)
+        settings_rect = pygame.Rect(center_x + 330, 8, 128, 74)
         tile = pygame.Rect(settings_rect.right + 8, 8, 280, 74)
         # Clamp so the right edge stays clear of ambient/GPS area.
         right_limit = width - 220
@@ -673,32 +679,32 @@ class HUDRenderer:
             shift = tile.right - right_limit
             tile.x -= shift
             settings_rect.x -= shift
-        pygame.draw.rect(self.screen, AMBER_BG, tile, border_radius=6)
+        pygame.draw.rect(self.screen, bg, tile, border_radius=6)
         focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "MEDIA"
-        pygame.draw.rect(self.screen, AMBER_BRIGHT if focused else AMBER_GLOW, tile, width=2 if focused else 1, border_radius=6)
+        pygame.draw.rect(self.screen, bright if focused else glow, tile, width=2 if focused else 1, border_radius=6)
         label = "BT LINK" if self._phone_link_enabled else "BT OFF"
-        left = font(14, bold=True).render(label, True, AMBER_BRIGHT if self._phone_link_enabled else FAULT_AMBER)
+        left = font(14, bold=True).render(label, True, bright if self._phone_link_enabled else fault)
         title_line = f"{self._phone_artist} - {self._phone_track}".strip(" -") or "NO TRACK"
-        right = font(13).render(title_line[:32], True, AMBER_GLOW)
+        right = font(13).render(title_line[:32], True, glow)
         self.screen.blit(left, (tile.x + 10, tile.y + 8))
         self.screen.blit(right, (tile.x + 10, tile.y + 26))
         bar = pygame.Rect(tile.x + 10, tile.y + 48, 180, 10)
         pygame.draw.rect(self.screen, (45, 30, 0), bar, border_radius=3)
         ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
-        pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=3)
+        pygame.draw.rect(self.screen, bright, fill, border_radius=3)
         if self._active_menu != "media":
             remaining = max(0.0, self._phone_length_s - self._phone_position_s)
             mm = int(remaining // 60)
             ss = int(remaining % 60)
-            rem_text = font(13, bold=True).render(f"-{mm}:{ss:02d}", True, AMBER_GLOW)
+            rem_text = font(13, bold=True).render(f"-{mm}:{ss:02d}", True, glow)
             self.screen.blit(rem_text, (tile.x + 214, tile.y + 44))
 
-        pygame.draw.rect(self.screen, AMBER_BG, settings_rect, border_radius=6)
+        pygame.draw.rect(self.screen, bg, settings_rect, border_radius=6)
         s_focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "SETTINGS"
-        pygame.draw.rect(self.screen, AMBER_BRIGHT if s_focused else AMBER_GLOW, settings_rect, width=2 if s_focused else 1, border_radius=6)
-        s_label = font(15, bold=True).render("SETTINGS", True, AMBER_GLOW)
-        s_hint = font(12).render("SELECT", True, AMBER_GLOW)
+        pygame.draw.rect(self.screen, bright if s_focused else glow, settings_rect, width=2 if s_focused else 1, border_radius=6)
+        s_label = font(15, bold=True).render("SETTINGS", True, glow)
+        s_hint = font(12).render("SELECT", True, glow)
         self.screen.blit(s_label, (settings_rect.x + 12, settings_rect.y + 10))
         self.screen.blit(s_hint, (settings_rect.x + 30, settings_rect.y + 32))
 
@@ -706,3 +712,22 @@ class HUDRenderer:
         dim = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
         dim.fill((0, 0, 0, 150))
         self.screen.blit(dim, (0, 0))
+
+    def _theme_colors(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
+        theme = self._themes[self._theme_index]
+        if theme == "NIGHT":
+            return (14, 18, 28), (130, 190, 255), (88, 135, 190), (255, 90, 90)
+        if theme == "HIGH-CON":
+            return (0, 0, 0), (255, 255, 255), (220, 220, 220), (255, 80, 80)
+        return (24, 14, 0), (255, 198, 64), (185, 134, 39), (255, 72, 36)
+
+    def _apply_theme_overlay_pre_ui(self) -> None:
+        theme = self._themes[self._theme_index]
+        if theme == "NIGHT":
+            tint = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            tint.fill((22, 26, 40, 70))
+            self.screen.blit(tint, (0, 0))
+        elif theme == "HIGH-CON":
+            tint = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            tint.fill((0, 0, 0, 80))
+            self.screen.blit(tint, (0, 0))
