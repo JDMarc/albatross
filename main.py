@@ -108,17 +108,29 @@ def main() -> None:
         def _safety_supervisor() -> None:
             assert aggregator is not None and can_interface is not None
             last_fault_state = False
+            critical_oil_start: float | None = None
             while True:
                 snap = aggregator.current_snapshot()
                 faults: list[str] = []
+                now_ts = time.time()
 
                 # Comms/freshness (simple): if key telemetry never appears or drops to all-zero under throttle.
                 if snap.engine.throttle_pct > 15 and snap.engine.rpm < 300:
                     faults.append("ECU STALE")
                 if snap.engine.rpm > 0 and snap.engine.speed_mph == 0 and snap.engine.gear not in ("N", "?"):
                     faults.append("SPEED SENSOR")
+                # RPM/speed mismatch can indicate clutch slip under load, not only sensor error.
+                if (
+                    snap.engine.rpm > 7000
+                    and snap.engine.throttle_pct > 55
+                    and snap.engine.speed_mph < 20
+                    and snap.engine.gear not in ("N", "?")
+                ):
+                    faults.append("CLUTCH SLIP")
                 if snap.temps.oil_pressure_psi < 12 and snap.engine.rpm > 2000:
                     faults.append("LOW OIL PRESS")
+                if snap.temps.oil_pressure_psi < 8 and snap.engine.rpm > 2200:
+                    faults.append("CRITICAL OIL PRESS")
                 if snap.temps.coolant_temp_f > 240:
                     faults.append("COOLANT HOT")
                 if snap.temps.exhaust_temp_f > 1650:
@@ -128,7 +140,27 @@ def main() -> None:
                 if snap.environment.fuel_level_pct <= 5:
                     faults.append("LOW FUEL")
 
-                severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HOT"))
+                severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HOT", "CLUTCH SLIP"))
+
+                # Critical oil-pressure handling with anti-false-positive protections:
+                # - ignore cranking/idle zones
+                # - require persistence
+                # - only request shutdown when neutral + near-stationary
+                critical_oil = "CRITICAL OIL PRESS" in faults
+                running_not_cranking = snap.engine.rpm > 1200
+                if critical_oil and running_not_cranking:
+                    if critical_oil_start is None:
+                        critical_oil_start = now_ts
+                else:
+                    critical_oil_start = None
+
+                should_shutdown_engine = (
+                    critical_oil_start is not None
+                    and (now_ts - critical_oil_start) > 2.5
+                    and snap.engine.gear == "N"
+                    and snap.engine.speed_mph < 3.0
+                    and snap.engine.throttle_pct < 8.0
+                )
                 if severe and not last_fault_state:
                     # Fail-safe action set: cut boost command, enable limp, disable flame, max traction.
                     for frame in (
@@ -146,6 +178,21 @@ def main() -> None:
                     can_interface.send(*frame)
                     aggregator.mark_sent_frame(*frame)
                     logging.info("Safety supervisor recovered.")
+
+                if should_shutdown_engine:
+                    # We don't have a dedicated engine-kill CAN id yet; use strongest available controls.
+                    # 1) Ensure zero boost, limp on, flame off.
+                    # 2) Force throttle/torque closure intent via max traction intervention.
+                    for frame in (
+                        build_boost_target_frame(0.0),
+                        build_limp_mode_frame(True),
+                        build_flame_mode_frame(False),
+                        build_traction_level_frame(3),
+                    ):
+                        can_interface.send(*frame)
+                        aggregator.mark_sent_frame(*frame)
+                    faults.append("ENGINE SHUTDOWN REQUEST")
+                    logging.critical("Critical oil pressure persisted; shutdown request issued in neutral at low speed.")
 
                 if faults:
                     renderer.update_state(replace(snap, faults=tuple(sorted(set(faults)))))
