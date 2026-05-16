@@ -251,12 +251,20 @@ def main() -> None:
                     boost_psi=float(obj.get("boost", snap.engine.boost_psi)),
                     throttle_pct=float(obj.get("tps", snap.engine.throttle_pct)),
                     gear=str(obj.get("gear", snap.engine.gear)),
+                    afr_left=float(obj.get("afr_l", snap.engine.afr_left)),
+                    afr_right=float(obj.get("afr_r", snap.engine.afr_right)),
+                    knock_events=int(bin(int(obj.get("knock_mask", 0))).count("1")) if "knock_mask" in obj else snap.engine.knock_events,
+                    engine_load_pct=float(obj.get("load", snap.engine.engine_load_pct)),
+                    target_boost_psi=(float(obj.get("turbo1", snap.engine.target_boost_psi)) + float(obj.get("turbo2", snap.engine.target_boost_psi))) / 2.0,
+                    wastegate_duty_pct=(float(obj.get("wg1", snap.engine.wastegate_duty_pct)) + float(obj.get("wg2", snap.engine.wastegate_duty_pct))) / 2.0,
                 )
                 temps = replace(
                     snap.temps,
                     coolant_temp_f=float(obj.get("clt_f", snap.temps.coolant_temp_f)),
                     oil_temp_f=float(obj.get("oilt_f", snap.temps.oil_temp_f)),
                     oil_pressure_psi=float(obj.get("oilp", snap.temps.oil_pressure_psi)),
+                    intake_temp_f=float(obj.get("iat", snap.temps.intake_temp_f)),
+                    exhaust_temp_f=(float(obj.get("egt_b1", snap.temps.exhaust_temp_f)) + float(obj.get("egt_b2", snap.temps.exhaust_temp_f))) / 2.0,
                 )
                 env = replace(
                     snap.environment,
@@ -264,8 +272,18 @@ def main() -> None:
                     fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
                     message_line=str(obj.get("msg", snap.environment.message_line)),
                 )
-                trac = replace(snap.traction, intervention_level=str(obj.get("traction", snap.traction.intervention_level)))
-                renderer.update_state(replace(snap, engine=eng, temps=temps, environment=env, traction=trac))
+                air = replace(
+                    snap.air_shot,
+                    pressure_psi=float(obj.get("tank_psi", snap.air_shot.pressure_psi)),
+                    charges_remaining=int(obj.get("airshot_charges", snap.air_shot.charges_remaining)),
+                    is_firing=bool(obj.get("airshot_firing", snap.air_shot.is_firing)),
+                )
+                trac = replace(
+                    snap.traction,
+                    intervention_level=str(obj.get("traction", snap.traction.intervention_level)),
+                    wheelie_pitch_deg=float(obj.get("lean_deg", snap.traction.wheelie_pitch_deg)),
+                )
+                renderer.update_state(replace(snap, engine=eng, temps=temps, environment=env, traction=trac, air_shot=air))
 
         threading.Thread(target=loop, name="demo-udp", daemon=True).start()
 
