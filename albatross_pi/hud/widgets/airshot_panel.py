@@ -3,25 +3,9 @@ from __future__ import annotations
 
 import pygame
 
-from .base import Color, Widget
+from .base import Widget
+from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
-
-BG_COLOR: Color = (15, 10, 10)
-TEXT_COLOR: Color = (255, 180, 140)
-FIRE_COLOR: Color = (255, 90, 0)
-BAR_BG: Color = (50, 30, 30)
-BAR_COLOR: Color = (255, 150, 80)
-
-_FONT_CACHE: dict[int, pygame.font.Font] = {}
-
-
-def _font(size: int, *, bold: bool = False) -> pygame.font.Font:
-    key = (size, bold)
-    font = _FONT_CACHE.get(key)
-    if font is None:
-        font = pygame.font.SysFont("Courier", size, bold=bold)
-        _FONT_CACHE[key] = font
-    return font
 
 
 class AirShotPanel(Widget):
@@ -30,42 +14,29 @@ class AirShotPanel(Widget):
         self.max_pressure = max_pressure
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, BG_COLOR, self.rect)
+        bg = FAULT_AMBER if state.air_shot.is_firing else AMBER_BG
+        pygame.draw.rect(surface, bg, self.rect)
         padding = max(8, int(self.rect.height * 0.18))
-        bar_height = max(8, int(self.rect.height * 0.2))
-        bar_rect = pygame.Rect(
-            self.rect.x + padding,
-            self.rect.bottom - padding - bar_height,
-            self.rect.width - 2 * padding,
-            bar_height,
-        )
-        pygame.draw.rect(surface, BAR_BG, bar_rect)
         pressure = state.air_shot.pressure_psi
-        pct = min(1.0, pressure / max(1e-6, self.max_pressure))
-        fill = bar_rect.copy()
-        fill.width = int(bar_rect.width * pct)
-        pygame.draw.rect(surface, BAR_COLOR, fill)
-
-        charges_font = max(14, int(self.rect.height * 0.28))
-        charges_text = f"Charges {state.air_shot.charges_remaining}"
+        charges = max(0, min(5, state.air_shot.charges_remaining))
+        top = self.rect.y + padding
+        label = font(fit_font_size("AIR SHOT", self.rect.width - 2 * padding, int(self.rect.height * 0.22), start_size=22, bold=True), bold=True).render("AIR SHOT", True, AMBER_GLOW)
+        surface.blit(label, (self.rect.centerx - label.get_width() // 2, top))
+        top += label.get_height() + 4
+        slot_w = max(12, (self.rect.width - 2 * padding - 4 * 6) // 5)
+        for i in range(5):
+            r = pygame.Rect(self.rect.x + padding + i * (slot_w + 6), top, slot_w, max(12, int(self.rect.height * 0.18)))
+            pygame.draw.rect(surface, AMBER_DARK, r, 2)
+            if i < charges:
+                pygame.draw.rect(surface, AMBER_BRIGHT, r.inflate(-4, -4))
+        top += max(12, int(self.rect.height * 0.18)) + 4
+        if charges == 0:
+            empty = font(fit_font_size("EMPTY", self.rect.width - 2 * padding, int(self.rect.height * 0.26), start_size=30, bold=True), bold=True).render("EMPTY", True, FAULT_AMBER)
+            surface.blit(empty, (self.rect.centerx - empty.get_width() // 2, top))
+        else:
+            psi_text = f"{pressure:4.0f} PSI"
+            psi = font(fit_font_size(psi_text, self.rect.width - 2 * padding, int(self.rect.height * 0.24), start_size=24, bold=True), bold=True).render(psi_text, True, AMBER_GLOW)
+            surface.blit(psi, (self.rect.centerx - psi.get_width() // 2, top))
         if state.air_shot.is_firing:
-            charges_text += " FIRE"
-        color = FIRE_COLOR if state.air_shot.is_firing else TEXT_COLOR
-        charges_surface = _font(charges_font, bold=state.air_shot.is_firing).render(charges_text, True, color)
-        surface.blit(
-            charges_surface,
-            (
-                self.rect.x + padding,
-                self.rect.y + padding // 2,
-            ),
-        )
-
-        pressure_font = max(14, int(self.rect.height * 0.28))
-        pressure_surface = _font(pressure_font).render(f"{pressure:4.0f} psi", True, TEXT_COLOR)
-        surface.blit(
-            pressure_surface,
-            (
-                self.rect.x + padding,
-                bar_rect.y - pressure_surface.get_height() - 4,
-            ),
-        )
+            firing = font(fit_font_size("FIRING", self.rect.width - 2 * padding, int(self.rect.height * 0.2), start_size=24, bold=True), bold=True).render("FIRING", True, (255, 220, 220))
+            surface.blit(firing, (self.rect.centerx - firing.get_width() // 2, self.rect.bottom - firing.get_height() - 4))

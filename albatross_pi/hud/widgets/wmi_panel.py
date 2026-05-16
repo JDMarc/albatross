@@ -3,25 +3,12 @@ from __future__ import annotations
 
 import pygame
 
-from .base import Color, Widget
+from .base import Widget
+from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
 
-BG_COLOR: Color = (10, 12, 18)
-TEXT_COLOR: Color = (180, 220, 255)
-FAULT_COLOR: Color = (255, 80, 80)
-BAR_BG: Color = (30, 40, 60)
-BAR_COLOR: Color = (120, 180, 255)
-
-_FONT_CACHE: dict[int, pygame.font.Font] = {}
-
-
-def _font(size: int, *, bold: bool = False) -> pygame.font.Font:
-    key = (size, bold)
-    font = _FONT_CACHE.get(key)
-    if font is None:
-        font = pygame.font.SysFont("Courier", size, bold=bold)
-        _FONT_CACHE[key] = font
-    return font
+BAR_BG = AMBER_DARK
+BAR_COLOR = AMBER_BRIGHT
 
 
 class WMIPanel(Widget):
@@ -29,7 +16,7 @@ class WMIPanel(Widget):
         self.rect = rect
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, BG_COLOR, self.rect)
+        pygame.draw.rect(surface, AMBER_BG, self.rect)
         padding = max(8, int(self.rect.height * 0.18))
         bar_height = max(8, int(self.rect.height * 0.2))
         bar_rect = pygame.Rect(
@@ -43,8 +30,9 @@ class WMIPanel(Widget):
         fill.width = int(bar_rect.width * min(1.0, state.wmi.tank_level_pct / 100.0))
         pygame.draw.rect(surface, BAR_COLOR, fill)
 
-        level_font = max(14, int(self.rect.height * 0.28))
-        level_surface = _font(level_font).render(f"Tank {state.wmi.tank_level_pct:4.0f}%", True, TEXT_COLOR)
+        level_text = f"Tank {state.wmi.tank_level_pct:4.0f}%"
+        level_font = fit_font_size(level_text, self.rect.width - (2 * padding), max(12, int(self.rect.height * 0.3)), start_size=max(14, int(self.rect.height * 0.28)))
+        level_surface = font(level_font).render(level_text, True, AMBER_GLOW)
         surface.blit(
             level_surface,
             (
@@ -53,9 +41,9 @@ class WMIPanel(Widget):
             ),
         )
 
-        flow_font = max(14, int(self.rect.height * 0.26))
         flow_text = f"Flow {state.wmi.actual_flow_cc_min:4.0f}/{state.wmi.commanded_flow_cc_min:4.0f}"
-        flow_surface = _font(flow_font).render(flow_text, True, TEXT_COLOR)
+        flow_font = fit_font_size(flow_text, self.rect.width - (2 * padding), max(12, int(self.rect.height * 0.3)), start_size=max(14, int(self.rect.height * 0.26)))
+        flow_surface = font(flow_font).render(flow_text, True, AMBER_BRIGHT)
         surface.blit(
             flow_surface,
             (
@@ -65,8 +53,8 @@ class WMIPanel(Widget):
         )
 
         if state.wmi.fault_active:
-            fault_font = max(14, int(self.rect.height * 0.28))
-            fault_surface = _font(fault_font, bold=True).render("FAULT", True, FAULT_COLOR)
+            fault_font = fit_font_size("FAULT", self.rect.width // 3, max(12, int(self.rect.height * 0.3)), start_size=max(14, int(self.rect.height * 0.28)), bold=True)
+            fault_surface = font(fault_font, bold=True).render("FAULT", True, FAULT_AMBER)
             surface.blit(
                 fault_surface,
                 (
