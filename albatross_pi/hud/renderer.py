@@ -60,11 +60,10 @@ class HUDRenderer:
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
         self._traction_callback = None
-        self._fault_latch_until: dict[str, float] = {}
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
-        active: set[str] = set(state.faults)
+        active: set[str] = set()
         if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
             active.add("LOW OIL PRESS")
         if state.temps.coolant_temp_f > 235:
@@ -81,16 +80,9 @@ class HUDRenderer:
             active.add("WMI FLOW LOW")
         if state.engine.gear == "?":
             active.add("GEAR SENSOR")
-        if state.environment.message_line.upper().find("FAULT") >= 0:
-            active.add("SYSTEM FAULT")
 
-        # Latch all active faults for a while so they are visible in alert panel.
-        for fault in active:
-            self._fault_latch_until[fault] = now_s + 8.0
-        latched = {f for f, until in self._fault_latch_until.items() if until > now_s}
-        # prune expired latches
-        self._fault_latch_until = {f: u for f, u in self._fault_latch_until.items() if u > now_s}
-        return tuple(sorted(latched))
+        # Return only currently active faults; AlertPanel handles post-clear hold timing.
+        return tuple(sorted(active))
 
     def configure_traction_callback(self, callback) -> None:
         self._traction_callback = callback
@@ -215,6 +207,12 @@ class HUDRenderer:
             if r.bottom > bottom_limit:
                 r.height = max(36, r.height - (r.bottom - bottom_limit))
 
+        prior_fault_latch_until: dict[str, float] = {}
+        for widget in self.widgets:
+            if isinstance(widget, AlertPanel):
+                prior_fault_latch_until = dict(widget._fault_latch_until)
+                break
+
         self.widgets = [
             HeaderBar(top_bar_rect),
             MessageLine(message_rect),
@@ -228,6 +226,10 @@ class HUDRenderer:
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
         ]
+        for widget in self.widgets:
+            if isinstance(widget, AlertPanel):
+                widget._fault_latch_until = prior_fault_latch_until
+                break
 
     def configure_input_bindings(self, ack_key: int) -> None:
         self._ack_key = ack_key
@@ -235,16 +237,37 @@ class HUDRenderer:
     def _run_post(self, state: StateSnapshot) -> None:
         if self._post_started_at <= 0.0:
             self._post_started_at = time.monotonic()
+        has_ecu_signal = any(
+            (
+                state.engine.rpm > 0,
+                state.engine.throttle_pct > 0,
+                state.temps.coolant_temp_f > 0,
+                state.temps.oil_temp_f > 0,
+                state.temps.oil_pressure_psi > 0,
+            )
+        )
+        has_arduino_signal = any(
+            (
+                state.air_shot.pressure_psi > 0,
+                state.air_shot.charges_remaining > 0,
+                state.wmi.commanded_flow_cc_min > 0,
+                state.wmi.actual_flow_cc_min > 0,
+                state.traction.slip_pct > 0,
+                abs(state.traction.wheelie_pitch_deg) > 0.01,
+            )
+        )
+        has_can_signal = has_ecu_signal or has_arduino_signal or state.engine.speed_mph > 0 or state.engine.boost_psi > 0
+
         checks = [
             ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
             ("COOLANT SENSOR", state.temps.coolant_temp_f > 0),
             ("OIL TEMP SENSOR", state.temps.oil_temp_f > 0),
             ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
-            ("FUEL LEVEL SENSOR", state.environment.fuel_level_pct >= 0),
-            ("BATTERY VOLT", state.temps.battery_voltage >= 10.5),
-            ("GEAR INPUT", state.engine.gear in {"N", "1", "2", "3", "4", "5", "6", "?"}),
-            ("TRACTION INPUT", state.traction.intervention_level != ""),
-            ("CAN LINK", bool(state.environment.message_line) or state.engine.rpm > 0),
+            ("FUEL LEVEL SENSOR", has_can_signal and state.environment.fuel_level_pct < 100.0),
+            ("BATTERY VOLT", has_can_signal and state.temps.battery_voltage != 12.5),
+            ("GEAR INPUT", has_can_signal and state.engine.gear in {"1", "2", "3", "4", "5", "6", "N", "?"} and state.engine.gear != "N"),
+            ("TRACTION INPUT", has_can_signal and state.traction.intervention_level != ""),
+            ("CAN LINK", has_can_signal or bool(state.environment.message_line)),
             ("USB INPUT", pygame.joystick.get_count() > 0),
         ]
         self._post_lines = [(f"TEST {name:<18} {'OK' if ok else 'FAULT'}", ok) for name, ok in checks]
@@ -374,14 +397,15 @@ class HUDRenderer:
             phase = t - idx * 2.0
             if phase <= 0:
                 continue
-            color = AMBER_GLOW if ok else FAULT_AMBER
             prefix = f"TEST {line.split('TEST ', 1)[1].rsplit(' ',1)[0]}"
             result = "OK" if ok else "FAULT"
             if phase < 1.0:
                 visible = min(len(prefix), int(phase / 0.04))
                 out = prefix[:visible]
+                color = AMBER_GLOW
             else:
                 out = f"{prefix} {result}"
+                color = AMBER_GLOW if ok else FAULT_AMBER
             sz = fit_font_size(out, self.screen.get_width() - 48, 20, start_size=16)
             surf = font(sz).render(out, True, color)
             self.screen.blit(surf, (x, y))
