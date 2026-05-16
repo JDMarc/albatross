@@ -207,12 +207,10 @@ class HUDRenderer:
             if r.bottom > bottom_limit:
                 r.height = max(36, r.height - (r.bottom - bottom_limit))
 
-        prior_latched_faults: list[str] = []
-        prior_latch_until = 0.0
+        prior_fault_latch_until: dict[str, float] = {}
         for widget in self.widgets:
             if isinstance(widget, AlertPanel):
-                prior_latched_faults = list(widget._latched_faults)
-                prior_latch_until = widget._latch_until
+                prior_fault_latch_until = dict(widget._fault_latch_until)
                 break
 
         self.widgets = [
@@ -230,8 +228,7 @@ class HUDRenderer:
         ]
         for widget in self.widgets:
             if isinstance(widget, AlertPanel):
-                widget._latched_faults = prior_latched_faults
-                widget._latch_until = prior_latch_until
+                widget._fault_latch_until = prior_fault_latch_until
                 break
 
     def configure_input_bindings(self, ack_key: int) -> None:

@@ -12,21 +12,22 @@ from ...state.snapshot import StateSnapshot
 class AlertPanel(Widget):
     def __init__(self, rect: pygame.Rect) -> None:
         self.rect = rect
-        self._latched_faults: list[str] = []
-        self._latch_until = 0.0
+        self._fault_latch_until: dict[str, float] = {}
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)
         pygame.draw.rect(surface, AMBER_DARK, self.rect, 2)
 
         now = time.monotonic()
-        if state.faults:
-            self._latched_faults = list(state.faults)
-            self._latch_until = now + 3.5
-
         active_faults = list(state.faults)
-        latched_faults = self._latched_faults if now < self._latch_until else []
-        lines = active_faults if active_faults else latched_faults
+        for fault in active_faults:
+            self._fault_latch_until[fault] = now + 3.5
+        self._fault_latch_until = {f: until for f, until in self._fault_latch_until.items() if until > now}
+
+        if active_faults:
+            lines = sorted(set(active_faults) | set(self._fault_latch_until.keys()))
+        else:
+            lines = sorted(self._fault_latch_until.keys())
         highlight = bool(lines)
         is_active_fault_display = bool(active_faults)
         if not lines:
