@@ -99,6 +99,9 @@ journalctl -u albatross-hud.service -f
 
 This will make boot behavior hands-off: power on the Pi, and it should go directly into the HUD program.
 
+Note: `main.py` remains the flexible demo/development entrypoint (including Windows workflows).
+For Pi boot/autostart, use `pi_main.py` so your vehicle runtime remains isolated from demo defaults.
+
 MS3Pro setup guide
 ------------------
 
