@@ -13,7 +13,7 @@ import struct
 import tkinter as tk
 from tkinter import ttk
 
-from albatross_pi.canbus.ids import ECUToHudID, PiToArduinoID
+from albatross_pi.canbus.ids import ArduinoToHudID, ECUToHudID, PiToArduinoID
 from albatross_pi.canbus.iface import SocketCANInterface
 
 
@@ -25,7 +25,6 @@ class App:
         self.iface = None if dry_run else SocketCANInterface(channel=channel)
         self.udp_host, self.udp_port = udp_target.split(":")
         self.udp_port = int(self.udp_port)
-        # Send to common fallback port too, so HUD still updates when 5005 bind is denied on Windows.
         self.udp_ports = sorted({self.udp_port, 5505})
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if self.iface:
@@ -41,14 +40,31 @@ class App:
             "rpm": tk.IntVar(value=2000),
             "tps": tk.IntVar(value=20),
             "boost": tk.DoubleVar(value=4.0),
-            "speed": tk.DoubleVar(value=25.0),
+            "afr_l": tk.DoubleVar(value=12.5),
+            "afr_r": tk.DoubleVar(value=12.6),
+            "knock_mask": tk.IntVar(value=0),
             "oilp": tk.DoubleVar(value=58.0),
             "oilt": tk.DoubleVar(value=205.0),
             "clt": tk.DoubleVar(value=190.0),
             "fuel": tk.IntVar(value=75),
             "gear": tk.StringVar(value="N"),
-            "mode": tk.StringVar(value="NORMAL"),
+            "load": tk.IntVar(value=35),
+            "iat": tk.DoubleVar(value=90.0),
+            "egt_b1": tk.DoubleVar(value=1450.0),
+            "egt_b2": tk.DoubleVar(value=1470.0),
+            "speed": tk.DoubleVar(value=25.0),
+            "airshot_charges": tk.IntVar(value=3),
+            "airshot_firing": tk.BooleanVar(value=False),
+            "tank_psi": tk.DoubleVar(value=120.0),
+            "awc_enabled": tk.BooleanVar(value=True),
+            "lean_deg": tk.DoubleVar(value=1.5),
             "traction": tk.StringVar(value="MED"),
+            "turbo1": tk.DoubleVar(value=6.0),
+            "turbo2": tk.DoubleVar(value=6.0),
+            "wg1": tk.IntVar(value=45),
+            "wg2": tk.IntVar(value=45),
+            "mode": tk.StringVar(value="NORMAL"),
+            "nfc_ok": tk.BooleanVar(value=True),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
         }
         self._build()
@@ -59,34 +75,59 @@ class App:
         f.grid(sticky="nsew")
         self.root.columnconfigure(0, weight=1)
 
-        self._slider(f, "RPM", "rpm", 0, 14000, 0)
-        self._slider(f, "TPS %", "tps", 0, 100, 1)
-        self._slider(f, "Boost psi", "boost", 0, 30, 2)
-        self._slider(f, "Speed mph", "speed", 0, 220, 3)
-        self._slider(f, "Oil P psi", "oilp", 0, 120, 4)
-        self._slider(f, "Oil T F", "oilt", 70, 320, 5)
-        self._slider(f, "Coolant F", "clt", 70, 280, 6)
-        self._slider(f, "Fuel %", "fuel", 0, 100, 7)
+        sliders = [
+            ("RPM", "rpm", 0, 14000),
+            ("TPS %", "tps", 0, 100),
+            ("Boost psi", "boost", 0, 30),
+            ("AFR Left", "afr_l", 8.0, 20.0),
+            ("AFR Right", "afr_r", 8.0, 20.0),
+            ("Knock Bitmask", "knock_mask", 0, 255),
+            ("Oil P psi", "oilp", 0, 120),
+            ("Oil T F", "oilt", 70, 320),
+            ("Coolant F", "clt", 70, 280),
+            ("Fuel %", "fuel", 0, 100),
+            ("Engine Load %", "load", 0, 100),
+            ("Intake F", "iat", 40, 250),
+            ("EGT Bank1 F", "egt_b1", 500, 2000),
+            ("EGT Bank2 F", "egt_b2", 500, 2000),
+            ("Speed mph", "speed", 0, 220),
+            ("Airshot Charges", "airshot_charges", 0, 5),
+            ("Tank Pressure psi", "tank_psi", 0, 200),
+            ("AWC Lean deg", "lean_deg", -15, 15),
+            ("Turbo1 psi", "turbo1", 0, 30),
+            ("Turbo2 psi", "turbo2", 0, 30),
+            ("Wastegate1 %", "wg1", 0, 100),
+            ("Wastegate2 %", "wg2", 0, 100),
+        ]
+        for row, (label, key, lo, hi) in enumerate(sliders):
+            self._slider(f, label, key, lo, hi, row)
 
-        ttk.Label(f, text="Gear").grid(row=8, column=0, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["gear"], values=["N", "1", "2", "3", "4", "5", "6"], width=8).grid(row=8, column=1, sticky="w")
-        ttk.Label(f, text="Mode").grid(row=8, column=2, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["mode"], values=["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"], width=12).grid(row=8, column=3, sticky="w")
+        row = len(sliders)
+        ttk.Label(f, text="Gear").grid(row=row, column=0, sticky="w")
+        ttk.Combobox(f, textvariable=self.vars["gear"], values=["N", "1", "2", "3", "4", "5", "6"], width=8).grid(row=row, column=1, sticky="w")
+        ttk.Label(f, text="Mode").grid(row=row, column=2, sticky="w")
+        ttk.Combobox(f, textvariable=self.vars["mode"], values=["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"], width=12).grid(row=row, column=3, sticky="w")
 
-        ttk.Label(f, text="Traction").grid(row=9, column=0, sticky="w")
-        ttk.Combobox(f, textvariable=self.vars["traction"], values=["LOW", "MED", "HIGH", "OFF"], width=8).grid(row=9, column=1, sticky="w")
+        row += 1
+        ttk.Label(f, text="Traction").grid(row=row, column=0, sticky="w")
+        ttk.Combobox(f, textvariable=self.vars["traction"], values=["LOW", "MED", "HIGH", "OFF"], width=8).grid(row=row, column=1, sticky="w")
+        ttk.Checkbutton(f, text="Airshot Firing", variable=self.vars["airshot_firing"]).grid(row=row, column=2, sticky="w")
+        ttk.Checkbutton(f, text="AWC Enabled", variable=self.vars["awc_enabled"]).grid(row=row, column=3, sticky="w")
 
-        ttk.Label(f, text="Message").grid(row=10, column=0, sticky="w")
-        ttk.Entry(f, textvariable=self.vars["msg"], width=50).grid(row=10, column=1, columnspan=3, sticky="ew")
+        row += 1
+        ttk.Checkbutton(f, text="NFC Auth OK", variable=self.vars["nfc_ok"]).grid(row=row, column=0, sticky="w")
+        ttk.Label(f, text="Message").grid(row=row, column=1, sticky="e")
+        ttk.Entry(f, textvariable=self.vars["msg"], width=42).grid(row=row, column=2, columnspan=2, sticky="ew")
 
-        ttk.Button(f, text="Send Once", command=self.send_all).grid(row=11, column=0, sticky="w")
-        ttk.Button(f, text="Quit", command=self.close).grid(row=11, column=1, sticky="w")
+        row += 1
+        ttk.Button(f, text="Send Once", command=self.send_all).grid(row=row, column=0, sticky="w")
+        ttk.Button(f, text="Quit", command=self.close).grid(row=row, column=1, sticky="w")
 
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
         s = ttk.Scale(parent, from_=lo, to=hi, variable=self.vars[key], orient="horizontal")
         s.grid(row=row, column=1, columnspan=2, sticky="ew")
-        ttk.Label(parent, textvariable=self.vars[key], width=8).grid(row=row, column=3, sticky="e")
+        ttk.Label(parent, textvariable=self.vars[key], width=10).grid(row=row, column=3, sticky="e")
         parent.columnconfigure(1, weight=1)
 
     def _send(self, arb_id: int, payload: bytes) -> None:
@@ -95,44 +136,53 @@ class App:
         else:
             print(f"TX 0x{arb_id:03X} {payload.hex()}")
 
+    @staticmethod
+    def _f_to_cx10(temp_f: float) -> int:
+        return int(max(0.0, (temp_f - 32.0) * 5.0 / 9.0) * 10)
+
     def send_all(self) -> None:
-        rpm = int(self.vars["rpm"].get())
-        tps = int(self.vars["tps"].get())
-        boost = float(self.vars["boost"].get())
-        speed_mps = float(self.vars["speed"].get()) / 2.236936
-        oilp = float(self.vars["oilp"].get())
-        oilt_c = (float(self.vars["oilt"].get()) - 32.0) * 5.0 / 9.0
-        clt_c = (float(self.vars["clt"].get()) - 32.0) * 5.0 / 9.0
-        fuel = int(self.vars["fuel"].get())
         gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
         mode_map = {"ECO": 1, "NORMAL": 2, "SPORT": 3, "RACE": 4, "ALBATROSS": 5}
         trac_map = {"LOW": 1, "MED": 2, "HIGH": 3, "OFF": 4}
 
+        rpm = int(self.vars["rpm"].get())
+        speed_mps100 = int(max(0.0, float(self.vars["speed"].get()) / 2.236936) * 100)
+        oil_t_c10 = self._f_to_cx10(float(self.vars["oilt"].get()))
+        clt_c10 = self._f_to_cx10(float(self.vars["clt"].get()))
+        iat_c10 = self._f_to_cx10(float(self.vars["iat"].get()))
+        egt1_c10 = self._f_to_cx10(float(self.vars["egt_b1"].get()))
+        egt2_c10 = self._f_to_cx10(float(self.vars["egt_b2"].get()))
+        lean_raw = int(float(self.vars["lean_deg"].get()) * 10)
+
         self._send(int(ECUToHudID.ENGINE_RPM), struct.pack(">H", max(0, min(65535, rpm))))
-        self._send(int(ECUToHudID.THROTTLE_POSITION), bytes((max(0, min(100, tps)),)))
-        self._send(int(ECUToHudID.BOOST_PRESSURE), struct.pack(">H", int(max(0, boost) * 10)))
-        self._send(int(ECUToHudID.OIL_PRESSURE_TEMP), struct.pack(">HH", int(max(0, oilp) * 10), int(max(0, oilt_c) * 10)))
-        self._send(int(ECUToHudID.COOLANT_TEMP), struct.pack(">H", int(max(0, clt_c) * 10)))
-        self._send(int(ECUToHudID.FUEL_LEVEL), bytes((max(0, min(100, fuel)),)))
+        self._send(int(ECUToHudID.THROTTLE_POSITION), bytes((max(0, min(100, int(self.vars["tps"].get()))),)))
+        self._send(int(ECUToHudID.BOOST_PRESSURE), struct.pack(">H", int(max(0.0, float(self.vars["boost"].get())) * 10)))
+        self._send(int(ECUToHudID.AFR_BANKS), struct.pack(">HH", int(float(self.vars["afr_l"].get()) * 100), int(float(self.vars["afr_r"].get()) * 100)))
+        self._send(int(ECUToHudID.KNOCK_STATUS), struct.pack(">H", max(0, min(0xFFFF, int(self.vars["knock_mask"].get())))))
+        self._send(int(ECUToHudID.OIL_PRESSURE_TEMP), struct.pack(">HH", int(max(0.0, float(self.vars["oilp"].get())) * 10), oil_t_c10))
+        self._send(int(ECUToHudID.COOLANT_TEMP), struct.pack(">H", clt_c10))
+        self._send(int(ECUToHudID.FUEL_LEVEL), bytes((max(0, min(100, int(self.vars["fuel"].get()))),)))
         self._send(int(ECUToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
-        mps100 = int(max(0.0, speed_mps) * 100)
-        self._send(0x137, struct.pack(">HH", mps100, mps100))
+        self._send(int(ECUToHudID.ENGINE_LOAD), bytes((max(0, min(100, int(self.vars["load"].get()))),)))
+        self._send(int(ECUToHudID.INTAKE_AIR_TEMP), struct.pack(">H", iat_c10))
+        self._send(int(ECUToHudID.EXHAUST_GAS_TEMP), struct.pack(">HH", egt1_c10, egt2_c10))
+
+        airshot_flags = 0x01 if bool(self.vars["airshot_firing"].get()) else 0x00
+        self._send(int(ArduinoToHudID.AIR_SHOT_STATUS), bytes((max(0, min(255, int(self.vars["airshot_charges"].get()))), airshot_flags)))
+        self._send(int(ArduinoToHudID.AWC_STATE), bytes((1 if bool(self.vars["awc_enabled"].get()) else 0,)) + struct.pack(">h", lean_raw))
+        self._send(int(ArduinoToHudID.TANK_PRESSURE), struct.pack(">H", int(max(0.0, float(self.vars["tank_psi"].get())) * 10)))
+        self._send(int(ArduinoToHudID.TWIN_TURBO_STATUS), struct.pack(">HH", int(max(0.0, float(self.vars["turbo1"].get())) * 10), int(max(0.0, float(self.vars["turbo2"].get())) * 10)))
+        self._send(int(ArduinoToHudID.WASTEGATE_STATUS), bytes((max(0, min(100, int(self.vars["wg1"].get()))), max(0, min(100, int(self.vars["wg2"].get()))))))
+        self._send(int(ArduinoToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
+        self._send(int(ArduinoToHudID.WHEEL_SPEED), struct.pack(">HH", speed_mps100, speed_mps100))
+        self._send(int(ArduinoToHudID.FUEL_LEVEL), bytes((max(0, min(100, int(self.vars["fuel"].get()))),)))
+
         self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
         self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))
-        payload = {
-            "rpm": rpm,
-            "tps": tps,
-            "boost": boost,
-            "speed_mph": float(self.vars["speed"].get()),
-            "oilp": oilp,
-            "oilt_f": float(self.vars["oilt"].get()),
-            "clt_f": float(self.vars["clt"].get()),
-            "fuel": fuel,
-            "gear": self.vars["gear"].get(),
-            "mode": self.vars["mode"].get(),
-            "traction": self.vars["traction"].get(),
-            "msg": self.vars["msg"].get(),
-        }
+        self._send(int(PiToArduinoID.NFC_AUTH), bytes((1 if bool(self.vars["nfc_ok"].get()) else 0,)))
+
+        payload = {k: (v.get() if hasattr(v, "get") else v) for k, v in self.vars.items()}
+        payload["msg"] = self.vars["msg"].get()
         packet = json.dumps(payload).encode("utf-8")
         for p in self.udp_ports:
             self.sock.sendto(packet, (self.udp_host, p))
