@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
+from datetime import datetime
 from typing import Iterable, List
 
 import pygame
@@ -11,6 +13,7 @@ from .widgets.airshot_panel import AirShotPanel
 from .widgets.afr_panel import AfrPanel
 from .widgets.alert_panel import AlertPanel
 from .widgets.boost_panel import BoostPanel
+from .widgets.fuel_panel import FuelPanel
 from .widgets.header_bar import HeaderBar
 from .widgets.message_line import MessageLine
 from .widgets.rpm_bar import RpmBar
@@ -163,14 +166,16 @@ class HUDRenderer:
 
         temps_ratio = ratios["temps"]
         temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
-        traction_height = max(int(content_height * 0.16), int(height * 0.11))
+        fuel_height = max(int(content_height * 0.22), int(height * 0.16))
+        traction_height = max(int(content_height * 0.13), int(height * 0.1))
         airshot_height = max(int(content_height * 0.13), int(height * 0.09))
         wmi_height = max(
-            content_height - temps_height - traction_height - airshot_height - 3 * panel_gap,
+            content_height - temps_height - fuel_height - traction_height - airshot_height - 4 * panel_gap,
             int(height * 0.12),
         )
         temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
-        traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
+        fuel_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, fuel_height)
+        traction_rect = pygame.Rect(right_x, fuel_rect.bottom + panel_gap, right_width, traction_height)
         airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
         wmi_rect = pygame.Rect(right_x, airshot_rect.bottom + panel_gap, right_width, wmi_height)
 
@@ -183,6 +188,7 @@ class HUDRenderer:
             AfrPanel(afr_rect),
             AlertPanel(alert_rect),
             TempsGrid(temps_rect),
+            FuelPanel(fuel_rect),
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
             WMIPanel(wmi_rect),
@@ -247,30 +253,13 @@ class HUDRenderer:
 
             with self.state_lock:
                 state = self.state
+            state = replace(state, environment=replace(state.environment, time=datetime.now()))
+            self.update_state(state)
+            if state.environment.mode in self._modes:
+                self._mode_index = self._modes.index(state.environment.mode)
             # keep animating mode-based layout transitions
             self._create_widgets()
-            if state.environment.mode != self._modes[self._mode_index]:
-                env = state.environment
-                state = StateSnapshot(
-                    engine=state.engine,
-                    temps=state.temps,
-                    air_shot=state.air_shot,
-                    wmi=state.wmi,
-                    traction=state.traction,
-                    environment=env.__class__(
-                        mode=self._modes[self._mode_index],
-                        fuel_type=env.fuel_type,
-                        ambient_temp_f=env.ambient_temp_f,
-                        gps_lock=env.gps_lock,
-                        rain=env.rain,
-                        time=env.time,
-                        brightness_pct=env.brightness_pct,
-                        message_line=env.message_line,
-                        fuel_level_pct=env.fuel_level_pct,
-                    ),
-                    shift_light=state.shift_light,
-                    faults=state.faults,
-                )
+            # Respect externally supplied mode telemetry.
             desired_trac = self._traction_levels[self._traction_index]
             if state.traction.intervention_level != desired_trac:
                 state = StateSnapshot(

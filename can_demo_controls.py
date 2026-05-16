@@ -25,6 +25,8 @@ class App:
         self.iface = None if dry_run else SocketCANInterface(channel=channel)
         self.udp_host, self.udp_port = udp_target.split(":")
         self.udp_port = int(self.udp_port)
+        # Send to common fallback port too, so HUD still updates when 5005 bind is denied on Windows.
+        self.udp_ports = sorted({self.udp_port, 5505})
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if self.iface:
             try:
@@ -131,7 +133,9 @@ class App:
             "traction": self.vars["traction"].get(),
             "msg": self.vars["msg"].get(),
         }
-        self.sock.sendto(json.dumps(payload).encode("utf-8"), (self.udp_host, self.udp_port))
+        packet = json.dumps(payload).encode("utf-8")
+        for p in self.udp_ports:
+            self.sock.sendto(packet, (self.udp_host, p))
 
     def _tick(self) -> None:
         self.send_all()

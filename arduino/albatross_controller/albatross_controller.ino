@@ -45,6 +45,7 @@ namespace CanId {
   constexpr uint16_t ARD_WASTEGATE_STATUS = 0x135;
   constexpr uint16_t ARD_GEAR_POSITION = 0x136;
   constexpr uint16_t ARD_WHEEL_SPEED = 0x137;
+  constexpr uint16_t ARD_FUEL_LEVEL = 0x138;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -96,6 +97,7 @@ struct Outputs {
   uint16_t turbo2_psi_x10 = 0;
   uint8_t wg1_duty = 0;
   uint8_t wg2_duty = 0;
+  uint8_t fuel_level_pct = 75;
 };
 
 Inputs g_inputs;
@@ -442,6 +444,9 @@ void publishStatusFrames() {
 
   uint8_t gear[1] = {g_inputs.gear};
   publishFrame(CanId::ARD_GEAR_POSITION, gear, 1);
+
+  uint8_t fuel[1] = {g_outputs.fuel_level_pct};
+  publishFrame(CanId::ARD_FUEL_LEVEL, fuel, 1);
 
   uint16_t front_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_front_wheel_mps * 100.0f), 0, 65535));
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));

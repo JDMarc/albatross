@@ -15,6 +15,7 @@ from typing import Iterable, Iterator
 import pygame
 
 from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_traction_level_frame
+from albatross_pi.canbus.encode import build_boost_target_frame, build_flame_mode_frame, build_limp_mode_frame
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import StateSnapshot
@@ -103,6 +104,55 @@ def main() -> None:
             aggregator.mark_sent_frame(frame_id, payload)
 
         renderer.configure_traction_callback(_send_traction_level)
+
+        def _safety_supervisor() -> None:
+            assert aggregator is not None and can_interface is not None
+            last_fault_state = False
+            while True:
+                snap = aggregator.current_snapshot()
+                faults: list[str] = []
+
+                # Comms/freshness (simple): if key telemetry never appears or drops to all-zero under throttle.
+                if snap.engine.throttle_pct > 15 and snap.engine.rpm < 300:
+                    faults.append("ECU STALE")
+                if snap.engine.rpm > 0 and snap.engine.speed_mph == 0 and snap.engine.gear not in ("N", "?"):
+                    faults.append("SPEED SENSOR")
+                if snap.temps.oil_pressure_psi < 12 and snap.engine.rpm > 2000:
+                    faults.append("LOW OIL PRESS")
+                if snap.temps.coolant_temp_f > 240:
+                    faults.append("COOLANT HOT")
+                if snap.temps.exhaust_temp_f > 1650:
+                    faults.append("EGT HOT")
+                if snap.engine.knock_events >= 3:
+                    faults.append("KNOCK")
+                if snap.environment.fuel_level_pct <= 5:
+                    faults.append("LOW FUEL")
+
+                severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HOT"))
+                if severe and not last_fault_state:
+                    # Fail-safe action set: cut boost command, enable limp, disable flame, max traction.
+                    for frame in (
+                        build_boost_target_frame(0.0),
+                        build_limp_mode_frame(True),
+                        build_flame_mode_frame(False),
+                        build_traction_level_frame(3),
+                    ):
+                        can_interface.send(*frame)
+                        aggregator.mark_sent_frame(*frame)
+                    logging.error("Safety supervisor engaged: %s", ", ".join(faults))
+                elif not severe and last_fault_state:
+                    # Clear limp when recovered.
+                    frame = build_limp_mode_frame(False)
+                    can_interface.send(*frame)
+                    aggregator.mark_sent_frame(*frame)
+                    logging.info("Safety supervisor recovered.")
+
+                if faults:
+                    renderer.update_state(replace(snap, faults=tuple(sorted(set(faults)))))
+                last_fault_state = severe
+                time.sleep(0.2)
+
+        threading.Thread(target=_safety_supervisor, name="safety-supervisor", daemon=True).start()
     elif args.simulator:
         simulator = StateSimulator()
         if not args.snapshot:
@@ -122,6 +172,7 @@ def main() -> None:
                 port,
             )
             sock.bind(("127.0.0.1", 5505))
+            logging.info("Demo UDP listener bound on 127.0.0.1:5505")
         except OSError as exc:
             logging.warning(
                 "Unable to bind demo UDP listener on %s:%s (%s). "
@@ -131,6 +182,8 @@ def main() -> None:
                 exc,
             )
             return
+        else:
+            logging.info("Demo UDP listener bound on %s:%s", host, port)
         sock.settimeout(0.2)
 
         def loop() -> None:
