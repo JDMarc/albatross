@@ -665,7 +665,7 @@ class HUDRenderer:
     def _render_top_right_media_tile(self) -> None:
         width = self.screen.get_width()
         center_x = width // 2
-        settings_rect = pygame.Rect(center_x + 170, 8, 128, 74)
+        settings_rect = pygame.Rect(center_x + 260, 8, 128, 74)
         tile = pygame.Rect(settings_rect.right + 8, 8, 280, 74)
         # Clamp so the right edge stays clear of ambient/GPS area.
         right_limit = width - 220
@@ -687,10 +687,7 @@ class HUDRenderer:
         ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
         pygame.draw.rect(self.screen, AMBER_BRIGHT, fill, border_radius=3)
-        controls_visible = self._active_menu == "media"
-        if controls_visible:
-            self._draw_media_icons(tile.x + 198, tile.y + 39, active_index=self._media_index)
-        else:
+        if self._active_menu != "media":
             remaining = max(0.0, self._phone_length_s - self._phone_position_s)
             mm = int(remaining // 60)
             ss = int(remaining % 60)
