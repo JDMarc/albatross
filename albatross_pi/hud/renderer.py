@@ -50,6 +50,7 @@ class HUDRenderer:
         self.state_lock = threading.Lock()
         self.widgets: List = []
         self._post_lines: list[tuple[str, bool]] = []
+        self._post_started_at = 0.0
         self._post_fault_active = False
         self._post_complete = False
         self._ack_key = pygame.K_RETURN
@@ -214,12 +215,6 @@ class HUDRenderer:
             if r.bottom > bottom_limit:
                 r.height = max(36, r.height - (r.bottom - bottom_limit))
 
-        # Prevent lower panels from overlapping the message line.
-        bottom_limit = message_rect.y - panel_gap
-        overflow = max(0, wmi_rect.bottom - bottom_limit)
-        if overflow > 0:
-            wmi_rect.height = max(36, wmi_rect.height - overflow)
-
         self.widgets = [
             HeaderBar(top_bar_rect),
             MessageLine(message_rect),
@@ -238,12 +233,17 @@ class HUDRenderer:
         self._ack_key = ack_key
 
     def _run_post(self, state: StateSnapshot) -> None:
+        if self._post_started_at <= 0.0:
+            self._post_started_at = time.monotonic()
         checks = [
             ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
             ("COOLANT SENSOR", state.temps.coolant_temp_f > 0),
             ("OIL TEMP SENSOR", state.temps.oil_temp_f > 0),
             ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
             ("FUEL LEVEL SENSOR", state.environment.fuel_level_pct >= 0),
+            ("BATTERY VOLT", state.temps.battery_voltage >= 10.5),
+            ("GEAR INPUT", state.engine.gear in {"N", "1", "2", "3", "4", "5", "6", "?"}),
+            ("TRACTION INPUT", state.traction.intervention_level != ""),
             ("CAN LINK", bool(state.environment.message_line) or state.engine.rpm > 0),
             ("USB INPUT", pygame.joystick.get_count() > 0),
         ]
@@ -359,19 +359,37 @@ class HUDRenderer:
 
     def _render_post_overlay(self) -> None:
         overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 220))
+        overlay.fill((0, 0, 0, 255))
         self.screen.blit(overlay, (0, 0))
         x = 24
         y = 24
-        title = font(18, bold=True).render("POWER ON SELF TEST", True, AMBER_BRIGHT)
+        elapsed = max(0.0, time.monotonic() - self._post_started_at)
+        title_full = "POWER ON SELF TEST"
+        title_chars = min(len(title_full), int(elapsed / 0.045))
+        title = font(18, bold=True).render(title_full[:title_chars], True, AMBER_BRIGHT)
         self.screen.blit(title, (x, y))
         y += 28
-        for line, ok in self._post_lines:
+        t = elapsed - 1.0
+        for idx, (line, ok) in enumerate(self._post_lines):
+            phase = t - idx * 2.0
+            if phase <= 0:
+                continue
             color = AMBER_GLOW if ok else FAULT_AMBER
-            sz = fit_font_size(line, self.screen.get_width() - 48, 20, start_size=16)
-            surf = font(sz).render(line, True, color)
+            prefix = f"TEST {line.split('TEST ', 1)[1].rsplit(' ',1)[0]}"
+            result = "OK" if ok else "FAULT"
+            if phase < 1.0:
+                visible = min(len(prefix), int(phase / 0.04))
+                out = prefix[:visible]
+            else:
+                out = f"{prefix} {result}"
+            sz = fit_font_size(out, self.screen.get_width() - 48, 20, start_size=16)
+            surf = font(sz).render(out, True, color)
             self.screen.blit(surf, (x, y))
             y += 20
+        # Hold 1s after last line before allow ack prompt
+        done_time = 1.0 + len(self._post_lines) * 2.0 + 1.0
+        if elapsed < done_time:
+            return
         ack = f"FAULT ACK REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()}"
         ack_s = font(16, bold=True).render(ack, True, FAULT_AMBER)
         self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
