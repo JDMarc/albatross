@@ -304,6 +304,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.TANK_PRESSURE): CANStateAggregator._update_tank_pressure,
     int(ArduinoToHudID.TWIN_TURBO_STATUS): CANStateAggregator._update_twin_turbo,
     int(ArduinoToHudID.WASTEGATE_STATUS): CANStateAggregator._update_wastegate_status,
+    int(ArduinoToHudID.GEAR_POSITION): CANStateAggregator._update_gear,
     int(ArduinoToHudID.WHEEL_SPEED): CANStateAggregator._update_wheel_speed,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
