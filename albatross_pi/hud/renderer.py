@@ -166,21 +166,27 @@ class HUDRenderer:
 
         temps_ratio = ratios["temps"]
         temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
-        fuel_height = max(int(content_height * 0.18), int(height * 0.12))
-        traction_height = max(int(content_height * 0.13), int(height * 0.1))
-        airshot_height = max(int(content_height * 0.13), int(height * 0.09))
+        fuel_height = max(int(content_height * 0.16), int(height * 0.11))
+        traction_height = max(int(content_height * 0.14), int(height * 0.1))
+        airshot_height = max(int(content_height * 0.14), int(height * 0.09))
         wmi_height = max(
             content_height - temps_height - fuel_height - traction_height - airshot_height - 4 * panel_gap,
             int(height * 0.12),
         )
         temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
         # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
-        fuel_width = max(int(center_width * 0.48), 180)
-        fuel_x = center_x + center_width - fuel_width
+        fuel_width = center_width
+        fuel_x = center_x
         fuel_rect = pygame.Rect(fuel_x, afr_rect.bottom + panel_gap, fuel_width, fuel_height)
-        traction_rect = pygame.Rect(right_x, fuel_rect.bottom + panel_gap, right_width, traction_height)
+        traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
         airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
         wmi_rect = pygame.Rect(right_x, airshot_rect.bottom + panel_gap, right_width, wmi_height)
+
+        # Prevent lower panels from overlapping the message line.
+        bottom_limit = message_rect.y - panel_gap
+        overflow = max(0, wmi_rect.bottom - bottom_limit)
+        if overflow > 0:
+            wmi_rect.height = max(36, wmi_rect.height - overflow)
 
         self.widgets = [
             HeaderBar(top_bar_rect),
