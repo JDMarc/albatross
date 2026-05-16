@@ -3,6 +3,7 @@ from .afr_panel import AfrPanel
 from .airshot_panel import AirShotPanel
 from .alert_panel import AlertPanel
 from .boost_panel import BoostPanel
+from .fuel_panel import FuelPanel
 from .header_bar import HeaderBar
 from .message_line import MessageLine
 from .rpm_bar import RpmBar
@@ -16,6 +17,7 @@ __all__ = [
     "AirShotPanel",
     "AlertPanel",
     "BoostPanel",
+    "FuelPanel",
     "HeaderBar",
     "MessageLine",
     "RpmBar",

@@ -172,6 +172,14 @@ class CANStateAggregator:
         env_dict["fuel_level_pct"] = level
         self._environment = EnvironmentState(**env_dict)
 
+    def _update_arduino_fuel(self, data: bytes) -> None:
+        if not data:
+            return
+        level = max(0, min(100, data[0]))
+        env_dict = self._environment.__dict__.copy()
+        env_dict["fuel_level_pct"] = level
+        self._environment = EnvironmentState(**env_dict)
+
     def _update_gear(self, data: bytes) -> None:
         if not data:
             return
@@ -306,6 +314,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.WASTEGATE_STATUS): CANStateAggregator._update_wastegate_status,
     int(ArduinoToHudID.GEAR_POSITION): CANStateAggregator._update_gear,
     int(ArduinoToHudID.WHEEL_SPEED): CANStateAggregator._update_wheel_speed,
+    int(ArduinoToHudID.FUEL_LEVEL): CANStateAggregator._update_arduino_fuel,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
