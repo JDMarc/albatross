@@ -84,6 +84,8 @@ class HUDRenderer:
         self._available_devices: tuple[tuple[str, str], ...] = ()
         self._last_snapshot_time = self.state.environment.time
         self._last_can_fresh_monotonic = time.monotonic()
+        self._display_time_anchor = self.state.environment.time
+        self._display_time_anchor_monotonic = self._last_can_fresh_monotonic
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -379,12 +381,16 @@ class HUDRenderer:
             if state.environment.time != self._last_snapshot_time:
                 self._last_snapshot_time = state.environment.time
                 self._last_can_fresh_monotonic = now_s
+                self._display_time_anchor = state.environment.time
+                self._display_time_anchor_monotonic = now_s
             state = replace(state, faults=self._runtime_faults(state, now_s))
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
 
             # Keep the HUD clock moving even when telemetry timestamps stop updating.
-            display_time = state.environment.time + timedelta(seconds=max(0.0, now_s - self._last_can_fresh_monotonic))
+            display_time = self._display_time_anchor + timedelta(
+                seconds=max(0.0, now_s - self._display_time_anchor_monotonic)
+            )
             state = replace(state, environment=replace(state.environment, time=display_time))
 
             # keep animating mode-based layout transitions
