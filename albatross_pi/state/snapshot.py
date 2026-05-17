@@ -26,6 +26,15 @@ class TractionState:
     slip_pct: float = 0.0
     wheelie_pitch_deg: float = 0.0
     intervention_level: str = ""
+    torque_cut_pct: float = 0.0
+    active: bool = False
+    sensor_fault: bool = False
+
+
+@dataclass(frozen=True)
+class ClutchState:
+    slip_pct: float = 0.0
+    severity: str = "NONE"
 
 
 @dataclass(frozen=True)
@@ -86,6 +95,7 @@ class StateSnapshot:
     air_shot: AirShotState = field(default_factory=AirShotState)
     wmi: WMIState = field(default_factory=WMIState)
     traction: TractionState = field(default_factory=TractionState)
+    clutch: ClutchState = field(default_factory=ClutchState)
     lighting: LightingState = field(default_factory=LightingState)
     environment: EnvironmentState = field(default_factory=EnvironmentState)
     shift_light: bool = False

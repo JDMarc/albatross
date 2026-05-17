@@ -1,9 +1,11 @@
 """CAN bus utilities for the Albatross HUD."""
-from .ids import ECUToHudID, ArduinoToHudID, PiToArduinoID, SystemCommandID
+from .ids import ArduinoToEcuID, ECUToHudID, ArduinoToHudID, PiToArduinoID, PiToEcuID, SystemCommandID
 from .decode import CANStateAggregator
 from .iface import SocketCANInterface
 from .encode import (
     build_boost_target_frame,
+    build_ecu_fuel_profile_frame,
+    build_ecu_spark_table_frame,
     build_engine_run_switch_frame,
     build_fuel_type_frame,
     build_media_control_frame,
@@ -16,11 +18,15 @@ from .encode import (
 __all__ = [
     "ECUToHudID",
     "ArduinoToHudID",
+    "ArduinoToEcuID",
     "PiToArduinoID",
+    "PiToEcuID",
     "SystemCommandID",
     "CANStateAggregator",
     "SocketCANInterface",
     "build_boost_target_frame",
+    "build_ecu_fuel_profile_frame",
+    "build_ecu_spark_table_frame",
     "build_engine_run_switch_frame",
     "build_fuel_type_frame",
     "build_media_control_frame",

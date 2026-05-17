@@ -28,7 +28,8 @@ namespace CanId {
   constexpr uint16_t ECU_TO_ARD_FLAME_STATUS = 0x110;
   constexpr uint16_t ECU_TO_ARD_WMI_TRIGGER = 0x111;
   constexpr uint16_t ECU_TO_ARD_ENGINE_STATUS = 0x112;
-  constexpr uint16_t ARD_TO_ECU_TORQUE_CUT = 0x125;
+  constexpr uint16_t ARD_TO_ECU_TORQUE_CUT = 0x12A;
+  constexpr uint16_t ARD_TO_ECU_TRACTION_SLIP = 0x12B;
 
   constexpr uint16_t PI_BOOST_TARGET = 0x120;
   constexpr uint16_t PI_MODE_SELECT = 0x121;
@@ -53,6 +54,7 @@ namespace CanId {
   constexpr uint16_t ARD_LIGHT_STATUS = 0x13B;
   constexpr uint16_t ARD_OIL_PRESSURE_STATUS = 0x13C;
   constexpr uint16_t ARD_FUEL_TYPE_STATUS = 0x13D;
+  constexpr uint16_t ARD_TRACTION_STATUS = 0x13E;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -113,6 +115,10 @@ struct Outputs {
   bool wmi_fault = false;
   uint8_t clutch_slip_pct = 0;
   uint8_t clutch_slip_severity = 0;
+  int16_t traction_slip_pct_x10 = 0;
+  uint8_t traction_torque_cut_pct = 0;
+  bool traction_active = false;
+  bool traction_sensor_fault = false;
 };
 
 Inputs g_inputs;
@@ -152,6 +158,8 @@ static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_RAW = 921; // 4.5V on a 5V ADC
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_PSI_X10 = 1000; // 100.0 psi
 static constexpr float WMI_FLOW_PULSES_PER_LITER = 450.0f;
 static constexpr bool WMI_PRESSURE_OK_ACTIVE_LOW = true;
+static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pulse quantization cuts.
+static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
 
 // Hard safety caps by mode (psi*10); Pi sends the fuel/WMI-aware target.
 uint16_t modeBoostCap(uint8_t mode) {
@@ -379,7 +387,7 @@ float tcSlipLimitForLevel(TractionLevel level) {
 uint8_t torqueCutForSlip(float slip_ratio, float limit) {
   if (limit >= 1.0f || slip_ratio <= limit) return 0;
   const float excess = slip_ratio - limit;
-  return static_cast<uint8_t>(constrain(static_cast<int>(excess * 220.0f), 0, 100));
+  return static_cast<uint8_t>(constrain(static_cast<int>(excess * 320.0f), 0, 100));
 }
 
 void updateWheelSpeeds() {
@@ -576,13 +584,43 @@ void updateControllers() {
   g_outputs.air_shot_remaining = calculateShotsRemaining(g_outputs.tank_psi_x10);
 
   updateWheelSpeeds();
-  const float base_speed = max(0.1f, g_front_wheel_mps);
-  const float slip_ratio = (g_rear_wheel_mps - g_front_wheel_mps) / base_speed;
+  static float filtered_slip_ratio = 0.0f;
+  static bool tc_latched = false;
+  const float front_speed = g_front_wheel_mps;
+  const float rear_speed = g_rear_wheel_mps;
+  const float base_speed = max(1.0f, front_speed);
+  const float raw_slip_ratio = (rear_speed - front_speed) / base_speed;
+  filtered_slip_ratio = (filtered_slip_ratio * 0.65f) + (raw_slip_ratio * 0.35f);
+  const float vehicle_speed = max(front_speed, rear_speed);
+  const bool wheel_speed_ok = vehicle_speed >= TC_MIN_SPEED_MPS;
+  const bool sensor_fault = wheel_speed_ok && ((front_speed < 0.5f && rear_speed > 5.0f) || (rear_speed < 0.5f && front_speed > 5.0f));
   const float tc_limit = tcSlipLimitForLevel(g_commands.traction_level);
-  const bool tc_active = (g_commands.traction_level != TC_OFF) && (g_inputs.tps_pct > 20) && (g_inputs.gear >= 2) && (slip_ratio > tc_limit);
-  const uint8_t torque_cut_pct = tc_active ? torqueCutForSlip(slip_ratio, tc_limit) : 0;
+  const bool tc_allowed = !sensor_fault && (g_commands.traction_level != TC_OFF) && (g_inputs.tps_pct > 20) && (g_inputs.gear >= 2) && wheel_speed_ok;
+  if (tc_allowed && filtered_slip_ratio > tc_limit) {
+    tc_latched = true;
+  } else if (!tc_allowed || filtered_slip_ratio < (tc_limit - TC_EXIT_HYSTERESIS)) {
+    tc_latched = false;
+  }
+  const bool tc_active = tc_latched && tc_allowed;
+  const uint8_t requested_torque_cut_pct = tc_active ? torqueCutForSlip(filtered_slip_ratio, tc_limit) : 0;
+  if (requested_torque_cut_pct > g_outputs.traction_torque_cut_pct) {
+    g_outputs.traction_torque_cut_pct = min<uint8_t>(requested_torque_cut_pct, g_outputs.traction_torque_cut_pct + 4);
+  } else if (g_outputs.traction_torque_cut_pct > requested_torque_cut_pct) {
+    const uint8_t step = min<uint8_t>(8, g_outputs.traction_torque_cut_pct - requested_torque_cut_pct);
+    g_outputs.traction_torque_cut_pct -= step;
+  }
+  g_outputs.traction_slip_pct_x10 = static_cast<int16_t>(constrain(static_cast<int>(roundf(filtered_slip_ratio * 1000.0f)), -1000, 1000));
+  g_outputs.traction_active = tc_active || g_outputs.traction_torque_cut_pct > 0;
+  g_outputs.traction_sensor_fault = sensor_fault;
+  const uint8_t torque_cut_pct = g_outputs.traction_sensor_fault ? 0 : g_outputs.traction_torque_cut_pct;
   uint8_t torque_cut_payload[1] = {torque_cut_pct};
   publishFrame(CanId::ARD_TO_ECU_TORQUE_CUT, torque_cut_payload, 1);
+  uint8_t slip_payload[3] = {
+    uint8_t(g_outputs.traction_slip_pct_x10 >> 8),
+    uint8_t(g_outputs.traction_slip_pct_x10 & 0xFF),
+    static_cast<uint8_t>(g_outputs.traction_sensor_fault ? 0x02 : (g_outputs.traction_active ? 0x01 : 0x00))
+  };
+  publishFrame(CanId::ARD_TO_ECU_TRACTION_SLIP, slip_payload, 3);
 
   g_outputs.awc_active = tc_active;
   g_outputs.turbo1_psi_x10 = g_inputs.boost_psi_x10;
@@ -654,6 +692,14 @@ void publishStatusFrames() {
 
   uint8_t clutch_slip[2] = {g_outputs.clutch_slip_pct, g_outputs.clutch_slip_severity};
   publishFrame(CanId::ARD_CLUTCH_SLIP_STATUS, clutch_slip, 2);
+
+  uint8_t traction_status[4] = {
+    uint8_t(g_outputs.traction_slip_pct_x10 >> 8),
+    uint8_t(g_outputs.traction_slip_pct_x10 & 0xFF),
+    g_outputs.traction_torque_cut_pct,
+    static_cast<uint8_t>((g_outputs.traction_active ? 0x01 : 0x00) | (g_outputs.traction_sensor_fault ? 0x02 : 0x00))
+  };
+  publishFrame(CanId::ARD_TRACTION_STATUS, traction_status, 4);
 
   uint16_t front_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_front_wheel_mps * 100.0f), 0, 65535));
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));

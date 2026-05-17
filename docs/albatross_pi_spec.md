@@ -34,7 +34,8 @@
   - `0x121`: Mode selector (1 byte: 1=ECO … 5=ALBATROSS) for synchronized HUD/actuator state.
   - `0x140`: NFC authentication acknowledgement (0x00 fail / 0x01 success).
 - **Pi → MS3 frames** (examples):
-  - Timing bias requests and torque ceiling trims (ID TBD in ECU firmware track).
+  - Fuel profile/table requests (`0x150`) and spark-table requests (`0x151`).
+  - Timing bias requests and torque ceiling trims (ECU firmware track).
   - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
 - **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`–`0x10B`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, and dual-bank EGT; Arduino status (`0x130`–`0x135`) for Air Shot charge counts, AWC state/lean angle, tank pressure, twin turbo boost feedback, and wastegate duty.
 - **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`–`0x10B`), Pi HUD commands (`0x120`, `0x121`, `0x140`), Arduino supervisory status (`0x130`–`0x135`), and bidirectional POST/test utility frames (`0x1F0`–`0x1F1`).
@@ -48,7 +49,7 @@
 - **Sub-states**: BOOT → POST → READY → DRIVE → LIMP → SHUTDOWN; transient states include LAUNCH_ARMED, LAUNCH_ACTIVE, FLAME_ACTIVE.
 - **Mode parameters**: per-mode boost caps, throttle shaping, AWC/ATC aggressiveness, HUD brightness, flame/launch enablement.
 - **eTRAC selector**: chooses traction profile (DRY, DAMP, RAIN, COLD, GRAVEL) via weather/temp/GPS cues, defining slip targets, gains, wheelie pitch window, torque ramp rates.
-- **Fuel logic**: HUD fuel selection enforces max boost caps, timing bias windows, WMI strategy; Pi enforces caps and distributes to Arduino/MS3.
+- **Fuel logic**: HUD fuel selection enforces max boost caps, timing bias windows, WMI strategy, and ECU fuel/stoich profile selection; Pi enforces caps and distributes to Arduino/MS3.
 - **Launch control**: arming requires clutch/temperature/gear/knock conditions; per-mode RPM setpoint with HUD messaging.
 - **Safety escalations**: knock bursts trigger timing pull and boost reduction; persistent issues enter LIMP; high EGT/thermal load reduces requests and triggers “TURBO HOT” banner.
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import struct
 
-from .ids import PiToArduinoID
+from .calibration import fuel_profile_for_code, spark_table_for_mode
+from .ids import PiToArduinoID, PiToEcuID
 
 
 def build_boost_target_frame(target_psi: float) -> tuple[int, bytes]:
@@ -59,6 +60,19 @@ def build_fuel_type_frame(fuel_code: int) -> tuple[int, bytes]:
     """Return a frame selecting the active fuel table/type."""
     payload = bytes((fuel_code & 0xFF,))
     return int(PiToArduinoID.FUEL_TYPE_SELECT), payload
+
+
+def build_ecu_fuel_profile_frame(fuel_code: int) -> tuple[int, bytes]:
+    """Return a frame selecting the ECU fuel table and stoich/AFR profile."""
+    profile = fuel_profile_for_code(fuel_code)
+    payload = struct.pack(">BBH", profile.code & 0xFF, profile.fuel_table & 0xFF, int(round(profile.stoich_afr * 100)))
+    return int(PiToEcuID.FUEL_PROFILE_SELECT), payload
+
+
+def build_ecu_spark_table_frame(mode_code: int) -> tuple[int, bytes]:
+    """Return a frame selecting initial or performance spark table by ride mode."""
+    payload = bytes((spark_table_for_mode(mode_code) & 0xFF,))
+    return int(PiToEcuID.SPARK_TABLE_SELECT), payload
 
 
 def build_engine_run_switch_frame(enabled: bool) -> tuple[int, bytes]:

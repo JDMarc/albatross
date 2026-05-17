@@ -13,7 +13,7 @@ import struct
 import tkinter as tk
 from tkinter import ttk
 
-from albatross_pi.canbus.ids import ArduinoToHudID, ECUToHudID, PiToArduinoID
+from albatross_pi.canbus.ids import ArduinoToHudID, ECUToHudID, PiToArduinoID, PiToEcuID
 from albatross_pi.canbus.iface import SocketCANInterface
 
 
@@ -65,6 +65,10 @@ class App:
             "awc_enabled": tk.BooleanVar(value=True),
             "lean_deg": tk.DoubleVar(value=1.5),
             "traction": tk.StringVar(value="MED"),
+            "traction_slip": tk.DoubleVar(value=0.0),
+            "torque_cut": tk.IntVar(value=0),
+            "traction_active": tk.BooleanVar(value=False),
+            "traction_fault": tk.BooleanVar(value=False),
             "clutch_slip_pct": tk.IntVar(value=0),
             "clutch_slip_severity": tk.StringVar(value="NONE"),
             "turbo1": tk.DoubleVar(value=6.0),
@@ -155,11 +159,15 @@ class App:
         ttk.Combobox(cmds, textvariable=self.vars["traction"], values=["LOW", "MED", "HIGH", "OFF"], width=8).grid(row=0, column=7, sticky="w")
 
         ttk.Checkbutton(cmds, text="NFC Auth OK", variable=self.vars["nfc_ok"]).grid(row=1, column=0, sticky="w")
+        ttk.Checkbutton(cmds, text="TC Active", variable=self.vars["traction_active"]).grid(row=1, column=6, sticky="w")
+        ttk.Checkbutton(cmds, text="TC Fault", variable=self.vars["traction_fault"]).grid(row=1, column=7, sticky="w")
         ttk.Label(cmds, text="Message").grid(row=1, column=1, sticky="e")
         ttk.Entry(cmds, textvariable=self.vars["msg"], width=60).grid(row=1, column=2, columnspan=4, sticky="ew")
+        self._slider(cmds, "Traction Slip %", "traction_slip", 0, 30, 3)
+        self._slider(cmds, "Torque Cut %", "torque_cut", 0, 100, 4)
 
-        ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=2, column=0, sticky="w", pady=(6, 0))
-        ttk.Button(cmds, text="Quit", command=self.close).grid(row=2, column=1, sticky="w", pady=(6, 0))
+        ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=5, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(cmds, text="Quit", command=self.close).grid(row=5, column=1, sticky="w", pady=(6, 0))
 
         lighting = ttk.LabelFrame(rootf, text="Motorcycle Lighting -> HUD", padding=8)
         lighting.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
@@ -247,11 +255,28 @@ class App:
                 )
             ),
         )
+        tc_flags = 0
+        tc_flags |= 0x01 if bool(self.vars["traction_active"].get()) else 0
+        tc_flags |= 0x02 if bool(self.vars["traction_fault"].get()) else 0
+        self._send(
+            int(ArduinoToHudID.TRACTION_STATUS),
+            struct.pack(
+                ">hBB",
+                int(max(-100.0, min(100.0, float(self.vars["traction_slip"].get()))) * 10),
+                max(0, min(100, int(self.vars["torque_cut"].get()))),
+                tc_flags,
+            ),
+        )
 
         self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
         self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))
         self._send(int(PiToArduinoID.FUEL_TYPE_SELECT), bytes((fuel_type_map[self.vars["fuel_type"].get()],)))
         self._send(int(PiToArduinoID.NFC_AUTH), bytes((1 if bool(self.vars["nfc_ok"].get()) else 0,)))
+        fuel_code = fuel_type_map[self.vars["fuel_type"].get()]
+        fuel_table = {0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3}[fuel_code]
+        stoich_x100 = {0: 1470, 1: 1470, 2: 1470, 3: 1470, 4: 985, 5: 1477}[fuel_code]
+        self._send(int(PiToEcuID.FUEL_PROFILE_SELECT), struct.pack(">BBH", fuel_code, fuel_table, stoich_x100))
+        self._send(int(PiToEcuID.SPARK_TABLE_SELECT), bytes((1 if mode_map[self.vars["mode"].get()] >= 3 else 0,)))
         light_flags = 0
         light_flags |= 0x01 if bool(self.vars["left_indicator"].get()) else 0
         light_flags |= 0x02 if bool(self.vars["right_indicator"].get()) else 0

@@ -49,9 +49,9 @@ class TractionPanel(Widget):
             ),
         )
 
-        level = state.traction.intervention_level or "MED"
+        level = f"CUT {state.traction.torque_cut_pct:2.0f}%" if state.traction.active else (state.traction.intervention_level or "MED")
         level_font = fit_font_size(level, self.rect.width // 3, int(self.rect.height * 0.26), start_size=max(14, int(self.rect.height * 0.25)), bold=True)
-        level_color = FAULT_AMBER if level == "OFF" else AMBER_BRIGHT
+        level_color = FAULT_AMBER if state.traction.sensor_fault or level == "OFF" else AMBER_BRIGHT
         level_surface = font(level_font, bold=True).render(level, True, level_color)
         surface.blit(
             level_surface,

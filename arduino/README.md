@@ -52,7 +52,9 @@ Traction level is commanded by Pi CAN frame (`0x124`) with levels:
 3. HIGH
 4. OFF
 
-Arduino computes slip ratio and publishes torque-cut request (`0x125`) for ECU-side power reduction.
+Arduino computes filtered slip ratio and publishes torque-cut request (`0x12A`) plus external slip request (`0x12B`) for ECU-side power reduction.
+Arduino also publishes HUD traction status (`0x13E`) with signed slip %, torque-cut %, active flag, and sensor-fault flag.
+The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut ramping, and wheel-speed plausibility suppression so transient Hall pulse noise does not request cuts.
 
 ## CAN notes
 
@@ -61,6 +63,7 @@ Arduino computes slip ratio and publishes torque-cut request (`0x125`) for ECU-s
 - Arduino reports fuel type in `0x13D` using the shared fuel code map: 0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
 - Arduino accepts Pi fuel type selection on `0x129` using the same shared fuel code map.
 - Arduino reports WMI status in `0x139`: byte 0 tank level %, bytes 1-2 commanded cc/min, bytes 3-4 sensed cc/min, byte 5 aggregate fault.
+- Pi sends ECU fuel profile selection on `0x150`: fuel code, fuel table index, and stoich AFR x100. Current table indexes are 0=pump gas, 1=100 octane, 2=E85, 3=C16. Pi sends ECU spark table selection on `0x151`: 0 initial map, 1 SPORT+ performance map.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).
 - Arduino reports Air Shot active flag in `0x130` payload byte 1 for HUD “air shot active” indicator.
 

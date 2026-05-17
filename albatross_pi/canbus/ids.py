@@ -39,6 +39,21 @@ class ArduinoToHudID(IntEnum):
     LIGHT_STATUS = 0x13B
     OIL_PRESSURE_STATUS = 0x13C
     FUEL_TYPE_STATUS = 0x13D
+    TRACTION_STATUS = 0x13E
+
+
+class ArduinoToEcuID(IntEnum):
+    """Messages that originate from Arduino and are consumed by the ECU."""
+
+    TORQUE_CUT_REQUEST = 0x12A
+    TRACTION_SLIP_REQUEST = 0x12B
+
+
+class PiToEcuID(IntEnum):
+    """Messages that originate from the Raspberry Pi and are consumed by the ECU."""
+
+    FUEL_PROFILE_SELECT = 0x150
+    SPARK_TABLE_SELECT = 0x151
 
 
 class PiToArduinoID(IntEnum):
@@ -49,7 +64,7 @@ class PiToArduinoID(IntEnum):
     FLAME_MODE = 0x122
     LIMP_MODE = 0x123
     TRACTION_LEVEL = 0x124
-    MEDIA_CONTROL = 0x125
+    MEDIA_CONTROL = 0x14A
     PHONE_LINK = 0x126
     ENGINE_RUN_SWITCH = 0x127
     WMI_ENABLE = 0x128

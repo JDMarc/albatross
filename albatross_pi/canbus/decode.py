@@ -13,10 +13,12 @@ from .ids import (
     FUEL_NAMES,
     MODE_NAMES,
     PiToArduinoID,
+    PiToEcuID,
     SystemCommandID,
 )
 from ..state.snapshot import (
     AirShotState,
+    ClutchState,
     EngineState,
     EnvironmentState,
     LightingState,
@@ -72,6 +74,7 @@ class CANStateAggregator:
         self._airshot = AirShotState()
         self._wmi = WMIState()
         self._traction = TractionState()
+        self._clutch = ClutchState()
         self._lighting = LightingState()
         self._environment = replace(EnvironmentState(), fuel_level_pct=-1.0)
         self._faults: Dict[int, str] = {}
@@ -108,6 +111,7 @@ class CANStateAggregator:
                 air_shot=self._airshot,
                 wmi=self._wmi,
                 traction=self._traction,
+                clutch=self._clutch,
                 lighting=self._lighting,
                 environment=self._environment,
                 shift_light=self._shift_light,
@@ -264,10 +268,24 @@ class CANStateAggregator:
         slip_pct = float(max(0, min(100, data[0])))
         severity_code = data[1]
         severity_map = {0: "NONE", 1: "MILD", 2: "MODERATE", 3: "SEVERE"}
+        self._clutch = replace(
+            self._clutch,
+            slip_pct=slip_pct,
+            severity=severity_map.get(severity_code, self._clutch.severity),
+        )
+
+    def _update_traction_status(self, data: bytes) -> None:
+        if len(data) < 4:
+            return
+        slip_x10 = struct.unpack_from(">h", data)[0]
+        torque_cut = max(0, min(100, data[2]))
+        flags = data[3]
         self._traction = replace(
             self._traction,
-            slip_pct=slip_pct,
-            intervention_level=severity_map.get(severity_code, self._traction.intervention_level),
+            slip_pct=max(0.0, slip_x10 / 10.0),
+            torque_cut_pct=float(torque_cut),
+            active=bool(flags & 0x01),
+            sensor_fault=bool(flags & 0x02),
         )
 
     def _update_tank_pressure(self, data: bytes) -> None:
@@ -356,6 +374,19 @@ class CANStateAggregator:
         env_dict["fuel_type"] = FUEL_NAMES.get(data[0], env_dict.get("fuel_type", "93"))
         self._environment = EnvironmentState(**env_dict)
 
+    def _update_ecu_fuel_profile(self, data: bytes) -> None:
+        if not data:
+            return
+        self._update_fuel_type(data[:1])
+
+    def _update_ecu_spark_table(self, data: bytes) -> None:
+        if not data:
+            return
+        table = "PERF" if data[0] else "INITIAL"
+        env_dict = self._environment.__dict__.copy()
+        env_dict["message_line"] = f"SPARK {table}"
+        self._environment = EnvironmentState(**env_dict)
+
     def _update_nfc_auth(self, data: bytes) -> None:
         if not data:
             return
@@ -401,11 +432,14 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.LIGHT_STATUS): CANStateAggregator._update_light_status,
     int(ArduinoToHudID.OIL_PRESSURE_STATUS): CANStateAggregator._update_arduino_oil_pressure,
     int(ArduinoToHudID.FUEL_TYPE_STATUS): CANStateAggregator._update_fuel_type,
+    int(ArduinoToHudID.TRACTION_STATUS): CANStateAggregator._update_traction_status,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,
     int(PiToArduinoID.FUEL_TYPE_SELECT): CANStateAggregator._update_fuel_type,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
+    int(PiToEcuID.FUEL_PROFILE_SELECT): CANStateAggregator._update_ecu_fuel_profile,
+    int(PiToEcuID.SPARK_TABLE_SELECT): CANStateAggregator._update_ecu_spark_table,
     int(SystemCommandID.POST_REQUEST): CANStateAggregator._update_post_frame,
     int(SystemCommandID.POST_RESPONSE): CANStateAggregator._update_post_frame,
 }

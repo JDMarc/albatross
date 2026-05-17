@@ -28,14 +28,16 @@ This means we can keep the architecture: **Pi plans + supervises, Arduino perfor
 ## 2) Ignition and fueling safety baseline
 
 1. Configure conservative base spark and VE maps for first-fire.
-2. Enable over-temp and AFR protection strategies available in your firmware.
-3. Set hard rev limit and soft rev limit with predictable cut behavior.
+2. Configure fuel-specific VE/AFR/stoich behavior for the fuels in the Pi fuel profile frame (`0x150`). Current table indexes are 0=pump gas, 1=100 octane, 2=E85, and 3=C16.
+3. Configure Spark Table 1/2 as the initial/conservative strategy and Spark Table 3/4 or the configured switched strategy as the SPORT+ performance spark map. The Pi sends `0x151` with 0 for ECO/NORMAL and 1 for SPORT/RACE/ALBATROSS.
+4. Enable over-temp and AFR protection strategies available in your firmware.
+5. Set hard rev limit and soft rev limit with predictable cut behavior.
 
 ## 3) Dual map / table switching for safe timing map
 
 1. Enable table/map switching input strategy in TunerStudio.
 2. Reserve a low-risk timing/boost-capable “safe” map.
-3. Wire or map a software-switchable input path that Arduino/Pi can command indirectly.
+3. Wire or map a software-switchable input/CAN path that Arduino/Pi can command indirectly.
 4. Validate that map-switch state is logged.
 
 ## 4) Boost integration with Arduino electronic wastegate control
@@ -84,7 +86,7 @@ MS3 already has native traction-control provisions (wheel-speed and external sli
 Recommended approach for this project:
 
 1. Keep Arduino as the aggressiveness/slip pre-processor and profile selector.
-2. Feed slip/torque-reduction intent to MS3 and let MS3 perform ignition/fuel/torque cuts using native strategies.
+2. Feed slip/torque-reduction intent to MS3 and let MS3 perform ignition/fuel/torque cuts using native strategies. Arduino publishes torque cut on `0x12A` and external slip on `0x12B`.
 3. Validate cut authority in logs before road use.
 
 If direct external throttle-cut over CAN is not available in your exact firmware build, use MS3 native traction-control inputs/tables as the authoritative cut mechanism and keep Arduino CAN outputs as the supervisory request path.

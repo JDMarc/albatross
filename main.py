@@ -19,6 +19,8 @@ from albatross_pi.boost_strategy import calculate_boost_target
 from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
 from albatross_pi.canbus.encode import (
     build_boost_target_frame,
+    build_ecu_fuel_profile_frame,
+    build_ecu_spark_table_frame,
     build_engine_run_switch_frame,
     build_fuel_type_frame,
     build_flame_mode_frame,
@@ -28,7 +30,7 @@ from albatross_pi.canbus.encode import (
 )
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
-from albatross_pi.state.snapshot import LightingState, StateSnapshot, WMIState
+from albatross_pi.state.snapshot import ClutchState, LightingState, StateSnapshot, WMIState
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from dataclasses import replace
 
@@ -153,17 +155,23 @@ def main() -> None:
             aggregator.mark_sent_frame(*boost_frame)
 
         def _send_mode_selection(mode_code: int) -> None:
-            frame = build_mode_selection_frame(mode_code)
             assert can_interface is not None
-            can_interface.send(*frame)
-            aggregator.mark_sent_frame(*frame)
+            for frame in (
+                build_mode_selection_frame(mode_code),
+                build_ecu_spark_table_frame(mode_code),
+            ):
+                can_interface.send(*frame)
+                aggregator.mark_sent_frame(*frame)
             _send_boost_request()
 
         def _send_fuel_type(fuel_code: int) -> None:
-            frame = build_fuel_type_frame(fuel_code)
             assert can_interface is not None
-            can_interface.send(*frame)
-            aggregator.mark_sent_frame(*frame)
+            for frame in (
+                build_fuel_type_frame(fuel_code),
+                build_ecu_fuel_profile_frame(fuel_code),
+            ):
+                can_interface.send(*frame)
+                aggregator.mark_sent_frame(*frame)
             _send_boost_request()
 
         def _send_media_control(command: str, value: int) -> None:
@@ -216,11 +224,11 @@ def main() -> None:
                 # Clutch slip is computed Arduino-side from predicted vs observed RPM:MPH ratio.
                 # Ratios are currently placeholders until measured drivetrain ratios are provided.
                 if (
-                    snap.traction.slip_pct >= 8.0
+                    snap.clutch.slip_pct >= 8.0
                     and snap.engine.gear not in ("N", "?")
                     and snap.engine.speed_mph > 5.0
                 ) or (
-                    snap.traction.intervention_level in ("MODERATE", "SEVERE")
+                    snap.clutch.severity in ("MODERATE", "SEVERE")
                     and snap.engine.gear not in ("N", "?")
                 ):
                     faults.append("CLUTCH SLIP")
@@ -475,7 +483,15 @@ def main() -> None:
                 trac = replace(
                     snap.traction,
                     intervention_level=str(obj.get("traction", snap.traction.intervention_level)),
+                    slip_pct=float(obj.get("traction_slip", snap.traction.slip_pct)),
+                    torque_cut_pct=float(obj.get("torque_cut", snap.traction.torque_cut_pct)),
+                    active=bool(obj.get("traction_active", snap.traction.active)),
+                    sensor_fault=bool(obj.get("traction_fault", snap.traction.sensor_fault)),
                     wheelie_pitch_deg=float(obj.get("lean_deg", snap.traction.wheelie_pitch_deg)),
+                )
+                clutch = ClutchState(
+                    slip_pct=float(obj.get("clutch_slip_pct", snap.clutch.slip_pct)),
+                    severity=str(obj.get("clutch_slip_severity", snap.clutch.severity)),
                 )
                 lighting = LightingState(
                     left_indicator=bool(obj.get("left_indicator", obj.get("turn_left", snap.lighting.left_indicator))),
@@ -491,6 +507,7 @@ def main() -> None:
                     temps=temps,
                     environment=env,
                     traction=trac,
+                    clutch=clutch,
                     lighting=lighting,
                     air_shot=air,
                     wmi=wmi,

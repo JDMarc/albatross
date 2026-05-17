@@ -12,6 +12,7 @@ from typing import Callable, Iterator
 from albatross_pi.boost_strategy import calculate_boost_target
 from .snapshot import (
     AirShotState,
+    ClutchState,
     EngineState,
     EnvironmentState,
     LightingState,
@@ -147,6 +148,13 @@ class StateSimulator:
             slip_pct=max(0.0, 5 + 3 * math.sin(self._phase * math.tau * 1.2)),
             wheelie_pitch_deg=3 * math.sin(self._phase * math.tau * 0.8),
             intervention_level=rng.choice(["LOW", "MED", "HIGH"]),
+            torque_cut_pct=12.0 if 0.48 < self._phase < 0.55 else 0.0,
+            active=0.48 < self._phase < 0.55,
+            sensor_fault=False,
+        )
+        clutch = ClutchState(
+            slip_pct=max(0.0, 2 + math.sin(self._phase * math.tau * 0.9) * 2),
+            severity="NONE",
         )
 
         lighting = LightingState(
@@ -192,6 +200,7 @@ class StateSimulator:
             air_shot=air_shot,
             wmi=wmi,
             traction=traction,
+            clutch=clutch,
             lighting=lighting,
             environment=environment,
             shift_light=shift_light,
