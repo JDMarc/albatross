@@ -13,16 +13,16 @@ THEME_FONT_PREFERRED = (
 )
 THEME_FONT_QUERY = ",".join(THEME_FONT_PREFERRED)
 
-Color = tuple[int, int, int]
+Color = list[int]
 
 # 80s amber monochrome-ish palette.
-BLACK: Color = (0, 0, 0)
-AMBER_BG: Color = (10, 6, 0)
-AMBER_DARK: Color = (46, 24, 0)
-AMBER_MID: Color = (138, 67, 0)
-AMBER_BRIGHT: Color = (255, 141, 20)
-AMBER_GLOW: Color = (255, 180, 90)
-FAULT_AMBER: Color = (255, 98, 0)
+BLACK: Color = [0, 0, 0]
+AMBER_BG: Color = [10, 6, 0]
+AMBER_DARK: Color = [46, 24, 0]
+AMBER_MID: Color = [138, 67, 0]
+AMBER_BRIGHT: Color = [255, 141, 20]
+AMBER_GLOW: Color = [255, 180, 90]
+FAULT_AMBER: Color = [255, 98, 0]
 
 _FONT_CACHE: dict[tuple[int, bool], pygame.font.Font] = {}
 
@@ -47,3 +47,18 @@ def fit_font_size(text: str, max_w: int, max_h: int, *, start_size: int, bold: b
             return size
         size -= 1
     return min_size
+
+
+def apply_theme(theme: str) -> None:
+    if theme == "NIGHT":
+        bg, dark, mid, bright, glow, fault = [14, 18, 28], [32, 45, 65], [58, 85, 120], [130, 190, 255], [88, 135, 190], [255, 90, 90]
+    elif theme == "HIGH-CON":
+        bg, dark, mid, bright, glow, fault = [0, 0, 0], [90, 90, 90], [150, 150, 150], [255, 255, 255], [220, 220, 220], [255, 80, 80]
+    else:
+        bg, dark, mid, bright, glow, fault = [10, 6, 0], [46, 24, 0], [138, 67, 0], [255, 141, 20], [255, 180, 90], [255, 98, 0]
+    AMBER_BG[:] = bg
+    AMBER_DARK[:] = dark
+    AMBER_MID[:] = mid
+    AMBER_BRIGHT[:] = bright
+    AMBER_GLOW[:] = glow
+    FAULT_AMBER[:] = fault
