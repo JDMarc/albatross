@@ -193,11 +193,11 @@ def main() -> None:
                     faults.append("SPEED SENSOR")
                 if snap.engine.gear not in ("N", "1", "2", "3", "4", "5", "6", "?"):
                     faults.append("GEAR SENSOR")
-                # RPM/speed mismatch can indicate clutch slip under load, not only sensor error.
+                # Clutch slip is computed Arduino-side from predicted vs observed RPM:MPH ratio.
+                # Ratios are currently placeholders until measured drivetrain ratios are provided.
                 if (
-                    snap.engine.rpm > 7000
-                    and snap.engine.throttle_pct > 55
-                    and snap.engine.speed_mph < 20
+                    snap.traction.slip_pct >= 15.0
+                    and snap.engine.throttle_pct > 35
                     and snap.engine.gear not in ("N", "?")
                 ):
                     faults.append("CLUTCH SLIP")

@@ -35,6 +35,7 @@ class ArduinoToHudID(IntEnum):
     WHEEL_SPEED = 0x137
     FUEL_LEVEL = 0x138
     WMI_STATUS = 0x139
+    CLUTCH_SLIP_STATUS = 0x13A
 
 
 class PiToArduinoID(IntEnum):
