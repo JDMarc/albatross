@@ -3,34 +3,20 @@ from __future__ import annotations
 
 import pygame
 
-from .base import Color, Widget
+from .base import Widget
+from .ui_utils import AMBER_BG, AMBER_GLOW, FAULT_AMBER, font
 from ...state.snapshot import StateSnapshot
-
-BG_COLOR: Color = (0, 0, 0)
-HAPPY_COLOR: Color = (255, 200, 120)
-ALERT_COLOR: Color = (255, 80, 80)
-
-FONT_CACHE: dict[int, pygame.font.Font] = {}
-
-
-def _font(size: int) -> pygame.font.Font:
-    font = FONT_CACHE.get(size)
-    if font is None:
-        font = pygame.font.SysFont("Courier", size, bold=True)
-        FONT_CACHE[size] = font
-    return font
-
 
 class GLSprite(Widget):
     def __init__(self, rect: pygame.Rect) -> None:
         self.rect = rect
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, BG_COLOR, self.rect)
+        pygame.draw.rect(surface, AMBER_BG, self.rect)
         mood = state.gl_sprite_mood
-        color = ALERT_COLOR if mood == "alert" else HAPPY_COLOR
+        color = FAULT_AMBER if mood == "alert" else AMBER_GLOW
         text = ":)" if mood == "happy" else ("!" if mood == "alert" else ":|")
-        sprite_surface = _font(48).render(text, True, color)
+        sprite_surface = font(48, bold=True).render(text, True, color)
         surface.blit(
             sprite_surface,
             (
