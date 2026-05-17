@@ -66,8 +66,10 @@ class HUDRenderer:
         self._focus_index = 0
         self._active_menu = "home"
         self._settings_cursor = 0
-        self._media_items = ["PREV", "PLAY", "NEXT"]
+        self._media_items = ["PREV", "PLAY", "NEXT", "DEVICES"]
         self._media_index = 0
+        self._media_device_cursor = 0
+        self._media_device_menu_open = False
         self._setting_items = ["TRACTION", "BRIGHTNESS", "MODE", "PHONE LINK", "THEME", "AUTO DIM"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
@@ -79,7 +81,7 @@ class HUDRenderer:
         self._phone_artist = ""
         self._phone_position_s = 0.0
         self._phone_length_s = 0.0
-        self._available_devices: tuple[str, ...] = ()
+        self._available_devices: tuple[tuple[str, str], ...] = ()
         self._last_snapshot_time = self.state.environment.time
         self._last_can_fresh_monotonic = time.monotonic()
         self._create_widgets()
@@ -118,7 +120,7 @@ class HUDRenderer:
     def configure_media_callback(self, callback) -> None:
         self._media_callback = callback
 
-    def update_phone_status(self, *, artist: str, track: str, position_s: float, length_s: float, devices: tuple[str, ...]) -> None:
+    def update_phone_status(self, *, artist: str, track: str, position_s: float, length_s: float, devices: tuple[tuple[str, str], ...]) -> None:
         self._phone_artist = artist
         self._phone_track = track
         self._phone_position_s = max(0.0, position_s)
@@ -407,9 +409,7 @@ class HUDRenderer:
                 pressed = pygame.key.get_pressed()
                 if pressed[self._ack_key]:
                     self._post_fault_active = False
-            # Keep clock display live without mutating CAN freshness timestamps.
-            render_state = replace(state, environment=replace(state.environment, time=datetime.now()))
-            self._render_frame(render_state)
+            self._render_frame(state)
             self.clock.tick(TARGET_FPS)
 
             now = time.perf_counter()
@@ -509,7 +509,10 @@ class HUDRenderer:
                 self._auto_dim_enabled = True
             return
         if self._active_menu == "media":
-            self._media_index = (self._media_index + 1) % len(self._media_items)
+            if self._media_device_menu_open and self._available_devices:
+                self._media_device_cursor = (self._media_device_cursor + 1) % len(self._available_devices)
+            else:
+                self._media_index = (self._media_index + 1) % len(self._media_items)
             return
         self._focus_index = (self._focus_index + 1) % len(self._focus_targets)
 
@@ -536,7 +539,10 @@ class HUDRenderer:
                 self._auto_dim_enabled = False
             return
         if self._active_menu == "media":
-            self._media_index = (self._media_index - 1) % len(self._media_items)
+            if self._media_device_menu_open and self._available_devices:
+                self._media_device_cursor = (self._media_device_cursor - 1) % len(self._available_devices)
+            else:
+                self._media_index = (self._media_index - 1) % len(self._media_items)
             return
         self._focus_index = (self._focus_index - 1) % len(self._focus_targets)
 
@@ -544,13 +550,19 @@ class HUDRenderer:
         if self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor - 1) % len(self._setting_items)
         elif self._active_menu == "media":
-            self._media_index = (self._media_index - 1) % len(self._media_items)
+            if self._media_device_menu_open and self._available_devices:
+                self._media_device_cursor = (self._media_device_cursor - 1) % len(self._available_devices)
+            else:
+                self._media_index = (self._media_index - 1) % len(self._media_items)
 
     def _handle_down(self) -> None:
         if self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor + 1) % len(self._setting_items)
         elif self._active_menu == "media":
-            self._media_index = (self._media_index + 1) % len(self._media_items)
+            if self._media_device_menu_open and self._available_devices:
+                self._media_device_cursor = (self._media_device_cursor + 1) % len(self._available_devices)
+            else:
+                self._media_index = (self._media_index + 1) % len(self._media_items)
 
     def _handle_select(self) -> None:
         if self._active_menu == "home":
@@ -572,6 +584,9 @@ class HUDRenderer:
 
     def _handle_back(self) -> None:
         if self._active_menu != "home":
+            if self._active_menu == "media" and self._media_device_menu_open:
+                self._media_device_menu_open = False
+                return
             self._active_menu = "home"
 
     def _activate_media_action(self) -> None:
@@ -582,6 +597,13 @@ class HUDRenderer:
             self._media_callback("play_pause", 1)
         elif action == "NEXT" and self._media_callback:
             self._media_callback("next", 1)
+        elif action == "DEVICES":
+            if self._media_device_menu_open and self._available_devices and self._media_callback:
+                mac, _name = self._available_devices[self._media_device_cursor]
+                self._media_callback(f"connect:{mac}", 1)
+                self._media_device_menu_open = False
+            else:
+                self._media_device_menu_open = True
 
     def _render_settings_overlay(self) -> None:
         bg, bright, glow, _fault = self._theme_colors()
@@ -627,13 +649,15 @@ class HUDRenderer:
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
         pygame.draw.rect(self.screen, bright, fill, border_radius=4)
         y = panel.y + 122
-        self._draw_media_icons(panel.x + 142, y, active_index=self._media_index)
+        self._draw_media_icons(panel.x + 72, y, active_index=self._media_index)
+        if self._media_device_menu_open:
+            self._render_device_submenu(panel)
 
     def _draw_media_icons(self, x: int, y: int, *, active_index: int) -> None:
         _bg, bright, glow, _fault = self._theme_colors()
-        for idx in range(3):
+        for idx in range(4):
             c = bright if idx == active_index else glow
-            cx = x + idx * 110
+            cx = x + idx * 92
             pygame.draw.rect(self.screen, bright if idx == active_index else (70, 45, 0), pygame.Rect(cx, y - 4, 64, 40), width=2, border_radius=5)
             if idx == 0:  # PREV (double left triangles)
                 pygame.draw.polygon(self.screen, c, [(cx + 30, y), (cx + 6, y + 16), (cx + 30, y + 32)])
@@ -641,9 +665,30 @@ class HUDRenderer:
             elif idx == 1:  # PLAY/PAUSE (toggle-style icon)
                 pygame.draw.rect(self.screen, c, pygame.Rect(cx + 12, y + 2, 8, 28))
                 pygame.draw.rect(self.screen, c, pygame.Rect(cx + 26, y + 2, 8, 28))
-            else:  # NEXT (double right triangles)
+            elif idx == 2:  # NEXT (double right triangles)
                 pygame.draw.polygon(self.screen, c, [(cx + 10, y), (cx + 34, y + 16), (cx + 10, y + 32)])
                 pygame.draw.polygon(self.screen, c, [(cx + 32, y), (cx + 56, y + 16), (cx + 32, y + 32)])
+            else:
+                label = font(11, bold=True).render("BT", True, c)
+                self.screen.blit(label, (cx + 20, y + 10))
+
+    def _render_device_submenu(self, parent_panel: pygame.Rect) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        menu = pygame.Rect(parent_panel.x + 40, parent_panel.bottom + 6, parent_panel.width - 80, 140)
+        overlay = pygame.Surface((menu.width, menu.height), pygame.SRCALPHA)
+        overlay.fill((12, 8, 0, 230))
+        self.screen.blit(overlay, menu.topleft)
+        pygame.draw.rect(self.screen, glow, menu, width=2, border_radius=8)
+        self.screen.blit(font(14, bold=True).render("BLUETOOTH DEVICES", True, bright), (menu.x + 10, menu.y + 8))
+        rows = self._available_devices[:4]
+        if not rows:
+            self.screen.blit(font(12).render("No paired devices found.", True, glow), (menu.x + 10, menu.y + 40))
+            return
+        for idx, (_mac, name) in enumerate(rows):
+            active = idx == self._media_device_cursor
+            color = bright if active else glow
+            prefix = ">" if active else " "
+            self.screen.blit(font(12, bold=active).render(f"{prefix} {name[:36]}", True, color), (menu.x + 10, menu.y + 36 + idx * 22))
 
     def _settings_value(self, item: str) -> str:
         if item == "TRACTION":

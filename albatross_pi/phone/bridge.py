@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable
 
 
@@ -21,7 +22,10 @@ class PhoneStatus:
     rain: bool | None = None
     position_s: float = 0.0
     length_s: float = 0.0
-    devices: tuple[str, ...] = ()
+    devices: tuple[tuple[str, str], ...] = ()
+    phone_time: datetime | None = None
+    gps_lat: float | None = None
+    gps_lon: float | None = None
 
 
 class PhoneBridge:
@@ -53,6 +57,10 @@ class PhoneBridge:
             self._run_bt("connect", self._mac)
         else:
             self._run_bt("disconnect", self._mac)
+
+    def connect_device(self, mac: str) -> None:
+        if mac:
+            self._run_bt("connect", mac)
 
     def media_command(self, command: str) -> None:
         cmd_map = {"prev": "previous", "play_pause": "play-pause", "next": "next"}
@@ -107,6 +115,16 @@ class PhoneBridge:
                     self._status.gps_lock = bool(obj["gps_lock"])
                 if "rain" in obj:
                     self._status.rain = bool(obj["rain"])
+                phone_time_raw = obj.get("phone_time")
+                if phone_time_raw:
+                    try:
+                        self._status.phone_time = datetime.fromisoformat(str(phone_time_raw).replace("Z", "+00:00"))
+                    except ValueError:
+                        logging.debug("Invalid phone_time payload: %s", phone_time_raw)
+                if "gps_lat" in obj:
+                    self._status.gps_lat = float(obj["gps_lat"])
+                if "gps_lon" in obj:
+                    self._status.gps_lon = float(obj["gps_lon"])
                 self._on_status(self._status)
             except socket.timeout:
                 continue
@@ -121,13 +139,13 @@ class PhoneBridge:
     def _device_scan_loop(self) -> None:
         while not self._stop.is_set():
             out = self._run_bt("devices")
-            devices: list[str] = []
+            devices: list[tuple[str, str]] = []
             for line in out.splitlines():
                 if not line.startswith("Device "):
                     continue
                 parts = line.split(" ", 2)
                 if len(parts) >= 3:
-                    devices.append(parts[2].strip())
+                    devices.append((parts[1].strip(), parts[2].strip()))
             self._status.devices = tuple(devices[:8])
             self._on_status(self._status)
             time.sleep(8.0)
