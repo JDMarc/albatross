@@ -676,8 +676,8 @@ class HUDRenderer:
         # Right-side anchored cluster: settings then media.
         # Leave margin so ambient/GPS readouts at far-right stay visible.
         cluster_right = width - 150
-        tile = pygame.Rect(cluster_right - 280, 8, 280, 74)
-        settings_rect = pygame.Rect(tile.x - 8 - 128, 8, 128, 74)
+        tile = pygame.Rect(cluster_right - 280, -2, 280, 54)
+        settings_rect = pygame.Rect(tile.x - 8 - 128, -2, 128, 54)
         pygame.draw.rect(self.screen, bg, tile, border_radius=6)
         focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "MEDIA"
         pygame.draw.rect(self.screen, bright if focused else glow, tile, width=2 if focused else 1, border_radius=6)
