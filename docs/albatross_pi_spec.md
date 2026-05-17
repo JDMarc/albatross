@@ -126,6 +126,7 @@
 - `WMI PRESSURE LOW`: WMI line pressure below minimum while armed.
 - `WASTEGATE STUCK`: duty changes command but boost response remains frozen.
 - `BOOST CONTROL ERROR`: closed-loop boost control deviation persists outside margin.
+- `SLOW TURBO SPOOL`: target boost is requested under high load but measured boost rises too slowly despite high wastegate duty.
 - `CYL EGT BOOST MISMATCH`: high-load operation where EGT-derived load and boost diverge beyond plausibility window.
 - `INTAKE AIR HOT`: IAT exceeds configured derate trigger.
 - `BATTERY LOW`: bus voltage below under-voltage threshold.

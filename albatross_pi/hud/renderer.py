@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import sunau
 import threading
 import time
@@ -32,6 +33,7 @@ from ..state.snapshot import StateSnapshot
 SCREEN_SIZE = (1920, 720)
 TARGET_FPS = 60
 LOGGER = logging.getLogger(__name__)
+RETRO_ERROR_BEEP = "__retro_error_beep__"
 
 
 class EvaAlertAudio:
@@ -48,27 +50,29 @@ class EvaAlertAudio:
             "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
             "LOW OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
             "COOLANT HOT": "your_engine_is_overheating_prompt_service_is_required.wav",
-            "EGT HOT": "your_engine_temperature_is_above_normal.wav",
+            "EGT HIGH": "your_engine_temperature_is_above_normal.wav",
             "LOW FUEL": "please_check_your_fuel_level.wav",
-            "KNOCK": "long_beeps.wav",
-            "KNOCK ESCALATE": "long_beeps.wav",
-            "WMI FLOW LOW": "long_beeps.wav",
-            "WMI TANK EMPTY": "long_beeps.wav",
-            "WMI PUMP FAULT": "long_beeps.wav",
-            "WMI PRESSURE LOW": "long_beeps.wav",
-            "CAN STALE": "long_beeps.wav",
-            "ECU STALE": "long_beeps.wav",
-            "CLUTCH SLIP": "long_beeps.wav",
-            "CYL EGT BOOST MISMATCH": "long_beeps.wav",
-            "OVERBOOST": "long_beeps.wav",
-            "BOOST CONTROL ERROR": "long_beeps.wav",
-            "WASTEGATE STUCK": "long_beeps.wav",
-            "AIR SHOT LOW": "long_beeps.wav",
-            "SPEED SENSOR": "long_beeps.wav",
-            "GEAR SENSOR": "long_beeps.wav",
-            "INTAKE AIR HOT": "long_beeps.wav",
-            "BATTERY LOW": "long_beeps.wav",
-            "BATTERY HIGH": "long_beeps.wav",
+            "KNOCK": RETRO_ERROR_BEEP,
+            "KNOCK ESCALATE": RETRO_ERROR_BEEP,
+            "WMI FLOW LOW": RETRO_ERROR_BEEP,
+            "WMI TANK EMPTY": RETRO_ERROR_BEEP,
+            "WMI PUMP FAULT": RETRO_ERROR_BEEP,
+            "WMI PRESSURE LOW": RETRO_ERROR_BEEP,
+            "CAN STALE": RETRO_ERROR_BEEP,
+            "ECU STALE": RETRO_ERROR_BEEP,
+            "CLUTCH SLIP": RETRO_ERROR_BEEP,
+            "CYL EGT BOOST MISMATCH": RETRO_ERROR_BEEP,
+            "OVERBOOST": RETRO_ERROR_BEEP,
+            "BOOST CONTROL ERROR": RETRO_ERROR_BEEP,
+            "SLOW TURBO SPOOL": RETRO_ERROR_BEEP,
+            "WASTEGATE STUCK": RETRO_ERROR_BEEP,
+            "AIR SHOT LOW": RETRO_ERROR_BEEP,
+            "SPEED SENSOR": RETRO_ERROR_BEEP,
+            "GEAR SENSOR": RETRO_ERROR_BEEP,
+            "INTAKE AIR HOT": RETRO_ERROR_BEEP,
+            "BATTERY LOW": RETRO_ERROR_BEEP,
+            "BATTERY HIGH": RETRO_ERROR_BEEP,
+            "SENSOR RANGE FAULT": RETRO_ERROR_BEEP,
         }
         if not self._init_mixer():
             return
@@ -113,10 +117,34 @@ class EvaAlertAudio:
                 loaded_by_name[name] = pygame.mixer.Sound(str(transcoded_path))
             except Exception as exc:
                 LOGGER.warning("Failed loading EVA clip %s (%s): %s", name, source_path, exc)
+        loaded_by_name[RETRO_ERROR_BEEP] = self._build_retro_error_beep()
         for fault, name in self._mapping.items():
             sound = loaded_by_name.get(name)
             if sound is not None:
                 self._sounds[fault] = sound
+
+    @staticmethod
+    def _build_retro_error_beep() -> pygame.mixer.Sound:
+        init = pygame.mixer.get_init()
+        sample_rate = init[0] if init else 44100
+        tones = [(880.0, 0.08), (0.0, 0.035), (660.0, 0.08), (0.0, 0.035), (440.0, 0.14)]
+        samples = bytearray()
+        amplitude = 7000
+        for freq, duration_s in tones:
+            frames = max(1, int(sample_rate * duration_s))
+            for idx in range(frames):
+                if freq <= 0.0:
+                    value = 0
+                else:
+                    # A softened square wave gives the alert an 80s computer tone without
+                    # the harsh EVA long-beep clip.
+                    phase = math.sin(2.0 * math.pi * freq * idx / sample_rate)
+                    value = int(amplitude * (1.0 if phase >= 0.0 else -1.0))
+                    envelope = min(1.0, idx / max(1, int(sample_rate * 0.01)), (frames - idx) / max(1, int(sample_rate * 0.018)))
+                    value = int(value * max(0.0, envelope))
+                samples.extend(value.to_bytes(2, "little", signed=True))
+                samples.extend(value.to_bytes(2, "little", signed=True))
+        return pygame.mixer.Sound(buffer=bytes(samples))
 
     @staticmethod
     def _transcode_au_to_pcm_wav(source_path: Path, dest_path: Path) -> None:
@@ -230,32 +258,143 @@ class HUDRenderer:
         self._available_devices: tuple[tuple[str, str], ...] = ()
         self._last_snapshot_time = self.state.environment.time
         self._last_can_fresh_monotonic = time.monotonic()
+        self._fault_condition_since: dict[str, float] = {}
         self._display_time_anchor = self.state.environment.time
         self._display_time_anchor_monotonic = self._last_can_fresh_monotonic
         self._audio = EvaAlertAudio()
         self._create_widgets()
 
+    def _persistent_fault(self, name: str, condition: bool, now_s: float, hold_s: float) -> bool:
+        if not condition:
+            self._fault_condition_since.pop(name, None)
+            return False
+        started_at = self._fault_condition_since.setdefault(name, now_s)
+        return now_s - started_at >= hold_s
+
+    @staticmethod
+    def _finite(value: float | int) -> bool:
+        return math.isfinite(float(value))
+
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
         active: set[str] = set()
         can_age_s = max(0.0, now_s - self._last_can_fresh_monotonic)
+        engine = state.engine
+        temps = state.temps
+        wmi = state.wmi
+        air = state.air_shot
+        gear = str(engine.gear).upper()
+        in_drive = gear not in {"N", "?", ""}
+        high_load = engine.throttle_pct > 55 or engine.engine_load_pct > 60
+
         if can_age_s > 1.5:
             active.add("CAN STALE")
-        if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
+        if temps.oil_pressure_psi < 5 and engine.rpm > 1200:
+            active.add("CRITICAL OIL PRESS")
+        elif temps.oil_pressure_psi < 12 and engine.rpm > 1800:
             active.add("LOW OIL PRESS")
-        if state.temps.coolant_temp_f > 235:
+        if temps.coolant_temp_f > 235:
             active.add("COOLANT HOT")
-        if state.temps.exhaust_temp_f > 1600:
-            active.add("EGT HOT")
-        if state.engine.boost_psi > max(1.0, state.engine.target_boost_psi + 3.0):
+        if temps.exhaust_temp_f > 1600:
+            active.add("EGT HIGH")
+        if temps.intake_temp_f > 155:
+            active.add("INTAKE AIR HOT")
+        if 0.0 < temps.battery_voltage < 11.8 and engine.rpm > 900:
+            active.add("BATTERY LOW")
+        if temps.battery_voltage > 15.2:
+            active.add("BATTERY HIGH")
+        if engine.boost_psi > max(1.0, engine.target_boost_psi + 3.0):
             active.add("OVERBOOST")
-        if state.engine.knock_events >= 2:
+        if engine.knock_events >= 2:
             active.add("KNOCK ESCALATE")
-        if state.environment.fuel_level_pct <= 12:
+        if 0.0 <= state.environment.fuel_level_pct <= 12:
             active.add("LOW FUEL")
-        if state.wmi.fault_active:
+        if wmi.fault_active:
             active.add("WMI FLOW LOW")
-        if state.engine.gear == "?":
+        if wmi.tank_level_pct <= 5 and (wmi.commanded_flow_cc_min > 0 or engine.target_boost_psi > 6):
+            active.add("WMI TANK EMPTY")
+        if wmi.commanded_flow_cc_min >= 100 and wmi.actual_flow_cc_min < wmi.commanded_flow_cc_min * 0.6:
+            if self._persistent_fault("WMI FLOW LOW", True, now_s, 0.25):
+                active.add("WMI FLOW LOW")
+        else:
+            self._persistent_fault("WMI FLOW LOW", False, now_s, 0.25)
+        if engine.gear == "?":
             active.add("GEAR SENSOR")
+        if air.pressure_psi < 35 and (air.is_firing or engine.target_boost_psi > 6):
+            active.add("AIR SHOT LOW")
+        if state.clutch.severity in {"MODERATE", "SEVERE"} or state.clutch.slip_pct >= 25:
+            active.add("CLUTCH SLIP")
+        if state.traction.sensor_fault:
+            active.add("SPEED SENSOR")
+
+        slow_spool = (
+            engine.target_boost_psi >= 6.0
+            and high_load
+            and engine.rpm >= 3500
+            and in_drive
+            and engine.wastegate_duty_pct >= 50
+            and engine.boost_psi < max(engine.target_boost_psi * 0.55, engine.target_boost_psi - 5.0)
+        )
+        if self._persistent_fault("SLOW TURBO SPOOL", slow_spool, now_s, 2.0):
+            active.add("SLOW TURBO SPOOL")
+
+        boost_error = (
+            engine.target_boost_psi >= 4.0
+            and high_load
+            and engine.rpm >= 3000
+            and abs(engine.boost_psi - engine.target_boost_psi) > 4.0
+        )
+        if self._persistent_fault("BOOST CONTROL ERROR", boost_error, now_s, 1.5):
+            active.add("BOOST CONTROL ERROR")
+
+        wastegate_stuck = (engine.target_boost_psi <= 2.0 or engine.throttle_pct < 20) and engine.boost_psi > 5.0
+        if self._persistent_fault("WASTEGATE STUCK", wastegate_stuck, now_s, 1.0):
+            active.add("WASTEGATE STUCK")
+
+        speed_sensor_fault = engine.rpm > 2800 and engine.throttle_pct > 25 and in_drive and engine.speed_mph < 2.0
+        if self._persistent_fault("SPEED SENSOR", speed_sensor_fault, now_s, 1.0):
+            active.add("SPEED SENSOR")
+
+        egt_boost_mismatch = (
+            high_load
+            and engine.rpm > 4000
+            and temps.exhaust_temp_f > 1500
+            and engine.target_boost_psi > 6.0
+            and engine.boost_psi < 2.0
+        )
+        if self._persistent_fault("CYL EGT BOOST MISMATCH", egt_boost_mismatch, now_s, 1.0):
+            active.add("CYL EGT BOOST MISMATCH")
+
+        sensor_values = (
+            engine.boost_psi,
+            engine.target_boost_psi,
+            engine.throttle_pct,
+            engine.engine_load_pct,
+            temps.coolant_temp_f,
+            temps.oil_temp_f,
+            temps.oil_pressure_psi,
+            temps.battery_voltage,
+            temps.intake_temp_f,
+            temps.exhaust_temp_f,
+            wmi.tank_level_pct,
+            wmi.commanded_flow_cc_min,
+            wmi.actual_flow_cc_min,
+        )
+        sensor_range_fault = (
+            not all(self._finite(value) for value in sensor_values)
+            or engine.throttle_pct < 0
+            or engine.throttle_pct > 100
+            or engine.engine_load_pct < 0
+            or engine.engine_load_pct > 100
+            or temps.battery_voltage > 18
+            or (temps.battery_voltage < -0.1 and temps.battery_voltage != -1)
+            or temps.oil_pressure_psi < -1
+            or wmi.tank_level_pct < 0
+            or wmi.tank_level_pct > 100
+            or wmi.actual_flow_cc_min < 0
+            or wmi.commanded_flow_cc_min < 0
+        )
+        if sensor_range_fault:
+            active.add("SENSOR RANGE FAULT")
 
         # Return only currently active faults; AlertPanel handles post-clear hold timing.
         return tuple(sorted(active))
