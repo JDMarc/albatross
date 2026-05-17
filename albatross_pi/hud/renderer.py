@@ -731,7 +731,9 @@ class HUDRenderer:
             target = self._focus_targets[self._focus_index]
             if target == "SETTINGS":
                 cur = self.state
-                if cur.engine.gear == "N" and cur.engine.speed_mph <= 0.1:
+                gear = (cur.engine.gear or "").strip().upper()
+                stopped = cur.engine.speed_mph <= 1.0
+                if gear in {"N", "P"} and stopped:
                     self._active_menu = "settings"
             elif target == "MEDIA":
                 self._active_menu = "media"
