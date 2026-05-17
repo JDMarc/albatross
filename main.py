@@ -196,8 +196,11 @@ def main() -> None:
                 # Clutch slip is computed Arduino-side from predicted vs observed RPM:MPH ratio.
                 # Ratios are currently placeholders until measured drivetrain ratios are provided.
                 if (
-                    snap.traction.slip_pct >= 15.0
-                    and snap.engine.throttle_pct > 35
+                    snap.traction.slip_pct >= 8.0
+                    and snap.engine.gear not in ("N", "?")
+                    and snap.engine.speed_mph > 5.0
+                ) or (
+                    snap.traction.intervention_level in ("MODERATE", "SEVERE")
                     and snap.engine.gear not in ("N", "?")
                 ):
                     faults.append("CLUTCH SLIP")
