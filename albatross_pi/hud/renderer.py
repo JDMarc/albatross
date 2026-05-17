@@ -26,7 +26,7 @@ from .widgets.rpm_bar import RpmBar
 from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
 from .widgets.traction_panel import TractionPanel
-from .widgets.ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
+from .widgets.ui_utils import apply_theme, fit_font_size, font
 from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
@@ -217,6 +217,7 @@ class HUDRenderer:
         self._brightness_index = 3
         self._themes = ["AMBER", "NIGHT", "HIGH-CON"]
         self._theme_index = 0
+        apply_theme(self._themes[self._theme_index])
         self._auto_dim_enabled = True
         self._phone_track = ""
         self._phone_artist = ""
@@ -593,6 +594,7 @@ class HUDRenderer:
         return self.screen.copy()
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
+        apply_theme(self._themes[self._theme_index])
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
@@ -611,6 +613,7 @@ class HUDRenderer:
             pygame.display.flip()
 
     def _render_post_overlay(self) -> None:
+        _bg, bright, glow, fault = self._theme_colors()
         overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 255))
         self.screen.blit(overlay, (0, 0))
@@ -619,7 +622,7 @@ class HUDRenderer:
         elapsed = max(0.0, time.monotonic() - self._post_started_at)
         title_full = "POWER ON SELF TEST"
         title_chars = min(len(title_full), int(elapsed / 0.045))
-        title = font(18, bold=True).render(title_full[:title_chars], True, AMBER_BRIGHT)
+        title = font(18, bold=True).render(title_full[:title_chars], True, bright)
         self.screen.blit(title, (x, y))
         y += 28
         t = elapsed - 1.0
@@ -632,10 +635,10 @@ class HUDRenderer:
             if phase < 1.0:
                 visible = min(len(prefix), int(phase / 0.04))
                 out = prefix[:visible]
-                color = AMBER_GLOW
+                color = glow
             else:
                 out = f"{prefix} {result}"
-                color = AMBER_GLOW if ok else FAULT_AMBER
+                color = glow if ok else fault
             sz = fit_font_size(out, self.screen.get_width() - 48, 20, start_size=16)
             surf = font(sz).render(out, True, color)
             self.screen.blit(surf, (x, y))
@@ -645,7 +648,7 @@ class HUDRenderer:
         if elapsed < done_time:
             return
         ack = f"FAULT ACK REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()}"
-        ack_s = font(16, bold=True).render(ack, True, FAULT_AMBER)
+        ack_s = font(16, bold=True).render(ack, True, fault)
         self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
 
     def _handle_dpad_right(self) -> None:
@@ -733,7 +736,7 @@ class HUDRenderer:
                 cur = self.state
                 gear = (cur.engine.gear or "").strip().upper()
                 stopped = cur.engine.speed_mph <= 1.0
-                if gear in {"N", "P"} and stopped:
+                if gear in {"N", "P", "?"} and stopped:
                     self._active_menu = "settings"
             elif target == "MEDIA":
                 self._active_menu = "media"
