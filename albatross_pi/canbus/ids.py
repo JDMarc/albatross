@@ -46,6 +46,7 @@ class PiToArduinoID(IntEnum):
     TRACTION_LEVEL = 0x124
     MEDIA_CONTROL = 0x125
     PHONE_LINK = 0x126
+    ENGINE_RUN_SWITCH = 0x127
     NFC_AUTH = 0x140
 
 

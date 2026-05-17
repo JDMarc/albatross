@@ -53,3 +53,13 @@ def build_phone_link_frame(enabled: bool) -> tuple[int, bytes]:
     """Return a frame to request phone link enable/disable."""
     payload = bytes((0x01 if enabled else 0x00,))
     return int(PiToArduinoID.PHONE_LINK), payload
+
+
+def build_engine_run_switch_frame(enabled: bool) -> tuple[int, bytes]:
+    """Return a frame to emulate an engine run switch over CAN.
+
+    True => engine may run.
+    False => engine run switch OFF (cut ignition/fuel via ECU mapping).
+    """
+    payload = bytes((0x01 if enabled else 0x00,))
+    return int(PiToArduinoID.ENGINE_RUN_SWITCH), payload
