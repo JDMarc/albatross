@@ -303,11 +303,11 @@ class HUDRenderer:
 
         checks = [
             ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
-            ("COOLANT SENSOR", state.temps.coolant_temp_f >= 0.0),
-            ("OIL TEMP SENSOR", state.temps.oil_temp_f >= 0.0),
+            ("COOLANT SENSOR", state.temps.coolant_temp_f >= 0.0 or has_can_signal),
+            ("OIL TEMP SENSOR", state.temps.oil_temp_f >= 0.0 or has_can_signal),
             ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
             ("FUEL LEVEL SENSOR", has_can_signal and state.environment.fuel_level_pct >= 0.0),
-            ("BATTERY VOLT", has_can_signal and state.temps.battery_voltage >= 0.0),
+            ("BATTERY VOLT", state.temps.battery_voltage >= 0.0 or has_can_signal),
             ("GEAR INPUT", has_can_signal and state.engine.gear in {"1", "2", "3", "4", "5", "6", "N"}),
             ("TRACTION INPUT", has_can_signal and state.traction.intervention_level != ""),
             ("CAN LINK", has_can_signal or bool(state.environment.message_line)),
