@@ -90,8 +90,11 @@ def main() -> None:
             ambient_temp_f=status.ambient_temp_f if status.ambient_temp_f is not None else snap.environment.ambient_temp_f,
             gps_lock=status.gps_lock if status.gps_lock is not None else snap.environment.gps_lock,
             rain=status.rain if status.rain is not None else snap.environment.rain,
+            time=status.phone_time if status.phone_time is not None else snap.environment.time,
             message_line=(f"♫ {status.artist} - {status.track}"[:96] if status.track else snap.environment.message_line),
         )
+        if status.gps_lat is not None and status.gps_lon is not None:
+            env = replace(env, message_line=f"GPS {status.gps_lat:.5f}, {status.gps_lon:.5f}")
         renderer.update_phone_status(
             artist=status.artist,
             track=status.track,
@@ -148,7 +151,10 @@ def main() -> None:
                 frame = build_phone_link_frame(enabled)
             else:
                 if phone_bridge is not None:
-                    phone_bridge.media_command(command)
+                    if command.startswith("connect:"):
+                        phone_bridge.connect_device(command.split(":", 1)[1])
+                    else:
+                        phone_bridge.media_command(command)
                 command_map = {"prev": 0x10, "play_pause": 0x11, "next": 0x12}
                 frame = build_media_control_frame(command_map.get(command, 0x00), value)
             can_interface.send(*frame)
