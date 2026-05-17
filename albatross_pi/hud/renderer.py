@@ -56,6 +56,7 @@ class EvaAlertAudio:
             "CAN STALE": "long_beeps.wav",
             "ECU STALE": "long_beeps.wav",
             "CLUTCH SLIP": "long_beeps.wav",
+            "CYL EGT BOOST MISMATCH": "long_beeps.wav",
             "SPEED SENSOR": "long_beeps.wav",
             "GEAR SENSOR": "long_beeps.wav",
         }

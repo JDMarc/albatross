@@ -202,6 +202,13 @@ def main() -> None:
                     faults.append("COOLANT HOT")
                 if snap.temps.exhaust_temp_f > 1650:
                     faults.append("EGT HOT")
+                if (
+                    snap.engine.boost_psi > 10.0
+                    and snap.engine.rpm > 3000
+                    and snap.temps.exhaust_temp_f > 1400
+                    and abs(snap.engine.boost_psi - (snap.temps.exhaust_temp_f / 100.0)) > 9.0
+                ):
+                    faults.append("CYL EGT BOOST MISMATCH")
                 if snap.engine.knock_events >= 3:
                     faults.append("KNOCK")
                 if snap.environment.fuel_level_pct <= 5:
