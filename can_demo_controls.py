@@ -1,5 +1,8 @@
 """Quick CAN demo control panel with sliders/buttons/text boxes.
 
+Emits ECU, Arduino HUD, Pi command, and Arduino-to-ECU request frames so bench
+testing exercises the same CAN contract the bike code expects.
+
 Usage:
   python can_demo_controls.py --channel can0
   python can_demo_controls.py --dry-run
@@ -13,7 +16,20 @@ import struct
 import tkinter as tk
 from tkinter import ttk
 
-from albatross_pi.canbus.ids import ArduinoToHudID, ECUToHudID, PiToArduinoID, PiToEcuID
+from albatross_pi.canbus.encode import (
+    build_boost_target_frame,
+    build_ecu_fuel_profile_frame,
+    build_ecu_spark_table_frame,
+    build_engine_run_switch_frame,
+    build_flame_mode_frame,
+    build_fuel_type_frame,
+    build_limp_mode_frame,
+    build_mode_selection_frame,
+    build_nfc_auth_frame,
+    build_traction_level_frame,
+    build_wmi_enable_frame,
+)
+from albatross_pi.canbus.ids import ArduinoToEcuID, ArduinoToHudID, ECUToHudID
 from albatross_pi.canbus.iface import SocketCANInterface
 
 
@@ -77,6 +93,11 @@ class App:
             "wg2": tk.IntVar(value=45),
             "mode": tk.StringVar(value="NORMAL"),
             "nfc_ok": tk.BooleanVar(value=True),
+            "boost_target": tk.DoubleVar(value=0.0),
+            "wmi_arm": tk.BooleanVar(value=True),
+            "flame_mode": tk.BooleanVar(value=False),
+            "limp_mode": tk.BooleanVar(value=False),
+            "engine_run": tk.BooleanVar(value=True),
             "left_indicator": tk.BooleanVar(value=False),
             "right_indicator": tk.BooleanVar(value=False),
             "high_beam": tk.BooleanVar(value=False),
@@ -163,11 +184,17 @@ class App:
         ttk.Checkbutton(cmds, text="TC Fault", variable=self.vars["traction_fault"]).grid(row=1, column=7, sticky="w")
         ttk.Label(cmds, text="Message").grid(row=1, column=1, sticky="e")
         ttk.Entry(cmds, textvariable=self.vars["msg"], width=60).grid(row=1, column=2, columnspan=4, sticky="ew")
+        self._slider(cmds, "Boost Target psi", "boost_target", 0, 30, 2)
         self._slider(cmds, "Traction Slip %", "traction_slip", 0, 30, 3)
         self._slider(cmds, "Torque Cut %", "torque_cut", 0, 100, 4)
 
-        ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=5, column=0, sticky="w", pady=(6, 0))
-        ttk.Button(cmds, text="Quit", command=self.close).grid(row=5, column=1, sticky="w", pady=(6, 0))
+        ttk.Checkbutton(cmds, text="WMI Arm", variable=self.vars["wmi_arm"]).grid(row=5, column=0, sticky="w")
+        ttk.Checkbutton(cmds, text="Flame", variable=self.vars["flame_mode"]).grid(row=5, column=1, sticky="w")
+        ttk.Checkbutton(cmds, text="Limp", variable=self.vars["limp_mode"]).grid(row=5, column=2, sticky="w")
+        ttk.Checkbutton(cmds, text="Run Switch", variable=self.vars["engine_run"]).grid(row=5, column=3, sticky="w")
+
+        ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=6, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(cmds, text="Quit", command=self.close).grid(row=6, column=1, sticky="w", pady=(6, 0))
 
         lighting = ttk.LabelFrame(rootf, text="Motorcycle Lighting -> HUD", padding=8)
         lighting.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
@@ -210,6 +237,11 @@ class App:
         egt1_c10 = self._f_to_cx10(float(self.vars["egt_b1"].get()))
         egt2_c10 = self._f_to_cx10(float(self.vars["egt_b2"].get()))
         lean_raw = int(float(self.vars["lean_deg"].get()) * 10)
+        mode_code = mode_map[self.vars["mode"].get()]
+        fuel_code = fuel_type_map[self.vars["fuel_type"].get()]
+        traction_level_code = trac_map[self.vars["traction"].get()]
+        traction_slip_x10 = int(max(-100.0, min(100.0, float(self.vars["traction_slip"].get()))) * 10)
+        torque_cut_pct = max(0, min(100, int(self.vars["torque_cut"].get())))
 
         self._send(int(ECUToHudID.ENGINE_RPM), struct.pack(">H", max(0, min(65535, rpm))))
         self._send(int(ECUToHudID.THROTTLE_POSITION), bytes((max(0, min(100, int(self.vars["tps"].get()))),)))
@@ -262,21 +294,26 @@ class App:
             int(ArduinoToHudID.TRACTION_STATUS),
             struct.pack(
                 ">hBB",
-                int(max(-100.0, min(100.0, float(self.vars["traction_slip"].get()))) * 10),
-                max(0, min(100, int(self.vars["torque_cut"].get()))),
+                traction_slip_x10,
+                torque_cut_pct,
                 tc_flags,
             ),
         )
 
-        self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
-        self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))
-        self._send(int(PiToArduinoID.FUEL_TYPE_SELECT), bytes((fuel_type_map[self.vars["fuel_type"].get()],)))
-        self._send(int(PiToArduinoID.NFC_AUTH), bytes((1 if bool(self.vars["nfc_ok"].get()) else 0,)))
-        fuel_code = fuel_type_map[self.vars["fuel_type"].get()]
-        fuel_table = {0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3}[fuel_code]
-        stoich_x100 = {0: 1470, 1: 1470, 2: 1470, 3: 1470, 4: 985, 5: 1477}[fuel_code]
-        self._send(int(PiToEcuID.FUEL_PROFILE_SELECT), struct.pack(">BBH", fuel_code, fuel_table, stoich_x100))
-        self._send(int(PiToEcuID.SPARK_TABLE_SELECT), bytes((1 if mode_map[self.vars["mode"].get()] >= 3 else 0,)))
+        self._send(int(ArduinoToEcuID.TORQUE_CUT_REQUEST), bytes((torque_cut_pct,)))
+        self._send(int(ArduinoToEcuID.TRACTION_SLIP_REQUEST), struct.pack(">hB", traction_slip_x10, tc_flags))
+
+        self._send(*build_boost_target_frame(float(self.vars["boost_target"].get())))
+        self._send(*build_mode_selection_frame(mode_code))
+        self._send(*build_traction_level_frame(traction_level_code))
+        self._send(*build_fuel_type_frame(fuel_code))
+        self._send(*build_nfc_auth_frame(bool(self.vars["nfc_ok"].get())))
+        self._send(*build_wmi_enable_frame(bool(self.vars["wmi_arm"].get())))
+        self._send(*build_flame_mode_frame(bool(self.vars["flame_mode"].get())))
+        self._send(*build_limp_mode_frame(bool(self.vars["limp_mode"].get())))
+        self._send(*build_engine_run_switch_frame(bool(self.vars["engine_run"].get())))
+        self._send(*build_ecu_fuel_profile_frame(fuel_code))
+        self._send(*build_ecu_spark_table_frame(mode_code))
         light_flags = 0
         light_flags |= 0x01 if bool(self.vars["left_indicator"].get()) else 0
         light_flags |= 0x02 if bool(self.vars["right_indicator"].get()) else 0
