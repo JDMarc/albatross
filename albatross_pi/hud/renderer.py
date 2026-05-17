@@ -598,6 +598,7 @@ class HUDRenderer:
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
+        self._render_home_mode_hover_underline(state)
         self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
         if self._active_menu == "settings":
@@ -679,7 +680,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index + 1) % len(self._focus_targets)
+        self._focus_index = (self._focus_index + 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_dpad_left(self) -> None:
         if self._active_menu == "settings":
@@ -709,7 +710,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index - 1) % len(self._focus_targets)
+        self._focus_index = (self._focus_index - 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_up(self) -> None:
         if self._active_menu == "settings":
@@ -719,6 +720,8 @@ class HUDRenderer:
                 self._media_device_cursor = (self._media_device_cursor - 1) % len(self._available_devices)
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
+        elif self._active_menu == "home":
+            self._focus_index = (self._focus_index - 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_down(self) -> None:
         if self._active_menu == "settings":
@@ -728,10 +731,17 @@ class HUDRenderer:
                 self._media_device_cursor = (self._media_device_cursor + 1) % len(self._available_devices)
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
+        elif self._active_menu == "home":
+            self._focus_index = (self._focus_index + 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_select(self) -> None:
         if self._active_menu == "home":
-            target = self._focus_targets[self._focus_index]
+            target = self._home_focus_target()
+            if target.startswith("MODE:"):
+                self._mode_index = int(target.split(":", 1)[1])
+                if self._mode_callback:
+                    self._mode_callback(self._mode_index + 1)
+                return
             if target == "SETTINGS":
                 cur = self.state
                 gear = (cur.engine.gear or "").strip().upper()
@@ -748,6 +758,9 @@ class HUDRenderer:
             self._phone_link_enabled = not self._phone_link_enabled
             if self._media_callback:
                 self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+            return
+        if self._active_menu == "settings" and self._setting_items[self._settings_cursor] == "MODE":
+            return
 
     def _handle_back(self) -> None:
         if self._active_menu != "home":
@@ -872,9 +885,36 @@ class HUDRenderer:
 
     def _render_global_hints(self) -> None:
         _bg, _bright, glow, _fault = self._theme_colors()
-        hint = "ARROWS: NAV  |  ENTER: SELECT  |  ESC: BACK"
+        hint = "ARROWS: CYCLE SETTINGS/MEDIA/MODES  |  ENTER: SELECT  |  ESC: BACK"
         s = font(12).render(hint, True, glow)
         self.screen.blit(s, (self.screen.get_width() - s.get_width() - 24, self.screen.get_height() - 20))
+
+    def _home_focus_target(self) -> str:
+        if self._focus_index < len(self._focus_targets):
+            return self._focus_targets[self._focus_index]
+        mode_idx = self._focus_index - len(self._focus_targets)
+        return f"MODE:{mode_idx}"
+
+    def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
+        if self._active_menu != "home":
+            return
+        target = self._home_focus_target()
+        if not target.startswith("MODE:"):
+            return
+        hover_idx = int(target.split(":", 1)[1])
+        line_height = max(16, int(self.screen.get_height() * 0.12 * 0.35))
+        padding = max(8, int(self.screen.get_height() * 0.12 * 0.15))
+        mx = padding
+        my = padding // 2
+        for idx, mode in enumerate(self._modes):
+            active = mode == state.environment.mode
+            size = fit_font_size(mode, int(self.screen.get_width() * 0.1), line_height, start_size=line_height + (5 if active else 0), bold=active)
+            mode_surface = font(size, bold=active).render(mode, True, (0, 0, 0))
+            if idx == hover_idx:
+                uy = my + (0 if active else 3) + mode_surface.get_height() + 1
+                pygame.draw.line(self.screen, (255, 140, 0), (mx, uy), (mx + mode_surface.get_width(), uy), 2)
+                return
+            mx += mode_surface.get_width() + 8
 
     def _apply_brightness_overlay(self, state: StateSnapshot) -> None:
         level = float(self._brightness_levels[self._brightness_index])
@@ -897,7 +937,7 @@ class HUDRenderer:
         tile = pygame.Rect(cluster_right - 280, -2, 280, 54)
         settings_rect = pygame.Rect(tile.x - 8 - 128, -2, 128, 54)
         pygame.draw.rect(self.screen, bg, tile, border_radius=6)
-        focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "MEDIA"
+        focused = self._active_menu == "home" and self._home_focus_target() == "MEDIA"
         pygame.draw.rect(self.screen, bright if focused else glow, tile, width=2 if focused else 1, border_radius=6)
         label = "BT LINK" if self._phone_link_enabled else "BT OFF"
         left = font(14, bold=True).render(label, True, bright if self._phone_link_enabled else fault)
@@ -918,7 +958,7 @@ class HUDRenderer:
             self.screen.blit(rem_text, (tile.x + 214, tile.y + 32))
 
         pygame.draw.rect(self.screen, bg, settings_rect, border_radius=6)
-        s_focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "SETTINGS"
+        s_focused = self._active_menu == "home" and self._home_focus_target() == "SETTINGS"
         pygame.draw.rect(self.screen, bright if s_focused else glow, settings_rect, width=2 if s_focused else 1, border_radius=6)
         s_label = font(15, bold=True).render("SETTINGS", True, glow)
         s_hint = font(12).render("SELECT", True, glow)
