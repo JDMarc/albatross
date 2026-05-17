@@ -40,45 +40,59 @@ class EvaAlertAudio:
         self._sounds: dict[str, pygame.mixer.Sound] = {}
         self._last_played: dict[str, float] = {}
         self._cooldown_s = 8.0
+        self._mapping = {
+            "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
+            "LOW OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
+            "COOLANT HOT": "your_engine_is_overheating_prompt_service_is_required.wav",
+            "EGT HOT": "your_engine_temperature_is_above_normal.wav",
+            "LOW FUEL": "please_check_your_fuel_level.wav",
+            "KNOCK": "long_beeps.wav",
+            "KNOCK ESCALATE": "long_beeps.wav",
+            "WMI FLOW LOW": "long_beeps.wav",
+            "CAN STALE": "long_beeps.wav",
+            "ECU STALE": "long_beeps.wav",
+            "CLUTCH SLIP": "long_beeps.wav",
+            "SPEED SENSOR": "long_beeps.wav",
+            "GEAR SENSOR": "long_beeps.wav",
+        }
+        if not self._init_mixer():
+            return
+        self._channel = pygame.mixer.Channel(2)
+        self._load_sounds()
+        self._enabled = bool(self._sounds)
+
+    def _init_mixer(self) -> bool:
         try:
             if not pygame.mixer.get_init():
+                pygame.mixer.pre_init(44100, -16, 2, 512)
                 pygame.mixer.init()
-            self._channel = pygame.mixer.Channel(2)
-            cache_dir = Path.home() / ".cache" / "albatross" / "eva24"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            base_url = "https://raw.githubusercontent.com/jnewb1/eva-sounds/main/sounds_eva24"
-            mapping = {
-                "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
-                "LOW OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
-                "COOLANT HOT": "your_engine_is_overheating_prompt_service_is_required.wav",
-                "EGT HOT": "your_engine_temperature_is_above_normal.wav",
-                "LOW FUEL": "please_check_your_fuel_level.wav",
-                "KNOCK": "long_beeps.wav",
-                "KNOCK ESCALATE": "long_beeps.wav",
-                "WMI FLOW LOW": "long_beeps.wav",
-                "CAN STALE": "long_beeps.wav",
-                "ECU STALE": "long_beeps.wav",
-                "CLUTCH SLIP": "long_beeps.wav",
-                "SPEED SENSOR": "long_beeps.wav",
-                "GEAR SENSOR": "long_beeps.wav",
-            }
-            resolved: dict[str, Path] = {}
-            for name in sorted(set(mapping.values())):
-                wav_path = cache_dir / name
-                if not wav_path.exists():
-                    try:
-                        urllib.request.urlretrieve(f"{base_url}/{name}", wav_path)
-                    except Exception as exc:
-                        LOGGER.warning("Failed downloading EVA clip %s: %s", name, exc)
-                        continue
-                resolved[name] = wav_path
-            for fault, name in mapping.items():
-                wav_path = resolved.get(name)
-                if wav_path is not None:
-                    self._sounds[fault] = pygame.mixer.Sound(str(wav_path))
-            self._enabled = bool(self._sounds)
+            return True
         except pygame.error as exc:
             LOGGER.warning("Audio alerts disabled (pygame mixer init failed): %s", exc)
+            return False
+
+    def _load_sounds(self) -> None:
+        cache_dir = Path.home() / ".cache" / "albatross" / "eva24"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        base_url = "https://raw.githubusercontent.com/jnewb1/eva-sounds/main/sounds_eva24"
+        resolved: dict[str, Path] = {}
+        for name in sorted(set(self._mapping.values())):
+            wav_path = cache_dir / name
+            if not wav_path.exists():
+                try:
+                    urllib.request.urlretrieve(f"{base_url}/{name}", wav_path)
+                except Exception as exc:
+                    LOGGER.warning("Failed downloading EVA clip %s: %s", name, exc)
+                    continue
+            resolved[name] = wav_path
+        for fault, name in self._mapping.items():
+            wav_path = resolved.get(name)
+            if wav_path is None:
+                continue
+            try:
+                self._sounds[fault] = pygame.mixer.Sound(str(wav_path))
+            except pygame.error as exc:
+                LOGGER.warning("Failed loading EVA clip %s (%s): %s", name, wav_path, exc)
 
     def update(self, faults: tuple[str, ...], *, allow_playback: bool) -> None:
         if not self._enabled or not allow_playback:
