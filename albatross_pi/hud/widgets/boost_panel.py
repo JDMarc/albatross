@@ -40,9 +40,15 @@ class BoostPanel(Widget):
         surface.blit(text_surface, (self.rect.x + bar_padding, self.rect.y + bar_padding // 2))
 
         target_text = f"REQ {engine.target_boost_psi:4.1f}"
-        target_font = fit_font_size(target_text, int(self.rect.width * 0.36), int(self.rect.height * 0.2), start_size=max(13, int(self.rect.height * 0.2)), bold=True)
+        target_font = fit_font_size(target_text, int(self.rect.width * 0.34), int(self.rect.height * 0.18), start_size=max(12, int(self.rect.height * 0.18)), bold=True)
         target_surface = font(target_font, bold=True).render(target_text, True, AMBER_BRIGHT)
-        surface.blit(target_surface, (self.rect.x + bar_padding, self.rect.y + bar_padding // 2 + text_surface.get_height() + 2))
+        surface.blit(
+            target_surface,
+            (
+                self.rect.right - bar_padding - target_surface.get_width(),
+                self.rect.y + bar_padding // 2,
+            ),
+        )
 
         duty_text = f"WG {engine.wastegate_duty_pct:3.0f}%"
         duty_font = fit_font_size(duty_text, int(self.rect.width * 0.36), int(self.rect.height * 0.2), start_size=max(14, int(self.rect.height * 0.22)))
