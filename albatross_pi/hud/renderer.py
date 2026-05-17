@@ -978,33 +978,6 @@ class HUDRenderer:
         s_hint = font(12).render("SELECT", True, glow)
         self.screen.blit(s_label, (settings_rect.x + 12, settings_rect.y + 10))
         self.screen.blit(s_hint, (settings_rect.x + 30, settings_rect.y + 32))
-        mode_preview = self._modes[self._mode_selection_index]
-        mode_color = bright if self._mode_selection_index == self._mode_index else (255, 140, 0)
-        mode_text = font(12, bold=True).render(mode_preview, True, mode_color)
-        mode_x = settings_rect.right - mode_text.get_width() - 10
-        mode_y = settings_rect.y + 32
-        self.screen.blit(mode_text, (mode_x, mode_y))
-        if self._active_menu == "home":
-            underline_y = mode_y + mode_text.get_height() + 1
-            pygame.draw.line(self.screen, (255, 140, 0), (mode_x, underline_y), (mode_x + mode_text.get_width(), underline_y), 2)
-        self._render_home_mode_focus_strip(settings_rect.x - 8, settings_rect.bottom + 4)
-
-    def _render_home_mode_focus_strip(self, x: int, y: int) -> None:
-        if self._active_menu != "home":
-            return
-        _bg, bright, glow, _fault = self._theme_colors()
-        cx = x
-        for idx, mode in enumerate(self._modes):
-            target = f"MODE:{idx}"
-            focused = self._home_focus_target() == target
-            applied = idx == self._mode_index
-            color = bright if focused else ((255, 140, 0) if applied else glow)
-            t = font(11, bold=focused).render(mode, True, color)
-            self.screen.blit(t, (cx, y))
-            if focused:
-                uy = y + t.get_height() + 1
-                pygame.draw.line(self.screen, (255, 140, 0), (cx, uy), (cx + t.get_width(), uy), 2)
-            cx += t.get_width() + 10
 
     def _render_modal_dimmer(self) -> None:
         dim = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
