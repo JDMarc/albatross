@@ -80,12 +80,14 @@ class HUDRenderer:
         self._phone_position_s = 0.0
         self._phone_length_s = 0.0
         self._available_devices: tuple[str, ...] = ()
+        self._last_snapshot_time = self.state.environment.time
+        self._last_can_fresh_monotonic = time.monotonic()
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
         active: set[str] = set()
-        age_s = max(0.0, (datetime.now() - state.environment.time).total_seconds())
-        if age_s > 1.5:
+        can_age_s = max(0.0, now_s - self._last_can_fresh_monotonic)
+        if can_age_s > 1.5:
             active.add("CAN STALE")
         if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
             active.add("LOW OIL PRESS")
@@ -371,6 +373,9 @@ class HUDRenderer:
             with self.state_lock:
                 state = self.state
             now_s = time.monotonic()
+            if state.environment.time != self._last_snapshot_time:
+                self._last_snapshot_time = state.environment.time
+                self._last_can_fresh_monotonic = now_s
             state = replace(state, faults=self._runtime_faults(state, now_s))
             self.update_state(state)
             if state.environment.mode in self._modes:
@@ -686,8 +691,8 @@ class HUDRenderer:
         title_line = f"{self._phone_artist} - {self._phone_track}".strip(" -") or "NO TRACK"
         right = font(13).render(title_line[:32], True, glow)
         self.screen.blit(left, (tile.x + 10, tile.y + 8))
-        self.screen.blit(right, (tile.x + 10, tile.y + 26))
-        bar = pygame.Rect(tile.x + 10, tile.y + 48, 180, 10)
+        self.screen.blit(right, (tile.x + 86, tile.y + 8))
+        bar = pygame.Rect(tile.x + 10, tile.y + 34, 180, 10)
         pygame.draw.rect(self.screen, (45, 30, 0), bar, border_radius=3)
         ratio = (self._phone_position_s / self._phone_length_s) if self._phone_length_s > 0 else 0.0
         fill = pygame.Rect(bar.x + 1, bar.y + 1, int((bar.width - 2) * max(0.0, min(1.0, ratio))), bar.height - 2)
