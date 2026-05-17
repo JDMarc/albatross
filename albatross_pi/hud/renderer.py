@@ -212,7 +212,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "BRIGHTNESS", "MODE", "PHONE LINK", "THEME", "AUTO DIM"]
+        self._setting_items = ["TRACTION", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
@@ -666,8 +666,6 @@ class HUDRenderer:
                     self._traction_callback(self._traction_index + 1)
             elif item == "BRIGHTNESS":
                 self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
-            elif item == "MODE":
-                self._mode_selection_index = (self._mode_selection_index + 1) % len(self._modes)
             elif item == "PHONE LINK":
                 self._phone_link_enabled = True
                 if self._media_callback:
@@ -694,8 +692,6 @@ class HUDRenderer:
                     self._traction_callback(self._traction_index + 1)
             elif item == "BRIGHTNESS":
                 self._brightness_index = max(self._brightness_index - 1, 0)
-            elif item == "MODE":
-                self._mode_selection_index = (self._mode_selection_index - 1) % len(self._modes)
             elif item == "PHONE LINK":
                 self._phone_link_enabled = False
                 if self._media_callback:
@@ -759,8 +755,6 @@ class HUDRenderer:
             self._phone_link_enabled = not self._phone_link_enabled
             if self._media_callback:
                 self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
-            return
-        if self._active_menu == "settings" and self._setting_items[self._settings_cursor] == "MODE":
             return
 
     def _handle_back(self) -> None:
@@ -878,8 +872,6 @@ class HUDRenderer:
             return self._traction_levels[self._traction_index]
         if item == "BRIGHTNESS":
             return f"{self._brightness_levels[self._brightness_index]}%"
-        if item == "MODE":
-            return self._modes[self._mode_index]
         if item == "PHONE LINK":
             return "ON" if self._phone_link_enabled else "OFF"
         if item == "THEME":
@@ -919,14 +911,17 @@ class HUDRenderer:
         target = self._home_focus_target()
         if not target.startswith("MODE:"):
             return
+        header_rect = next((w.rect for w in self.widgets if isinstance(w, HeaderBar)), None)
+        if header_rect is None:
+            return
         hover_idx = int(target.split(":", 1)[1])
-        line_height = max(16, int(self.screen.get_height() * 0.12 * 0.35))
-        padding = max(8, int(self.screen.get_height() * 0.12 * 0.15))
-        mx = padding
-        my = padding // 2
+        padding = max(8, int(header_rect.height * 0.15))
+        line_height = max(16, int(header_rect.height * 0.35))
+        mx = header_rect.x + padding
+        my = header_rect.y + padding // 2
         for idx, mode in enumerate(self._modes):
             active = mode == state.environment.mode
-            size = fit_font_size(mode, int(self.screen.get_width() * 0.1), line_height, start_size=line_height + (5 if active else 0), bold=active)
+            size = fit_font_size(mode, int(header_rect.width * 0.1), line_height, start_size=line_height + (5 if active else 0), bold=active)
             mode_surface = font(size, bold=active).render(mode, True, (0, 0, 0))
             if idx == hover_idx:
                 uy = my + (0 if active else 3) + mode_surface.get_height() + 1
