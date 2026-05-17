@@ -736,7 +736,7 @@ class HUDRenderer:
                 cur = self.state
                 gear = (cur.engine.gear or "").strip().upper()
                 stopped = cur.engine.speed_mph <= 1.0
-                if gear in {"N", "P"} and stopped:
+                if gear in {"N", "P", "?"} and stopped:
                     self._active_menu = "settings"
             elif target == "MEDIA":
                 self._active_menu = "media"
