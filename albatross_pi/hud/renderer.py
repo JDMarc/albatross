@@ -263,6 +263,21 @@ class HUDRenderer:
     def configure_mode_callback(self, callback) -> None:
         self._mode_callback = callback
 
+    def _apply_mode_selection(self, mode_index: int, *, notify: bool = True) -> None:
+        if not self._modes:
+            return
+        self._mode_index = max(0, min(mode_index, len(self._modes) - 1))
+        self._mode_selection_index = self._mode_index
+        mode = self._modes[self._mode_index]
+        with self.state_lock:
+            self.state = replace(
+                self.state,
+                environment=replace(self.state.environment, mode=mode),
+            )
+        if notify and self._mode_callback:
+            self._mode_callback(self._mode_index + 1)
+        self._create_widgets()
+
     def configure_media_callback(self, callback) -> None:
         self._media_callback = callback
 
@@ -494,11 +509,7 @@ class HUDRenderer:
                     if (not self._post_complete) or self._post_fault_active:
                         continue
                     if event.key in (pygame.K_TAB, pygame.K_m):
-                        self._mode_index = (self._mode_index + 1) % len(self._modes)
-                        self._mode_selection_index = self._mode_index
-                        if self._mode_callback:
-                            self._mode_callback(self._mode_index + 1)
-                        self._create_widgets()
+                        self._apply_mode_selection((self._mode_index + 1) % len(self._modes))
                     elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                         self._handle_select()
                     elif event.key in (pygame.K_BACKSPACE, pygame.K_ESCAPE):
@@ -735,9 +746,7 @@ class HUDRenderer:
         if self._active_menu == "home":
             target = self._home_focus_target()
             if target.startswith("MODE:"):
-                self._mode_index = int(target.split(":", 1)[1])
-                if self._mode_callback:
-                    self._mode_callback(self._mode_index + 1)
+                self._apply_mode_selection(int(target.split(":", 1)[1]))
                 return
             if target == "SETTINGS":
                 cur = self.state

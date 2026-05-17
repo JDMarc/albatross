@@ -25,6 +25,14 @@ from ..state.snapshot import (
 )
 
 
+TRACTION_LEVEL_NAMES = {
+    0x01: "LOW",
+    0x02: "MED",
+    0x03: "HIGH",
+    0x04: "OFF",
+}
+
+
 def _c_to_f(celsius: float) -> float:
     return celsius * 9.0 / 5.0 + 32.0
 
@@ -308,6 +316,17 @@ class CANStateAggregator:
         env_dict["mode"] = MODE_NAMES.get(mode_code, env_dict.get("mode", "ECO"))
         self._environment = EnvironmentState(**env_dict)
 
+    def _update_traction_level(self, data: bytes) -> None:
+        if not data:
+            return
+        level = TRACTION_LEVEL_NAMES.get(data[0])
+        if level is None:
+            return
+        self._traction = replace(
+            self._traction,
+            intervention_level=level,
+        )
+
     def _update_nfc_auth(self, data: bytes) -> None:
         if not data:
             return
@@ -352,6 +371,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.CLUTCH_SLIP_STATUS): CANStateAggregator._update_clutch_slip_status,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
+    int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
     int(SystemCommandID.POST_REQUEST): CANStateAggregator._update_post_frame,
     int(SystemCommandID.POST_RESPONSE): CANStateAggregator._update_post_frame,

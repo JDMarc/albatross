@@ -20,6 +20,7 @@ from .snapshot import (
 )
 
 TICK_PERIOD = 1 / 60.0
+MODE_NAMES = ("ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS")
 
 
 class StateSimulator:
@@ -32,6 +33,7 @@ class StateSimulator:
         self._subscribers: list[Callable[[StateSnapshot], None]] = []
         self._thread: threading.Thread | None = None
         self._phase = 0.0
+        self._mode = "ECO"
 
     def start(self) -> None:
         if self._running:
@@ -49,6 +51,11 @@ class StateSimulator:
     def subscribe(self, callback: Callable[[StateSnapshot], None]) -> None:
         with self._lock:
             self._subscribers.append(callback)
+
+    def set_mode(self, mode_code: int) -> None:
+        if 1 <= mode_code <= len(MODE_NAMES):
+            with self._lock:
+                self._mode = MODE_NAMES[mode_code - 1]
 
     def _broadcast(self, snapshot: StateSnapshot) -> None:
         with self._lock:
@@ -142,9 +149,12 @@ class StateSimulator:
             message = "KNOCK DETECTED"
             alerts = ("KNOCK DETECTED",)
 
+        with self._lock:
+            mode = self._mode
+
         environment = replace(
             snapshot.environment,
-            mode=rng.choice(["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]),
+            mode=mode,
             fuel_type=rng.choice(["93", "100", "E85"]),
             ambient_temp_f=72 + math.sin(self._phase * math.tau * 0.2) * 5,
             gps_lock=rng.random() > 0.1,
@@ -170,16 +180,20 @@ class StateSimulator:
 
     def stream(self) -> Iterator[StateSnapshot]:
         self.start()
-        queue: list[StateSnapshot] = []
+        latest: list[StateSnapshot] = []
+        latest_lock = threading.Lock()
 
         def capture(snapshot: StateSnapshot) -> None:
-            queue.append(snapshot)
+            with latest_lock:
+                latest[:] = [snapshot]
 
         self.subscribe(capture)
         try:
             while True:
-                if queue:
-                    yield queue.pop(0)
+                with latest_lock:
+                    snapshot = latest.pop() if latest else None
+                if snapshot is not None:
+                    yield snapshot
                 else:
                     time.sleep(self._tick_period)
         finally:

@@ -356,6 +356,7 @@ def main() -> None:
         threading.Thread(target=_safety_supervisor, name="safety-supervisor", daemon=True).start()
     elif args.simulator:
         simulator = StateSimulator()
+        renderer.configure_mode_callback(simulator.set_mode)
         if not args.snapshot:
             stream = simulator.stream()
 
@@ -458,8 +459,7 @@ def main() -> None:
             if aggregator is not None:
                 snapshot = aggregator.wait_for_snapshot(timeout=2.0)
             else:
-                assert simulator is not None
-                snapshot = simulator.sample()
+                snapshot = (simulator or StateSimulator()).sample()
             surface = renderer.capture_frame(snapshot)
             output_path = args.snapshot
             output_path.parent.mkdir(parents=True, exist_ok=True)
