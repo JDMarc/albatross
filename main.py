@@ -305,7 +305,7 @@ def main() -> None:
                 eng = replace(
                     snap.engine,
                     rpm=int(obj.get("rpm", snap.engine.rpm)),
-                    speed_mph=float(obj.get("speed_mph", snap.engine.speed_mph)),
+                    speed_mph=float(obj.get("speed_mph", obj.get("speed", snap.engine.speed_mph))),
                     boost_psi=float(obj.get("boost", snap.engine.boost_psi)),
                     throttle_pct=float(obj.get("tps", snap.engine.throttle_pct)),
                     gear=str(obj.get("gear", snap.engine.gear)),
@@ -318,11 +318,12 @@ def main() -> None:
                 )
                 temps = replace(
                     snap.temps,
-                    coolant_temp_f=float(obj.get("clt_f", snap.temps.coolant_temp_f)),
-                    oil_temp_f=float(obj.get("oilt_f", snap.temps.oil_temp_f)),
+                    coolant_temp_f=float(obj.get("clt_f", obj.get("clt", snap.temps.coolant_temp_f))),
+                    oil_temp_f=float(obj.get("oilt_f", obj.get("oilt", snap.temps.oil_temp_f))),
                     oil_pressure_psi=float(obj.get("oilp", snap.temps.oil_pressure_psi)),
                     intake_temp_f=float(obj.get("iat", snap.temps.intake_temp_f)),
                     exhaust_temp_f=(float(obj.get("egt_b1", snap.temps.exhaust_temp_f)) + float(obj.get("egt_b2", snap.temps.exhaust_temp_f))) / 2.0,
+                    battery_voltage=float(obj.get("batt_v", snap.temps.battery_voltage)),
                 )
                 env = replace(
                     snap.environment,

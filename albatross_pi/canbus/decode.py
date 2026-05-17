@@ -39,7 +39,7 @@ class CANStateAggregator:
             "rpm": 0,
             "rpm_redline": rpm_redline,
             "speed_mph": 0.0,
-            "gear": "N",
+            "gear": "?",
             "boost_psi": 0.0,
             "target_boost_psi": 0.0,
             "wastegate_duty_pct": 0.0,
@@ -51,10 +51,10 @@ class CANStateAggregator:
             "engine_load_pct": 0.0,
         }
         self._temps_data: Dict[str, float] = {
-            "coolant_temp_f": 0.0,
-            "oil_temp_f": 0.0,
+            "coolant_temp_f": -1.0,
+            "oil_temp_f": -1.0,
             "oil_pressure_psi": 0.0,
-            "battery_voltage": 12.5,
+            "battery_voltage": -1.0,
             "intake_temp_f": 0.0,
             "exhaust_temp_f": 0.0,
             "alternator_temp_f": 0.0,
@@ -62,7 +62,7 @@ class CANStateAggregator:
         self._airshot = AirShotState()
         self._wmi = WMIState()
         self._traction = TractionState()
-        self._environment = EnvironmentState()
+        self._environment = replace(EnvironmentState(), fuel_level_pct=-1.0)
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_snapshot = StateSnapshot(
@@ -86,10 +86,10 @@ class CANStateAggregator:
             self._last_snapshot = StateSnapshot(
                 engine=EngineState(**self._engine_data),
                 temps=TemperaturesState(
-                    coolant_temp_f=self._temps_data.get("coolant_temp_f", 0.0),
-                    oil_temp_f=self._temps_data.get("oil_temp_f", 0.0),
+                    coolant_temp_f=self._temps_data.get("coolant_temp_f", -1.0),
+                    oil_temp_f=self._temps_data.get("oil_temp_f", -1.0),
                     oil_pressure_psi=self._temps_data.get("oil_pressure_psi", 0.0),
-                    battery_voltage=self._temps_data.get("battery_voltage", 12.5),
+                    battery_voltage=self._temps_data.get("battery_voltage", -1.0),
                     intake_temp_f=self._temps_data.get("intake_temp_f", 0.0),
                     exhaust_temp_f=self._temps_data.get("exhaust_temp_f", 0.0),
                     alternator_temp_f=self._temps_data.get("alternator_temp_f", 0.0),
@@ -205,6 +205,13 @@ class CANStateAggregator:
         average = (bank1 + bank2) / 20.0
         self._temps_data["exhaust_temp_f"] = _c_to_f(average)
 
+
+    def _update_battery_voltage(self, data: bytes) -> None:
+        if len(data) < 2:
+            return
+        (raw_mv,) = struct.unpack_from(">H", data)
+        self._temps_data["battery_voltage"] = raw_mv / 1000.0
+
     def _update_air_shot_status(self, data: bytes) -> None:
         if not data:
             return
@@ -306,6 +313,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ECUToHudID.ENGINE_LOAD): CANStateAggregator._update_engine_load,
     int(ECUToHudID.INTAKE_AIR_TEMP): CANStateAggregator._update_intake_temp,
     int(ECUToHudID.EXHAUST_GAS_TEMP): CANStateAggregator._update_exhaust_temp,
+    int(ECUToHudID.BATTERY_VOLTAGE): CANStateAggregator._update_battery_voltage,
     int(ArduinoToHudID.AIR_SHOT_STATUS): CANStateAggregator._update_air_shot_status,
     int(ArduinoToHudID.AWC_STATE): CANStateAggregator._update_awc_state,
     int(ArduinoToHudID.RGB_LIGHTING): lambda self, data: None,

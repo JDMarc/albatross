@@ -33,7 +33,7 @@ class EngineState:
     rpm: int = 0
     rpm_redline: int = 12000
     speed_mph: float = 0.0
-    gear: str = "N"
+    gear: str = "?"
     boost_psi: float = 0.0
     target_boost_psi: float = 0.0
     wastegate_duty_pct: float = 0.0
@@ -47,10 +47,10 @@ class EngineState:
 
 @dataclass(frozen=True)
 class TemperaturesState:
-    coolant_temp_f: float = 0.0
-    oil_temp_f: float = 0.0
+    coolant_temp_f: float = -1.0
+    oil_temp_f: float = -1.0
     oil_pressure_psi: float = 0.0
-    battery_voltage: float = 12.5
+    battery_voltage: float = -1.0
     intake_temp_f: float = 0.0
     exhaust_temp_f: float = 0.0
     alternator_temp_f: float = 0.0
@@ -66,7 +66,7 @@ class EnvironmentState:
     time: datetime = field(default_factory=datetime.now)
     brightness_pct: float = 75.0
     message_line: str = ""
-    fuel_level_pct: float = 100.0
+    fuel_level_pct: float = -1.0
 
 
 @dataclass(frozen=True)
