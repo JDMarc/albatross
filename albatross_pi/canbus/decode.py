@@ -275,6 +275,19 @@ class CANStateAggregator:
         (raw_target,) = struct.unpack_from(">H", data)
         self._engine_data["target_boost_psi"] = raw_target / 10.0
 
+    def _update_wmi_status(self, data: bytes) -> None:
+        if len(data) < 6:
+            return
+        tank = data[0]
+        commanded, actual, fault = struct.unpack_from(">HHB", data, 1)
+        self._wmi = replace(
+            self._wmi,
+            tank_level_pct=float(max(0, min(100, tank))),
+            commanded_flow_cc_min=float(commanded),
+            actual_flow_cc_min=float(actual),
+            fault_active=bool(fault),
+        )
+
     def _update_mode_selection(self, data: bytes) -> None:
         if not data:
             return
@@ -323,6 +336,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.GEAR_POSITION): CANStateAggregator._update_gear,
     int(ArduinoToHudID.WHEEL_SPEED): CANStateAggregator._update_wheel_speed,
     int(ArduinoToHudID.FUEL_LEVEL): CANStateAggregator._update_arduino_fuel,
+    int(ArduinoToHudID.WMI_STATUS): CANStateAggregator._update_wmi_status,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
