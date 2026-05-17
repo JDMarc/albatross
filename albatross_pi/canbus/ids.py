@@ -34,6 +34,7 @@ class ArduinoToHudID(IntEnum):
     GEAR_POSITION = 0x136
     WHEEL_SPEED = 0x137
     FUEL_LEVEL = 0x138
+    WMI_STATUS = 0x139
 
 
 class PiToArduinoID(IntEnum):
@@ -47,6 +48,7 @@ class PiToArduinoID(IntEnum):
     MEDIA_CONTROL = 0x125
     PHONE_LINK = 0x126
     ENGINE_RUN_SWITCH = 0x127
+    WMI_ENABLE = 0x128
     NFC_AUTH = 0x140
 
 
