@@ -4,6 +4,7 @@ from .decode import CANStateAggregator
 from .iface import SocketCANInterface
 from .encode import (
     build_boost_target_frame,
+    build_engine_run_switch_frame,
     build_media_control_frame,
     build_mode_selection_frame,
     build_nfc_auth_frame,
@@ -19,6 +20,7 @@ __all__ = [
     "CANStateAggregator",
     "SocketCANInterface",
     "build_boost_target_frame",
+    "build_engine_run_switch_frame",
     "build_media_control_frame",
     "build_mode_selection_frame",
     "build_nfc_auth_frame",

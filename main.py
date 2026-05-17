@@ -16,7 +16,14 @@ from typing import Iterable, Iterator
 import pygame
 
 from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
-from albatross_pi.canbus.encode import build_boost_target_frame, build_flame_mode_frame, build_limp_mode_frame, build_media_control_frame, build_phone_link_frame
+from albatross_pi.canbus.encode import (
+    build_boost_target_frame,
+    build_engine_run_switch_frame,
+    build_flame_mode_frame,
+    build_limp_mode_frame,
+    build_media_control_frame,
+    build_phone_link_frame,
+)
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import StateSnapshot
@@ -167,6 +174,8 @@ def main() -> None:
             assert aggregator is not None and can_interface is not None
             last_fault_state = False
             critical_oil_start: float | None = None
+            last_engine_run_switch_enabled = True
+            last_escalation_ts = 0.0
             while True:
                 snap = aggregator.current_snapshot()
                 faults: list[str] = []
@@ -219,6 +228,12 @@ def main() -> None:
                     and snap.engine.speed_mph < 3.0
                     and snap.engine.throttle_pct < 8.0
                 )
+                should_cut_run_switch = (
+                    should_shutdown_engine
+                    or ("ECU STALE" in faults and snap.engine.rpm > 1800 and snap.engine.throttle_pct > 20)
+                    or ("COOLANT HOT" in faults and snap.temps.coolant_temp_f > 250 and snap.engine.rpm > 2000)
+                    or ("EGT HOT" in faults and snap.temps.exhaust_temp_f > 1725 and snap.engine.rpm > 2200)
+                )
                 if severe and not last_fault_state:
                     # Fail-safe action set: cut boost command, enable limp, disable flame, max traction.
                     for frame in (
@@ -238,9 +253,7 @@ def main() -> None:
                     logging.info("Safety supervisor recovered.")
 
                 if should_shutdown_engine:
-                    # We don't have a dedicated engine-kill CAN id yet; use strongest available controls.
-                    # 1) Ensure zero boost, limp on, flame off.
-                    # 2) Force throttle/torque closure intent via max traction intervention.
+                    # Engine shutdown request includes torque-reduction stack + run-switch OFF.
                     for frame in (
                         build_boost_target_frame(0.0),
                         build_limp_mode_frame(True),
@@ -251,6 +264,23 @@ def main() -> None:
                         aggregator.mark_sent_frame(*frame)
                     faults.append("ENGINE SHUTDOWN REQUEST")
                     logging.critical("Critical oil pressure persisted; shutdown request issued in neutral at low speed.")
+
+                # Engine run switch "OFF" acts as ECU-level kill (ignition/fuel cut).
+                # Re-send every 1s while active for robustness against frame loss.
+                if should_cut_run_switch:
+                    if last_engine_run_switch_enabled or (now_ts - last_escalation_ts) >= 1.0:
+                        frame = build_engine_run_switch_frame(False)
+                        can_interface.send(*frame)
+                        aggregator.mark_sent_frame(*frame)
+                        last_escalation_ts = now_ts
+                    last_engine_run_switch_enabled = False
+                    faults.append("ENGINE RUN SWITCH OFF")
+                elif not last_engine_run_switch_enabled:
+                    frame = build_engine_run_switch_frame(True)
+                    can_interface.send(*frame)
+                    aggregator.mark_sent_frame(*frame)
+                    last_engine_run_switch_enabled = True
+                    logging.info("Safety supervisor restored engine run switch to ON.")
 
                 if faults:
                     renderer.update_state(replace(snap, faults=tuple(sorted(set(faults)))))
