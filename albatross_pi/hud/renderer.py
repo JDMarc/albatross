@@ -603,6 +603,7 @@ class HUDRenderer:
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
             widget.draw(self.screen, state)
+        self._render_home_mode_hover_underline(state)
         self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
         if self._active_menu == "settings":
@@ -738,8 +739,7 @@ class HUDRenderer:
         if self._active_menu == "home":
             target = self._home_focus_target()
             if target.startswith("MODE:"):
-                self._mode_selection_index = int(target.split(":", 1)[1])
-                self._mode_index = self._mode_selection_index
+                self._mode_index = int(target.split(":", 1)[1])
                 if self._mode_callback:
                     self._mode_callback(self._mode_index + 1)
                 return
@@ -761,9 +761,7 @@ class HUDRenderer:
                 self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
             return
         if self._active_menu == "settings" and self._setting_items[self._settings_cursor] == "MODE":
-            self._mode_index = self._mode_selection_index
-            if self._mode_callback:
-                self._mode_callback(self._mode_index + 1)
+            return
 
     def _handle_back(self) -> None:
         if self._active_menu != "home":
@@ -914,6 +912,27 @@ class HUDRenderer:
             return self._focus_targets[self._focus_index]
         mode_idx = self._focus_index - len(self._focus_targets)
         return f"MODE:{mode_idx}"
+
+    def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
+        if self._active_menu != "home":
+            return
+        target = self._home_focus_target()
+        if not target.startswith("MODE:"):
+            return
+        hover_idx = int(target.split(":", 1)[1])
+        line_height = max(16, int(self.screen.get_height() * 0.12 * 0.35))
+        padding = max(8, int(self.screen.get_height() * 0.12 * 0.15))
+        mx = padding
+        my = padding // 2
+        for idx, mode in enumerate(self._modes):
+            active = mode == state.environment.mode
+            size = fit_font_size(mode, int(self.screen.get_width() * 0.1), line_height, start_size=line_height + (5 if active else 0), bold=active)
+            mode_surface = font(size, bold=active).render(mode, True, (0, 0, 0))
+            if idx == hover_idx:
+                uy = my + (0 if active else 3) + mode_surface.get_height() + 1
+                pygame.draw.line(self.screen, (255, 140, 0), (mx, uy), (mx + mode_surface.get_width(), uy), 2)
+                return
+            mx += mode_surface.get_width() + 8
 
     def _apply_brightness_overlay(self, state: StateSnapshot) -> None:
         level = float(self._brightness_levels[self._brightness_index])
