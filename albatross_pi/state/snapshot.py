@@ -47,8 +47,8 @@ class EngineState:
 
 @dataclass(frozen=True)
 class TemperaturesState:
-    coolant_temp_f: float = 0.0
-    oil_temp_f: float = 0.0
+    coolant_temp_f: float = -1.0
+    oil_temp_f: float = -1.0
     oil_pressure_psi: float = 0.0
     battery_voltage: float = -1.0
     intake_temp_f: float = 0.0

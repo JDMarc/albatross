@@ -46,6 +46,7 @@ class App:
             "oilp": tk.DoubleVar(value=58.0),
             "oilt": tk.DoubleVar(value=205.0),
             "clt": tk.DoubleVar(value=190.0),
+            "batt_v": tk.DoubleVar(value=13.8),
             "fuel": tk.IntVar(value=75),
             "gear": tk.StringVar(value="N"),
             "load": tk.IntVar(value=35),
@@ -94,6 +95,7 @@ class App:
             ("Oil P psi", "oilp", 0, 120),
             ("Oil T F", "oilt", 70, 320),
             ("Coolant F", "clt", 70, 280),
+            ("Battery V", "batt_v", 8.0, 16.0),
             ("Fuel %", "fuel", 0, 100),
             ("Engine Load %", "load", 0, 100),
             ("Intake F", "iat", 40, 250),
@@ -174,6 +176,7 @@ class App:
         self._send(int(ECUToHudID.KNOCK_STATUS), struct.pack(">H", max(0, min(0xFFFF, int(self.vars["knock_mask"].get())))))
         self._send(int(ECUToHudID.OIL_PRESSURE_TEMP), struct.pack(">HH", int(max(0.0, float(self.vars["oilp"].get())) * 10), oil_t_c10))
         self._send(int(ECUToHudID.COOLANT_TEMP), struct.pack(">H", clt_c10))
+        self._send(int(ECUToHudID.BATTERY_VOLTAGE), struct.pack(">H", int(max(0.0, float(self.vars["batt_v"].get())) * 1000)))
         self._send(int(ECUToHudID.FUEL_LEVEL), bytes((max(0, min(100, int(self.vars["fuel"].get()))),)))
         self._send(int(ECUToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
         self._send(int(ECUToHudID.ENGINE_LOAD), bytes((max(0, min(100, int(self.vars["load"].get()))),)))
