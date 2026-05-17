@@ -29,6 +29,16 @@ class TractionState:
 
 
 @dataclass(frozen=True)
+class LightingState:
+    left_indicator: bool = False
+    right_indicator: bool = False
+    high_beam: bool = False
+    neutral: bool = False
+    brake: bool = False
+    oil_warning: bool = False
+
+
+@dataclass(frozen=True)
 class EngineState:
     rpm: int = 0
     rpm_redline: int = 12000
@@ -76,6 +86,7 @@ class StateSnapshot:
     air_shot: AirShotState = field(default_factory=AirShotState)
     wmi: WMIState = field(default_factory=WMIState)
     traction: TractionState = field(default_factory=TractionState)
+    lighting: LightingState = field(default_factory=LightingState)
     environment: EnvironmentState = field(default_factory=EnvironmentState)
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)

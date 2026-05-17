@@ -13,6 +13,7 @@ from .snapshot import (
     AirShotState,
     EngineState,
     EnvironmentState,
+    LightingState,
     StateSnapshot,
     TemperaturesState,
     TractionState,
@@ -140,6 +141,15 @@ class StateSimulator:
             intervention_level=rng.choice(["LOW", "MED", "HIGH"]),
         )
 
+        lighting = LightingState(
+            left_indicator=0.15 < self._phase < 0.22,
+            right_indicator=0.65 < self._phase < 0.72,
+            high_beam=0.35 < self._phase < 0.50,
+            neutral=gear == "N",
+            brake=throttle < 10.0 and speed > 5.0,
+            oil_warning=False,
+        )
+
         message = "ECU OK | ARDUINO OK | CAN OK"
         alerts: tuple[str, ...] = tuple()
         if wmi_fault:
@@ -173,6 +183,7 @@ class StateSimulator:
             air_shot=air_shot,
             wmi=wmi,
             traction=traction,
+            lighting=lighting,
             environment=environment,
             shift_light=shift_light,
             faults=alerts,

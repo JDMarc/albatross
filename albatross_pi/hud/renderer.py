@@ -239,6 +239,8 @@ class HUDRenderer:
             active.add("CAN STALE")
         if state.temps.oil_pressure_psi < 12 and state.engine.rpm > 1800:
             active.add("LOW OIL PRESS")
+        if state.lighting.oil_warning and state.engine.rpm > 800:
+            active.add("LOW OIL PRESS")
         if state.temps.coolant_temp_f > 235:
             active.add("COOLANT HOT")
         if state.temps.exhaust_temp_f > 1600:
@@ -572,6 +574,7 @@ class HUDRenderer:
                         wheelie_pitch_deg=state.traction.wheelie_pitch_deg,
                         intervention_level=desired_trac,
                     ),
+                    lighting=state.lighting,
                     environment=state.environment,
                     shift_light=state.shift_light,
                     faults=state.faults,

@@ -68,6 +68,12 @@ class App:
             "wg2": tk.IntVar(value=45),
             "mode": tk.StringVar(value="NORMAL"),
             "nfc_ok": tk.BooleanVar(value=True),
+            "left_indicator": tk.BooleanVar(value=False),
+            "right_indicator": tk.BooleanVar(value=False),
+            "high_beam": tk.BooleanVar(value=False),
+            "neutral_light": tk.BooleanVar(value=True),
+            "brake_light": tk.BooleanVar(value=False),
+            "oil_warning": tk.BooleanVar(value=False),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
         }
         self._build()
@@ -143,6 +149,16 @@ class App:
 
         ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=2, column=0, sticky="w", pady=(6, 0))
         ttk.Button(cmds, text="Quit", command=self.close).grid(row=2, column=1, sticky="w", pady=(6, 0))
+
+        lighting = ttk.LabelFrame(rootf, text="Motorcycle Lighting -> HUD", padding=8)
+        lighting.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        ttk.Checkbutton(lighting, text="Left Indicator", variable=self.vars["left_indicator"]).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(lighting, text="Right Indicator", variable=self.vars["right_indicator"]).grid(row=0, column=1, sticky="w")
+        ttk.Checkbutton(lighting, text="High Beam", variable=self.vars["high_beam"]).grid(row=0, column=2, sticky="w")
+        ttk.Checkbutton(lighting, text="Neutral", variable=self.vars["neutral_light"]).grid(row=1, column=0, sticky="w")
+        ttk.Checkbutton(lighting, text="Brake", variable=self.vars["brake_light"]).grid(row=1, column=1, sticky="w")
+        ttk.Checkbutton(lighting, text="Oil Warning", variable=self.vars["oil_warning"]).grid(row=1, column=2, sticky="w")
+
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
         s = ttk.Scale(parent, from_=lo, to=hi, variable=self.vars[key], orient="horizontal")
@@ -211,6 +227,14 @@ class App:
         self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
         self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))
         self._send(int(PiToArduinoID.NFC_AUTH), bytes((1 if bool(self.vars["nfc_ok"].get()) else 0,)))
+        light_flags = 0
+        light_flags |= 0x01 if bool(self.vars["left_indicator"].get()) else 0
+        light_flags |= 0x02 if bool(self.vars["right_indicator"].get()) else 0
+        light_flags |= 0x04 if bool(self.vars["high_beam"].get()) else 0
+        light_flags |= 0x08 if bool(self.vars["neutral_light"].get()) else 0
+        light_flags |= 0x10 if bool(self.vars["brake_light"].get()) else 0
+        light_flags |= 0x20 if bool(self.vars["oil_warning"].get()) else 0
+        self._send(int(ArduinoToHudID.LIGHT_STATUS), bytes((light_flags,)))
 
         payload = {k: (v.get() if hasattr(v, "get") else v) for k, v in self.vars.items()}
         payload["msg"] = self.vars["msg"].get()

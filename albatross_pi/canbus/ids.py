@@ -36,6 +36,7 @@ class ArduinoToHudID(IntEnum):
     FUEL_LEVEL = 0x138
     WMI_STATUS = 0x139
     CLUTCH_SLIP_STATUS = 0x13A
+    LIGHT_STATUS = 0x13B
 
 
 class PiToArduinoID(IntEnum):

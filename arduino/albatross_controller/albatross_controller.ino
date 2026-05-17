@@ -49,6 +49,7 @@ namespace CanId {
   constexpr uint16_t ARD_FUEL_LEVEL = 0x138;
   constexpr uint16_t ARD_WMI_STATUS = 0x139;
   constexpr uint16_t ARD_CLUTCH_SLIP_STATUS = 0x13A;
+  constexpr uint16_t ARD_LIGHT_STATUS = 0x13B;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -125,12 +126,18 @@ static constexpr uint8_t WG2_EN_PIN = 25;
 static constexpr uint8_t WMI_PUMP_PIN = 7;     // Water/meth pump relay (active HIGH)
 static constexpr uint8_t FLAME_EN_PIN = 8;     // Flame mode interlock output
 static constexpr uint8_t AIRSHOT_SOL_PIN = 9;  // Air shot solenoid output
-static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 10; // Air tank compressor relay
+static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 27; // Air tank compressor relay
 // Mega 2560 external interrupt-capable pins: 2,3,18,19,20,21
 // Do not duplicate these constants elsewhere in this sketch.
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 3;
-static constexpr uint8_t REAR_WHEEL_HALL_PIN = 4;
+static constexpr uint8_t REAR_WHEEL_HALL_PIN = 18;
 static constexpr uint8_t NEUTRAL_SWITCH_PIN = 26; // digital input from neutral lamp switch
+// Existing bike lamp feeds, conditioned to 5V logic with external pulldowns.
+static constexpr uint8_t LEFT_INDICATOR_PIN = 28;
+static constexpr uint8_t RIGHT_INDICATOR_PIN = 29;
+static constexpr uint8_t HIGH_BEAM_PIN = 30;
+static constexpr uint8_t BRAKE_LIGHT_PIN = 31;
+static constexpr uint8_t OIL_WARNING_PIN = 32;
 
 // Placeholder base boost caps by mode (psi*10).
 uint16_t modeBoostCap(uint8_t mode) {
@@ -290,6 +297,17 @@ static constexpr float GEAR_RATIO_FROM_RPM_MPH[] = {
 };
 // NOTE: These are placeholder rpm:mph ratios for now.
 // Replace with measured ratios after real-world validation.
+
+uint8_t readLightingStatus() {
+  uint8_t flags = 0;
+  if (digitalRead(LEFT_INDICATOR_PIN) == HIGH) flags |= 0x01;
+  if (digitalRead(RIGHT_INDICATOR_PIN) == HIGH) flags |= 0x02;
+  if (digitalRead(HIGH_BEAM_PIN) == HIGH) flags |= 0x04;
+  if (digitalRead(NEUTRAL_SWITCH_PIN) == LOW) flags |= 0x08;
+  if (digitalRead(BRAKE_LIGHT_PIN) == HIGH) flags |= 0x10;
+  if (digitalRead(OIL_WARNING_PIN) == HIGH) flags |= 0x20;
+  return flags;
+}
 
 uint8_t classifyClutchSlipSeverity(float slip_pct) {
   if (slip_pct < 8.0f) return 0;   // nominal
@@ -505,6 +523,9 @@ void publishStatusFrames() {
   uint8_t rgb[3] = {255, 96, 0};
   publishFrame(CanId::ARD_RGB_LIGHTING, rgb, 3);
 
+  uint8_t lights[1] = {readLightingStatus()};
+  publishFrame(CanId::ARD_LIGHT_STATUS, lights, 1);
+
   uint8_t tank[2] = {uint8_t(g_outputs.tank_psi_x10 >> 8), uint8_t(g_outputs.tank_psi_x10 & 0xFF)};
   publishFrame(CanId::ARD_TANK_PRESSURE, tank, 2);
 
@@ -555,6 +576,11 @@ void setup() {
   pinMode(FRONT_WHEEL_HALL_PIN, INPUT_PULLUP);
   pinMode(REAR_WHEEL_HALL_PIN, INPUT_PULLUP);
   pinMode(NEUTRAL_SWITCH_PIN, INPUT_PULLUP);
+  pinMode(LEFT_INDICATOR_PIN, INPUT);
+  pinMode(RIGHT_INDICATOR_PIN, INPUT);
+  pinMode(HIGH_BEAM_PIN, INPUT);
+  pinMode(BRAKE_LIGHT_PIN, INPUT);
+  pinMode(OIL_WARNING_PIN, INPUT);
   const int front_irq = digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN);
   const int rear_irq = digitalPinToInterrupt(REAR_WHEEL_HALL_PIN);
   if (front_irq >= 0) attachInterrupt(front_irq, frontWheelPulseISR, RISING);

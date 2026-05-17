@@ -12,6 +12,7 @@ This sketch is pinned and validated for **Arduino Mega 2560 Rev3** pin capabilit
 - Traction control slip estimation from front/rear Hall sensors.
 - Torque-reduction request messaging to ECU over CAN.
 - WMI + flame interlocks and limp-mode enforcement.
+- Motorcycle lamp status reporting for HUD indicators/high beam/brake/oil warning.
 
 ## Single-point boost configuration
 
@@ -53,6 +54,7 @@ Arduino computes slip ratio and publishes torque-cut request (`0x125`) for ECU-s
 
 ## CAN notes
 
+- Arduino reports lamp status in `0x13B` payload byte 0: bit 0 left indicator, bit 1 right indicator, bit 2 high beam, bit 3 neutral, bit 4 brake light, bit 5 oil warning.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).
 - Arduino reports Air Shot active flag in `0x130` payload byte 1 for HUD “air shot active” indicator.
 
@@ -69,6 +71,8 @@ Both channels currently mirror the same command request for synchronized twin-ac
 
 ## Mega 2560 hardware notes
 
-- Wheel Hall sensors are mapped to external interrupt pins `18` and `19` (valid interrupt pins on Mega 2560).
+- Wheel Hall sensors are mapped to external interrupt pins `3` and `18` (valid interrupt pins on Mega 2560).
 - MCP2515 CAN interrupt remains on pin `2`.
 - Dual e-wastegate channels use independent `PWM/DIR/EN` groups; PWM outputs are on pins `5` and `6` (both PWM-capable on Mega).
+- Air compressor relay uses pin `27`; pin `10` is reserved for MCP2515 chip select.
+- Lamp feed inputs use pins `28`-`32`; condition bike voltage to 5V logic and provide external pulldowns.

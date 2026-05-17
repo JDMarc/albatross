@@ -26,7 +26,7 @@ from albatross_pi.canbus.encode import (
 )
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
-from albatross_pi.state.snapshot import StateSnapshot
+from albatross_pi.state.snapshot import LightingState, StateSnapshot
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from dataclasses import replace
 
@@ -206,7 +206,11 @@ def main() -> None:
                     faults.append("CLUTCH SLIP")
                 if snap.temps.oil_pressure_psi < 12 and snap.engine.rpm > 2000:
                     faults.append("LOW OIL PRESS")
+                if snap.lighting.oil_warning and snap.engine.rpm > 1200:
+                    faults.append("LOW OIL PRESS")
                 if snap.temps.oil_pressure_psi < 8 and snap.engine.rpm > 2200:
+                    faults.append("CRITICAL OIL PRESS")
+                if snap.lighting.oil_warning and snap.engine.rpm > 2200:
                     faults.append("CRITICAL OIL PRESS")
                 if snap.temps.coolant_temp_f > 240:
                     faults.append("COOLANT HOT")
@@ -439,7 +443,25 @@ def main() -> None:
                     intervention_level=str(obj.get("traction", snap.traction.intervention_level)),
                     wheelie_pitch_deg=float(obj.get("lean_deg", snap.traction.wheelie_pitch_deg)),
                 )
-                renderer.update_state(replace(snap, engine=eng, temps=temps, environment=env, traction=trac, air_shot=air))
+                lighting = LightingState(
+                    left_indicator=bool(obj.get("left_indicator", obj.get("turn_left", snap.lighting.left_indicator))),
+                    right_indicator=bool(obj.get("right_indicator", obj.get("turn_right", snap.lighting.right_indicator))),
+                    high_beam=bool(obj.get("high_beam", snap.lighting.high_beam)),
+                    neutral=bool(obj.get("neutral_light", obj.get("neutral", eng.gear == "N"))),
+                    brake=bool(obj.get("brake_light", obj.get("brake", snap.lighting.brake))),
+                    oil_warning=bool(obj.get("oil_warning", snap.lighting.oil_warning)),
+                )
+                renderer.update_state(
+                    replace(
+                        snap,
+                        engine=eng,
+                        temps=temps,
+                        environment=env,
+                        traction=trac,
+                        lighting=lighting,
+                        air_shot=air,
+                    )
+                )
 
         threading.Thread(target=loop, name="demo-udp", daemon=True).start()
 

@@ -18,6 +18,7 @@ from ..state.snapshot import (
     AirShotState,
     EngineState,
     EnvironmentState,
+    LightingState,
     StateSnapshot,
     TemperaturesState,
     TractionState,
@@ -70,6 +71,7 @@ class CANStateAggregator:
         self._airshot = AirShotState()
         self._wmi = WMIState()
         self._traction = TractionState()
+        self._lighting = LightingState()
         self._environment = replace(EnvironmentState(), fuel_level_pct=-1.0)
         self._faults: Dict[int, str] = {}
         self._shift_light = False
@@ -105,6 +107,7 @@ class CANStateAggregator:
                 air_shot=self._airshot,
                 wmi=self._wmi,
                 traction=self._traction,
+                lighting=self._lighting,
                 environment=self._environment,
                 shift_light=self._shift_light,
                 faults=tuple(sorted(self._faults.values())),
@@ -327,6 +330,19 @@ class CANStateAggregator:
             intervention_level=level,
         )
 
+    def _update_light_status(self, data: bytes) -> None:
+        if not data:
+            return
+        flags = data[0]
+        self._lighting = LightingState(
+            left_indicator=bool(flags & 0x01),
+            right_indicator=bool(flags & 0x02),
+            high_beam=bool(flags & 0x04),
+            neutral=bool(flags & 0x08),
+            brake=bool(flags & 0x10),
+            oil_warning=bool(flags & 0x20),
+        )
+
     def _update_nfc_auth(self, data: bytes) -> None:
         if not data:
             return
@@ -369,6 +385,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.FUEL_LEVEL): CANStateAggregator._update_arduino_fuel,
     int(ArduinoToHudID.WMI_STATUS): CANStateAggregator._update_wmi_status,
     int(ArduinoToHudID.CLUTCH_SLIP_STATUS): CANStateAggregator._update_clutch_slip_status,
+    int(ArduinoToHudID.LIGHT_STATUS): CANStateAggregator._update_light_status,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,

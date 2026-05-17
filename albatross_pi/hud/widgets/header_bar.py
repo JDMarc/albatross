@@ -13,6 +13,39 @@ class HeaderBar(Widget):
     def __init__(self, rect: pygame.Rect) -> None:
         self.rect = rect
 
+    def _draw_turn_indicator(self, surface: pygame.Surface, center: tuple[int, int], *, left: bool, active: bool) -> None:
+        color = AMBER_BRIGHT if active else AMBER_DARK
+        cx, cy = center
+        direction = -1 if left else 1
+        points = [
+            (cx + direction * -8, cy - 7),
+            (cx + direction * 9, cy),
+            (cx + direction * -8, cy + 7),
+            (cx + direction * -4, cy + 3),
+            (cx + direction * -15, cy + 3),
+            (cx + direction * -15, cy - 3),
+            (cx + direction * -4, cy - 3),
+        ]
+        pygame.draw.polygon(surface, color, points, width=0 if active else 2)
+
+    def _draw_high_beam(self, surface: pygame.Surface, center: tuple[int, int], *, active: bool) -> None:
+        color = AMBER_BRIGHT if active else AMBER_DARK
+        cx, cy = center
+        lamp = pygame.Rect(cx - 11, cy - 7, 11, 14)
+        pygame.draw.arc(surface, color, lamp, -1.5708, 1.5708, 2)
+        pygame.draw.line(surface, color, (cx - 2, cy - 7), (cx - 2, cy + 7), 2)
+        for offset in (-6, -2, 2, 6):
+            pygame.draw.line(surface, color, (cx + 2, cy + offset), (cx + 16, cy + offset - 3), 2)
+
+    def _draw_lighting_status(self, surface: pygame.Surface, state: StateSnapshot, y: int) -> None:
+        lighting = state.lighting
+        spacing = max(28, int(self.rect.height * 0.38))
+        cx = self.rect.centerx
+        cy = y + max(10, int(self.rect.height * 0.15))
+        self._draw_turn_indicator(surface, (cx - spacing, cy), left=True, active=lighting.left_indicator)
+        self._draw_high_beam(surface, (cx, cy), active=lighting.high_beam)
+        self._draw_turn_indicator(surface, (cx + spacing, cy), left=False, active=lighting.right_indicator)
+
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)
         env = state.environment
@@ -43,6 +76,7 @@ class HeaderBar(Widget):
                 self.rect.y + padding // 2,
             ),
         )
+        self._draw_lighting_status(surface, state, self.rect.y + padding // 2 + line_height)
 
         ambient_surface = font(max(14, int(line_height * 0.7))).render(f"{env.ambient_temp_f:3.0f}F", True, AMBER_BRIGHT)
         surface.blit(
