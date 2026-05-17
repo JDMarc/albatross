@@ -925,7 +925,8 @@ class HUDRenderer:
             mode_surface = font(size, bold=active).render(mode, True, (0, 0, 0))
             if idx == hover_idx:
                 uy = my + (0 if active else 3) + mode_surface.get_height() + 1
-                pygame.draw.line(self.screen, (255, 140, 0), (mx, uy), (mx + mode_surface.get_width(), uy), 2)
+                if header_rect.y <= uy <= header_rect.bottom + 2:
+                    pygame.draw.line(self.screen, (255, 140, 0), (mx, uy), (mx + mode_surface.get_width(), uy), 2)
                 return
             mx += mode_surface.get_width() + 8
 
