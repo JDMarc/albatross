@@ -122,6 +122,10 @@ class EvaAlertAudio:
         elif sampwidth != 2:
             frames = audioop.lin2lin(frames, sampwidth, 2)
             sampwidth = 2
+        # AU/SND linear PCM payloads are big-endian; WAV PCM expects little-endian.
+        # Without this swap, audio plays as loud static/garbled noise.
+        if sampwidth > 1:
+            frames = audioop.byteswap(frames, sampwidth)
         with wave.open(str(dest_path), "wb") as out:
             out.setnchannels(nchannels)
             out.setsampwidth(sampwidth)
