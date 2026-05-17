@@ -103,6 +103,36 @@
 - Immediate derates for WMI failures; Air Shot safety gates (pressure, temps, lean angle, traction status).
 - Throttle-by-wire supervision with plausibility checks and fast stop commands on mismatch.
 
+### 11.1 Recommended PI fault throw conditions (exhaustive baseline)
+- `WMI FLOW LOW`: WMI commanded flow > 0 and measured flow persistently below threshold (e.g., <60% commanded for 250 ms).
+- `EGT HIGH`: Exhaust gas temp above soft thermal limit (e.g., >1650°F).
+- `CAN TIMEOUT`: expected CAN source heartbeat missing beyond timeout budget.
+- `IMU FAULT`: IMU data missing, stale, or outside sanity range.
+- `AIR SHOT LOW`: bottle pressure below armed threshold.
+- `LOW OIL PRESS`: oil pressure below operating envelope for current RPM.
+- `OVERBOOST`: measured boost exceeds target + tolerance window.
+- `KNOCK ESCALATE`: repeated knock events over a short rolling window.
+- `CRITICAL OIL PRESS`: oil pressure below emergency floor for sustained interval.
+- `COOLANT HOT`: coolant exceeds hard thermal ceiling.
+- `ECU STALE`: throttle/load present but ECU RPM/telemetry implausibly stale/flat.
+- `CAN STALE`: aggregate bus freshness outside UI safety window.
+- `SPEED SENSOR`: RPM/gear imply motion but wheel speed remains implausible.
+- `GEAR SENSOR`: invalid gear code or contradictory gear transitions.
+- `CLUTCH SLIP`: high RPM + throttle with low wheel speed in-drive indicates slip.
+- `LOW FUEL`: fuel level crosses critical reserve threshold.
+- `WMI TANK EMPTY`: WMI tank level at/near empty while WMI requested.
+- `WMI PUMP FAULT`: pump commanded on but electrical/current/flow response absent.
+- `WMI PRESSURE LOW`: WMI line pressure below minimum while armed.
+- `WASTEGATE STUCK`: duty changes command but boost response remains frozen.
+- `BOOST CONTROL ERROR`: closed-loop boost control deviation persists outside margin.
+- `CYL EGT BOOST MISMATCH`: high-load operation where EGT-derived load and boost diverge beyond plausibility window.
+- `INTAKE AIR HOT`: IAT exceeds configured derate trigger.
+- `BATTERY LOW`: bus voltage below under-voltage threshold.
+- `BATTERY HIGH`: bus voltage above over-voltage threshold.
+- `SENSOR RANGE FAULT`: any critical sensor returns out-of-range or NaN values.
+- `ENGINE RUN SWITCH OFF`: safety supervisor has latched run-switch cut request.
+- `ENGINE SHUTDOWN REQUEST`: shutdown escalation criteria met and issued.
+
 ## 12. Pygame Architecture & Project Layout
 - Directory structure with modules for CAN, state, HUD widgets, IO, logging, audio, config, tools.
 - Renderer pattern: pre-render static layers; widgets draw from immutable `StateSnapshot`.

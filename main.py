@@ -176,6 +176,11 @@ def main() -> None:
             critical_oil_start: float | None = None
             last_engine_run_switch_enabled = True
             last_escalation_ts = 0.0
+            boost_ctrl_error_start: float | None = None
+            wmi_flow_low_start: float | None = None
+            prev_boost_psi = 0.0
+            prev_wg_duty = 0.0
+            wg_stuck_start: float | None = None
             while True:
                 snap = aggregator.current_snapshot()
                 faults: list[str] = []
@@ -186,6 +191,8 @@ def main() -> None:
                     faults.append("ECU STALE")
                 if snap.engine.rpm > 0 and snap.engine.speed_mph == 0 and snap.engine.gear not in ("N", "?"):
                     faults.append("SPEED SENSOR")
+                if snap.engine.gear not in ("N", "1", "2", "3", "4", "5", "6", "?"):
+                    faults.append("GEAR SENSOR")
                 # RPM/speed mismatch can indicate clutch slip under load, not only sensor error.
                 if (
                     snap.engine.rpm > 7000
@@ -202,10 +209,66 @@ def main() -> None:
                     faults.append("COOLANT HOT")
                 if snap.temps.exhaust_temp_f > 1650:
                     faults.append("EGT HOT")
+                if snap.temps.intake_temp_f > 150:
+                    faults.append("INTAKE AIR HOT")
+                if snap.temps.battery_voltage > 0 and snap.temps.battery_voltage < 11.2:
+                    faults.append("BATTERY LOW")
+                if snap.temps.battery_voltage > 15.4:
+                    faults.append("BATTERY HIGH")
+                if (
+                    snap.engine.boost_psi > 10.0
+                    and snap.engine.rpm > 3000
+                    and snap.temps.exhaust_temp_f > 1400
+                    and abs(snap.engine.boost_psi - (snap.temps.exhaust_temp_f / 100.0)) > 9.0
+                ):
+                    faults.append("CYL EGT BOOST MISMATCH")
+                if snap.engine.boost_psi > (snap.engine.target_boost_psi + 3.0):
+                    faults.append("OVERBOOST")
                 if snap.engine.knock_events >= 3:
                     faults.append("KNOCK")
                 if snap.environment.fuel_level_pct <= 5:
                     faults.append("LOW FUEL")
+                if snap.air_shot.pressure_psi > 0 and snap.air_shot.pressure_psi < 350:
+                    faults.append("AIR SHOT LOW")
+                if snap.wmi.fault_active:
+                    faults.append("WMI PUMP FAULT")
+                if snap.wmi.tank_level_pct >= 0 and snap.wmi.tank_level_pct < 3:
+                    faults.append("WMI TANK EMPTY")
+                if snap.wmi.commanded_flow_cc_min > 0:
+                    if snap.wmi.actual_flow_cc_min < (0.6 * snap.wmi.commanded_flow_cc_min):
+                        if wmi_flow_low_start is None:
+                            wmi_flow_low_start = now_ts
+                        elif (now_ts - wmi_flow_low_start) >= 0.25:
+                            faults.append("WMI FLOW LOW")
+                            faults.append("WMI PRESSURE LOW")
+                    else:
+                        wmi_flow_low_start = None
+                else:
+                    wmi_flow_low_start = None
+
+                boost_error = abs(snap.engine.boost_psi - snap.engine.target_boost_psi)
+                if snap.engine.target_boost_psi >= 8.0 and snap.engine.throttle_pct > 35 and boost_error > 4.0:
+                    if boost_ctrl_error_start is None:
+                        boost_ctrl_error_start = now_ts
+                    elif (now_ts - boost_ctrl_error_start) >= 0.75:
+                        faults.append("BOOST CONTROL ERROR")
+                else:
+                    boost_ctrl_error_start = None
+
+                if snap.engine.throttle_pct > 35 and snap.engine.target_boost_psi >= 8.0:
+                    wg_delta = abs(snap.engine.wastegate_duty_pct - prev_wg_duty)
+                    boost_delta = abs(snap.engine.boost_psi - prev_boost_psi)
+                    if wg_delta >= 8.0 and boost_delta < 0.4:
+                        if wg_stuck_start is None:
+                            wg_stuck_start = now_ts
+                        elif (now_ts - wg_stuck_start) >= 1.0:
+                            faults.append("WASTEGATE STUCK")
+                    else:
+                        wg_stuck_start = None
+                else:
+                    wg_stuck_start = None
+                prev_boost_psi = snap.engine.boost_psi
+                prev_wg_duty = snap.engine.wastegate_duty_pct
 
                 severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HOT", "CLUTCH SLIP"))
 
