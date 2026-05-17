@@ -674,7 +674,7 @@ class HUDRenderer:
         bg, bright, glow, fault = self._theme_colors()
         width = self.screen.get_width()
         center_x = width // 2
-        settings_rect = pygame.Rect(center_x + 330, 8, 128, 74)
+        settings_rect = pygame.Rect(center_x + 400, 8, 128, 74)
         tile = pygame.Rect(settings_rect.right + 8, 8, 280, 74)
         # Clamp so the right edge stays clear of ambient/GPS area.
         right_limit = width - 220
