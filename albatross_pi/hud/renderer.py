@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable, List
 
 import pygame
@@ -382,6 +382,11 @@ class HUDRenderer:
             state = replace(state, faults=self._runtime_faults(state, now_s))
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
+
+            # Keep the HUD clock moving even when telemetry timestamps stop updating.
+            display_time = state.environment.time + timedelta(seconds=max(0.0, now_s - self._last_can_fresh_monotonic))
+            state = replace(state, environment=replace(state.environment, time=display_time))
+
             # keep animating mode-based layout transitions
             self._create_widgets()
             # Respect externally supplied mode telemetry.
