@@ -37,8 +37,8 @@
   - Fuel profile/table requests (`0x150`) and spark-table requests (`0x151`).
   - Timing bias requests and torque ceiling trims (ECU firmware track).
   - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
-- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`–`0x10B`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, and dual-bank EGT; Arduino status (`0x130`–`0x135`) for Air Shot charge counts, AWC state/lean angle, tank pressure, twin turbo boost feedback, and wastegate duty.
-- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`–`0x10B`), Pi HUD commands (`0x120`, `0x121`, `0x140`), Arduino supervisory status (`0x130`–`0x135`), and bidirectional POST/test utility frames (`0x1F0`–`0x1F1`).
+- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10C`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, and battery voltage; Arduino status (`0x130`-`0x13E`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, and traction status.
+- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10C`), Pi HUD commands, Pi-to-ECU map requests, Arduino supervisory status (`0x130`-`0x13E`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
 - **Timeouts & fallbacks**:
   - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Arduino.
   - Loss of Arduino heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.

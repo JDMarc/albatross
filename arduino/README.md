@@ -60,11 +60,13 @@ The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut
 
 - Arduino reports lamp status in `0x13B` payload byte 0: bit 0 left indicator, bit 1 right indicator, bit 2 high beam, bit 3 neutral, bit 4 brake light, bit 5 oil warning. The oil warning lamp is status only; pressure decisions use the real pressure sensor path.
 - Arduino can report fallback oil pressure in `0x13C` as psi x10 from `OIL_PRESSURE_SENSOR_PIN` if the ECU cannot publish oil pressure.
+- Arduino consumes ECU fuel level on `0x107`; fuel type selection is not inferred from this frame.
 - Arduino reports fuel type in `0x13D` using the shared fuel code map: 0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
 - Arduino accepts Pi fuel type selection on `0x129` using the same shared fuel code map.
 - Arduino reports WMI status in `0x139`: byte 0 tank level %, bytes 1-2 commanded cc/min, bytes 3-4 sensed cc/min, byte 5 aggregate fault.
 - Pi sends ECU fuel profile selection on `0x150`: fuel code, fuel table index, and stoich AFR x100. Current table indexes are 0=pump gas, 1=100 octane, 2=E85, 3=C16. Pi sends ECU spark table selection on `0x151`: 0 initial map, 1 SPORT+ performance map.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).
+- Pi engine run switch (`0x127`) is enforced by Arduino as limp/no-boost plus 100% torque-cut request while OFF.
 - Arduino reports Air Shot active flag in `0x130` payload byte 1 for HUD “air shot active” indicator.
 
 
@@ -81,7 +83,8 @@ Both channels currently mirror the same command request for synchronized twin-ac
 ## Mega 2560 hardware notes
 
 - Wheel Hall sensors are mapped to external interrupt pins `3` and `18` (valid interrupt pins on Mega 2560).
-- MCP2515 CAN interrupt remains on pin `2`.
+- MCP2515 CAN interrupt remains on pin `2` with internal pullup enabled.
+- MCP2515 chip select uses pin `10`; Mega hardware SS pin `53` is held as `OUTPUT/HIGH` to keep SPI in master mode.
 - Dual e-wastegate channels use independent `PWM/DIR/EN` groups; PWM outputs are on pins `5` and `6` (both PWM-capable on Mega).
 - Air compressor relay uses pin `27`; pin `10` is reserved for MCP2515 chip select.
 - Lamp feed inputs use pins `28`-`32`; condition bike voltage to 5V logic and provide external pulldowns.

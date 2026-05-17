@@ -259,7 +259,7 @@ def main() -> None:
                     faults.append("KNOCK")
                 if snap.environment.fuel_level_pct <= 5:
                     faults.append("LOW FUEL")
-                if snap.air_shot.pressure_psi > 0 and snap.air_shot.pressure_psi < 350:
+                if snap.air_shot.pressure_psi > 0 and snap.air_shot.pressure_psi < 35:
                     faults.append("AIR SHOT LOW")
                 if snap.wmi.fault_active:
                     faults.append("WMI PUMP FAULT")

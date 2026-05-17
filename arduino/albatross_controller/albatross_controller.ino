@@ -6,6 +6,7 @@
 // --- CAN bus wiring/config ---
 static constexpr uint8_t CAN_CS_PIN = 10;
 static constexpr uint8_t CAN_INT_PIN = 2;
+static constexpr uint8_t SPI_SS_PIN = 53; // Mega hardware SS must stay OUTPUT for SPI master mode.
 static constexpr uint32_t CAN_BITRATE = CAN_500KBPS;
 
 MCP_CAN CANBUS(CAN_CS_PIN);
@@ -19,11 +20,12 @@ namespace CanId {
   constexpr uint16_t ECU_KNOCK = 0x104;
   constexpr uint16_t ECU_OIL = 0x105;
   constexpr uint16_t ECU_CLT = 0x106;
-  constexpr uint16_t ECU_FUEL = 0x107;
+  constexpr uint16_t ECU_FUEL_LEVEL = 0x107;
   constexpr uint16_t ECU_GEAR = 0x108;
   constexpr uint16_t ECU_LOAD = 0x109;
   constexpr uint16_t ECU_IAT = 0x10A;
   constexpr uint16_t ECU_EGT = 0x10B;
+  constexpr uint16_t ECU_BATTERY = 0x10C;
 
   constexpr uint16_t ECU_TO_ARD_FLAME_STATUS = 0x110;
   constexpr uint16_t ECU_TO_ARD_WMI_TRIGGER = 0x111;
@@ -36,6 +38,7 @@ namespace CanId {
   constexpr uint16_t PI_FLAME_MODE = 0x122;
   constexpr uint16_t PI_LIMP_MODE = 0x123;
   constexpr uint16_t PI_TRACTION_LEVEL = 0x124;
+  constexpr uint16_t PI_ENGINE_RUN_SWITCH = 0x127;
   constexpr uint16_t PI_WMI_ENABLE = 0x128;
   constexpr uint16_t PI_FUEL_TYPE_SELECT = 0x129;
   constexpr uint16_t PI_NFC_AUTH = 0x140;
@@ -79,10 +82,15 @@ struct Inputs {
   uint16_t rpm = 0;
   uint8_t tps_pct = 0;
   uint16_t boost_psi_x10 = 0;
-  uint8_t knock_bits = 0;
+  uint16_t knock_bits = 0;
   uint16_t iat_c_x10 = 250;
   uint16_t egt_left_c_x10 = 7500;
   uint16_t egt_right_c_x10 = 7500;
+  uint16_t oil_pressure_psi_x10 = 0;
+  uint16_t oil_temp_c_x10 = 900;
+  uint16_t coolant_c_x10 = 900;
+  uint16_t battery_mv = 13800;
+  uint8_t engine_load_pct = 0;
   uint8_t engine_status = 0;
   uint8_t gear = 0;
   uint8_t fuel_code = 0x02; // default to 93 octane table if unknown
@@ -94,6 +102,7 @@ struct Commands {
   bool nfc_ok = false;
   bool flame_mode = false;
   bool limp_mode = false;
+  bool engine_run_enabled = true;
   uint16_t wmi_trigger_pct_x10 = 0;
   bool wmi_arm = false;
   TractionLevel traction_level = TC_MED;
@@ -206,7 +215,7 @@ uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x1
   // Throttle gating keeps spool behavior predictable and safe.
   if (tps_pct < 20) duty = 0;
   else if (tps_pct < 40) duty = (duty < 35) ? duty : 35;
-  else if (tps_pct < 40) duty = min<int16_t>(duty, 35);
+  else if (tps_pct < 60) duty = min<int16_t>(duty, 55);
 
   // Safety trims.
   if (knock) duty -= 20;
@@ -232,7 +241,17 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       if (len >= 2) g_inputs.boost_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
       break;
     case CanId::ECU_KNOCK:
-      if (len >= 1) g_inputs.knock_bits = data[0];
+      if (len >= 2) g_inputs.knock_bits = (uint16_t(data[0]) << 8) | data[1];
+      else if (len >= 1) g_inputs.knock_bits = data[0];
+      break;
+    case CanId::ECU_OIL:
+      if (len >= 4) {
+        g_inputs.oil_pressure_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
+        g_inputs.oil_temp_c_x10 = (uint16_t(data[2]) << 8) | data[3];
+      }
+      break;
+    case CanId::ECU_CLT:
+      if (len >= 2) g_inputs.coolant_c_x10 = (uint16_t(data[0]) << 8) | data[1];
       break;
     case CanId::ECU_IAT:
       if (len >= 2) g_inputs.iat_c_x10 = (uint16_t(data[0]) << 8) | data[1];
@@ -246,8 +265,14 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
     case CanId::ECU_GEAR:
       if (len >= 1) g_inputs.gear = data[0];
       break;
-    case CanId::ECU_FUEL:
-      if (len >= 1) g_inputs.fuel_code = data[0];
+    case CanId::ECU_FUEL_LEVEL:
+      if (len >= 1) g_outputs.fuel_level_pct = constrain(data[0], 0, 100);
+      break;
+    case CanId::ECU_LOAD:
+      if (len >= 1) g_inputs.engine_load_pct = constrain(data[0], 0, 100);
+      break;
+    case CanId::ECU_BATTERY:
+      if (len >= 2) g_inputs.battery_mv = (uint16_t(data[0]) << 8) | data[1];
       break;
     case CanId::PI_BOOST_TARGET:
       if (len >= 2) g_commands.boost_target_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
@@ -266,6 +291,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       break;
     case CanId::PI_TRACTION_LEVEL:
       if (len >= 1) g_commands.traction_level = static_cast<TractionLevel>(data[0]);
+      break;
+    case CanId::PI_ENGINE_RUN_SWITCH:
+      if (len >= 1) g_commands.engine_run_enabled = data[0] != 0;
       break;
     case CanId::PI_WMI_ENABLE:
       if (len >= 1) g_commands.wmi_arm = data[0] != 0;
@@ -505,10 +533,17 @@ void updateControllers() {
   uint16_t target = min(g_commands.boost_target_psi_x10, cap);
 
   const bool knock = g_inputs.knock_bits != 0;
-  const bool hot = (g_inputs.iat_c_x10 > 650) || (g_inputs.egt_left_c_x10 > 9300) || (g_inputs.egt_right_c_x10 > 9300);
+  const bool hot =
+      (g_inputs.iat_c_x10 > 650) ||
+      (g_inputs.egt_left_c_x10 > 9300) ||
+      (g_inputs.egt_right_c_x10 > 9300) ||
+      (g_inputs.coolant_c_x10 > 1160) ||
+      (g_inputs.oil_temp_c_x10 > 1400);
+  const bool low_oil_pressure = (g_inputs.rpm > 2200) && (g_inputs.oil_pressure_psi_x10 > 0) && (g_inputs.oil_pressure_psi_x10 < 80);
+  const bool voltage_fault = (g_inputs.battery_mv > 0) && (g_inputs.battery_mv < 10500 || g_inputs.battery_mv > 15500);
   const bool low_auth = !g_commands.nfc_ok;
   const bool sensor_fault = (g_inputs.rpm == 0 && g_inputs.tps_pct > 20);
-  const bool limp = g_commands.limp_mode || hot || (knock && g_inputs.boost_psi_x10 > target) || sensor_fault || low_auth;
+  const bool limp = !g_commands.engine_run_enabled || g_commands.limp_mode || hot || low_oil_pressure || voltage_fault || (knock && g_inputs.boost_psi_x10 > target) || sensor_fault || low_auth;
 
   if (limp) {
     target = 0;
@@ -539,7 +574,7 @@ void updateControllers() {
 
   const float boost_ratio = constrain(g_inputs.boost_psi_x10 / 220.0f, 0.0f, 1.0f);
   const float target_ratio = constrain(g_commands.boost_target_psi_x10 / 220.0f, 0.0f, 1.0f);
-  const float load_ratio = constrain(g_inputs.tps_pct / 100.0f, 0.0f, 1.0f);
+  const float load_ratio = constrain(max(g_inputs.tps_pct, g_inputs.engine_load_pct) / 100.0f, 0.0f, 1.0f);
   const float rpm_ratio = constrain((g_inputs.rpm - 3000) / 9000.0f, 0.0f, 1.0f);
   const float fuel_gain = wmiFuelGain(g_inputs.fuel_code);
 
@@ -612,7 +647,7 @@ void updateControllers() {
   g_outputs.traction_slip_pct_x10 = static_cast<int16_t>(constrain(static_cast<int>(roundf(filtered_slip_ratio * 1000.0f)), -1000, 1000));
   g_outputs.traction_active = tc_active || g_outputs.traction_torque_cut_pct > 0;
   g_outputs.traction_sensor_fault = sensor_fault;
-  const uint8_t torque_cut_pct = g_outputs.traction_sensor_fault ? 0 : g_outputs.traction_torque_cut_pct;
+  const uint8_t torque_cut_pct = !g_commands.engine_run_enabled ? 100 : (g_outputs.traction_sensor_fault ? 0 : g_outputs.traction_torque_cut_pct);
   uint8_t torque_cut_payload[1] = {torque_cut_pct};
   publishFrame(CanId::ARD_TO_ECU_TORQUE_CUT, torque_cut_payload, 1);
   uint8_t slip_payload[3] = {
@@ -708,7 +743,9 @@ void publishStatusFrames() {
 }
 
 void setup() {
-  pinMode(CAN_INT_PIN, INPUT);
+  pinMode(CAN_INT_PIN, INPUT_PULLUP);
+  pinMode(CAN_CS_PIN, OUTPUT);
+  pinMode(SPI_SS_PIN, OUTPUT);
   pinMode(WG1_PWM_PIN, OUTPUT);
   pinMode(WG1_DIR_PIN, OUTPUT);
   pinMode(WG1_EN_PIN, OUTPUT);
@@ -738,6 +775,8 @@ void setup() {
   if (rear_irq >= 0) attachInterrupt(rear_irq, rearWheelPulseISR, RISING);
   if (wmi_irq >= 0) attachInterrupt(wmi_irq, wmiFlowPulseISR, RISING);
 
+  digitalWrite(CAN_CS_PIN, HIGH);
+  digitalWrite(SPI_SS_PIN, HIGH);
   digitalWrite(WG1_EN_PIN, LOW);
   digitalWrite(WG2_EN_PIN, LOW);
   digitalWrite(WMI_PUMP_PIN, LOW);
