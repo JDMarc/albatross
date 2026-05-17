@@ -82,7 +82,6 @@ class HUDRenderer:
         self._available_devices: tuple[str, ...] = ()
         self._last_snapshot_time = self.state.environment.time
         self._last_can_fresh_monotonic = time.monotonic()
-        self._last_can_signature: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -317,6 +316,7 @@ class HUDRenderer:
     def update_state(self, snapshot: StateSnapshot) -> None:
         with self.state_lock:
             self.state = snapshot
+            self._last_can_fresh_monotonic = time.monotonic()
 
     def run(self, state_source: Iterable[StateSnapshot] | None = None) -> None:
         self.running = True
@@ -374,23 +374,10 @@ class HUDRenderer:
             with self.state_lock:
                 state = self.state
             now_s = time.monotonic()
-            can_signature = (
-                float(state.engine.rpm),
-                float(state.engine.speed_mph),
-                float(state.engine.boost_psi),
-                float(state.engine.throttle_pct),
-                float(state.traction.slip_pct),
-                float(state.environment.fuel_level_pct),
-            )
-            has_live_signal = any(v > 0.0 for v in can_signature[:-1])
-            if has_live_signal and can_signature != self._last_can_signature:
-                self._last_can_fresh_monotonic = now_s
-            self._last_can_signature = can_signature
             if state.environment.time != self._last_snapshot_time:
                 self._last_snapshot_time = state.environment.time
                 self._last_can_fresh_monotonic = now_s
             state = replace(state, faults=self._runtime_faults(state, now_s))
-            self.update_state(state)
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
             # keep animating mode-based layout transitions
