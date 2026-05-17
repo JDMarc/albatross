@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import logging
+import sunau
 import threading
 import time
 import urllib.request
+import wave
+import audioop
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -85,14 +88,44 @@ class EvaAlertAudio:
                     LOGGER.warning("Failed downloading EVA clip %s: %s", name, exc)
                     continue
             resolved[name] = wav_path
-        for fault, name in self._mapping.items():
-            wav_path = resolved.get(name)
-            if wav_path is None:
-                continue
+        loaded_by_name: dict[str, pygame.mixer.Sound] = {}
+        for name, source_path in resolved.items():
             try:
-                self._sounds[fault] = pygame.mixer.Sound(str(wav_path))
-            except pygame.error as exc:
-                LOGGER.warning("Failed loading EVA clip %s (%s): %s", name, wav_path, exc)
+                loaded_by_name[name] = pygame.mixer.Sound(str(source_path))
+                continue
+            except pygame.error:
+                pass
+            transcoded_path = source_path.with_suffix(".pcm.wav")
+            try:
+                self._transcode_au_to_pcm_wav(source_path, transcoded_path)
+                loaded_by_name[name] = pygame.mixer.Sound(str(transcoded_path))
+            except Exception as exc:
+                LOGGER.warning("Failed loading EVA clip %s (%s): %s", name, source_path, exc)
+        for fault, name in self._mapping.items():
+            sound = loaded_by_name.get(name)
+            if sound is not None:
+                self._sounds[fault] = sound
+
+    @staticmethod
+    def _transcode_au_to_pcm_wav(source_path: Path, dest_path: Path) -> None:
+        with sunau.open(str(source_path), "rb") as src:
+            nchannels = src.getnchannels()
+            sampwidth = src.getsampwidth()
+            framerate = src.getframerate()
+            nframes = src.getnframes()
+            frames = src.readframes(nframes)
+        # pygame mixers are most compatible with 16-bit PCM wav.
+        if sampwidth == 1:
+            frames = audioop.ulaw2lin(frames, 2)
+            sampwidth = 2
+        elif sampwidth != 2:
+            frames = audioop.lin2lin(frames, sampwidth, 2)
+            sampwidth = 2
+        with wave.open(str(dest_path), "wb") as out:
+            out.setnchannels(nchannels)
+            out.setsampwidth(sampwidth)
+            out.setframerate(framerate)
+            out.writeframes(frames)
 
     def update(self, faults: tuple[str, ...], *, allow_playback: bool) -> None:
         if not self._enabled or not allow_playback:
