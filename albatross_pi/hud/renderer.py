@@ -204,6 +204,7 @@ class HUDRenderer:
         self._traction_callback = None
         self._mode_callback = None
         self._media_callback = None
+        self._fuel_type_callback = None
         self._focus_targets = ["SETTINGS", "MEDIA"]
         self._focus_index = 0
         self._active_menu = "home"
@@ -212,10 +213,12 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
+        self._fuel_types = ["87", "91", "93", "100", "E85", "C16"]
+        self._fuel_type_index = self._fuel_types.index(self.state.environment.fuel_type) if self.state.environment.fuel_type in self._fuel_types else 2
         self._themes = ["AMBER", "NIGHT", "HIGH-CON"]
         self._theme_index = 0
         apply_theme(self._themes[self._theme_index])
@@ -280,6 +283,9 @@ class HUDRenderer:
 
     def configure_media_callback(self, callback) -> None:
         self._media_callback = callback
+
+    def configure_fuel_type_callback(self, callback) -> None:
+        self._fuel_type_callback = callback
 
     def update_phone_status(self, *, artist: str, track: str, position_s: float, length_s: float, devices: tuple[tuple[str, str], ...]) -> None:
         self._phone_artist = artist
@@ -550,6 +556,8 @@ class HUDRenderer:
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
                 self._mode_selection_index = self._mode_index
+            if state.environment.fuel_type in self._fuel_types:
+                self._fuel_type_index = self._fuel_types.index(state.environment.fuel_type)
 
             # Keep the HUD clock moving even when telemetry timestamps stop updating.
             display_time = self._display_time_anchor + timedelta(
@@ -676,6 +684,8 @@ class HUDRenderer:
                 self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
                 if self._traction_callback:
                     self._traction_callback(self._traction_index + 1)
+            elif item == "FUEL TYPE":
+                self._apply_fuel_type_selection((self._fuel_type_index + 1) % len(self._fuel_types))
             elif item == "BRIGHTNESS":
                 self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
             elif item == "PHONE LINK":
@@ -702,6 +712,8 @@ class HUDRenderer:
                 self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
                 if self._traction_callback:
                     self._traction_callback(self._traction_index + 1)
+            elif item == "FUEL TYPE":
+                self._apply_fuel_type_selection((self._fuel_type_index - 1) % len(self._fuel_types))
             elif item == "BRIGHTNESS":
                 self._brightness_index = max(self._brightness_index - 1, 0)
             elif item == "PHONE LINK":
@@ -880,6 +892,8 @@ class HUDRenderer:
     def _settings_value(self, item: str) -> str:
         if item == "TRACTION":
             return self._traction_levels[self._traction_index]
+        if item == "FUEL TYPE":
+            return self._fuel_types[self._fuel_type_index]
         if item == "BRIGHTNESS":
             return f"{self._brightness_levels[self._brightness_index]}%"
         if item == "PHONE LINK":
@@ -887,6 +901,19 @@ class HUDRenderer:
         if item == "THEME":
             return self._themes[self._theme_index]
         return "ON" if self._auto_dim_enabled else "OFF"
+
+    def _apply_fuel_type_selection(self, fuel_type_index: int, *, notify: bool = True) -> None:
+        if not self._fuel_types:
+            return
+        self._fuel_type_index = max(0, min(fuel_type_index, len(self._fuel_types) - 1))
+        fuel_type = self._fuel_types[self._fuel_type_index]
+        with self.state_lock:
+            self.state = replace(
+                self.state,
+                environment=replace(self.state.environment, fuel_type=fuel_type),
+            )
+        if notify and self._fuel_type_callback:
+            self._fuel_type_callback(self._fuel_type_index)
 
     def _render_mode_picker(self, panel: pygame.Rect, y: int) -> None:
         _bg, bright, glow, _fault = self._theme_colors()

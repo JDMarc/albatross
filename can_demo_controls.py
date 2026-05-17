@@ -250,6 +250,7 @@ class App:
 
         self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
         self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))
+        self._send(int(PiToArduinoID.FUEL_TYPE_SELECT), bytes((fuel_type_map[self.vars["fuel_type"].get()],)))
         self._send(int(PiToArduinoID.NFC_AUTH), bytes((1 if bool(self.vars["nfc_ok"].get()) else 0,)))
         light_flags = 0
         light_flags |= 0x01 if bool(self.vars["left_indicator"].get()) else 0

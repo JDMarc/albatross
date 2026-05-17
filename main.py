@@ -20,6 +20,7 @@ from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mo
 from albatross_pi.canbus.encode import (
     build_boost_target_frame,
     build_engine_run_switch_frame,
+    build_fuel_type_frame,
     build_flame_mode_frame,
     build_limp_mode_frame,
     build_media_control_frame,
@@ -144,15 +145,26 @@ def main() -> None:
 
         renderer.configure_traction_callback(_send_traction_level)
 
+        def _send_boost_request() -> None:
+            assert can_interface is not None and aggregator is not None
+            snapshot = aggregator.current_snapshot()
+            boost_frame = build_boost_target_frame(calculate_boost_target(snapshot))
+            can_interface.send(*boost_frame)
+            aggregator.mark_sent_frame(*boost_frame)
+
         def _send_mode_selection(mode_code: int) -> None:
             frame = build_mode_selection_frame(mode_code)
             assert can_interface is not None
             can_interface.send(*frame)
             aggregator.mark_sent_frame(*frame)
-            snapshot = aggregator.current_snapshot()
-            boost_frame = build_boost_target_frame(calculate_boost_target(snapshot))
-            can_interface.send(*boost_frame)
-            aggregator.mark_sent_frame(*boost_frame)
+            _send_boost_request()
+
+        def _send_fuel_type(fuel_code: int) -> None:
+            frame = build_fuel_type_frame(fuel_code)
+            assert can_interface is not None
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+            _send_boost_request()
 
         def _send_media_control(command: str, value: int) -> None:
             assert can_interface is not None
@@ -174,6 +186,7 @@ def main() -> None:
 
         renderer.configure_mode_callback(_send_mode_selection)
         renderer.configure_media_callback(_send_media_control)
+        renderer.configure_fuel_type_callback(_send_fuel_type)
 
         def _safety_supervisor() -> None:
             assert aggregator is not None and can_interface is not None
@@ -375,6 +388,7 @@ def main() -> None:
     elif args.simulator:
         simulator = StateSimulator()
         renderer.configure_mode_callback(simulator.set_mode)
+        renderer.configure_fuel_type_callback(simulator.set_fuel_type)
         if not args.snapshot:
             stream = simulator.stream()
 

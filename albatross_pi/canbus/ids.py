@@ -53,6 +53,7 @@ class PiToArduinoID(IntEnum):
     PHONE_LINK = 0x126
     ENGINE_RUN_SWITCH = 0x127
     WMI_ENABLE = 0x128
+    FUEL_TYPE_SELECT = 0x129
     NFC_AUTH = 0x140
 
 

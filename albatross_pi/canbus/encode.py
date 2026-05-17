@@ -55,6 +55,12 @@ def build_phone_link_frame(enabled: bool) -> tuple[int, bytes]:
     return int(PiToArduinoID.PHONE_LINK), payload
 
 
+def build_fuel_type_frame(fuel_code: int) -> tuple[int, bytes]:
+    """Return a frame selecting the active fuel table/type."""
+    payload = bytes((fuel_code & 0xFF,))
+    return int(PiToArduinoID.FUEL_TYPE_SELECT), payload
+
+
 def build_engine_run_switch_frame(enabled: bool) -> tuple[int, bytes]:
     """Return a frame to emulate an engine run switch over CAN.
 

@@ -404,6 +404,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,
+    int(PiToArduinoID.FUEL_TYPE_SELECT): CANStateAggregator._update_fuel_type,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
     int(SystemCommandID.POST_REQUEST): CANStateAggregator._update_post_frame,
     int(SystemCommandID.POST_RESPONSE): CANStateAggregator._update_post_frame,

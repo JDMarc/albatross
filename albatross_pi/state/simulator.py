@@ -23,6 +23,7 @@ from .snapshot import (
 
 TICK_PERIOD = 1 / 60.0
 MODE_NAMES = ("ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS")
+FUEL_TYPES = ("87", "91", "93", "100", "E85", "C16")
 
 
 class StateSimulator:
@@ -36,6 +37,7 @@ class StateSimulator:
         self._thread: threading.Thread | None = None
         self._phase = 0.0
         self._mode = "ECO"
+        self._fuel_type = "93"
 
     def start(self) -> None:
         if self._running:
@@ -58,6 +60,11 @@ class StateSimulator:
         if 1 <= mode_code <= len(MODE_NAMES):
             with self._lock:
                 self._mode = MODE_NAMES[mode_code - 1]
+
+    def set_fuel_type(self, fuel_code: int) -> None:
+        if 0 <= fuel_code < len(FUEL_TYPES):
+            with self._lock:
+                self._fuel_type = FUEL_TYPES[fuel_code]
 
     def _broadcast(self, snapshot: StateSnapshot) -> None:
         with self._lock:
@@ -162,11 +169,12 @@ class StateSimulator:
 
         with self._lock:
             mode = self._mode
+            fuel_type = self._fuel_type
 
         environment = replace(
             snapshot.environment,
             mode=mode,
-            fuel_type=rng.choice(["93", "100", "E85"]),
+            fuel_type=fuel_type,
             ambient_temp_f=72 + math.sin(self._phase * math.tau * 0.2) * 5,
             gps_lock=rng.random() > 0.1,
             rain=rng.random() > 0.9,

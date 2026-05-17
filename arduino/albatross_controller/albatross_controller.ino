@@ -36,6 +36,7 @@ namespace CanId {
   constexpr uint16_t PI_LIMP_MODE = 0x123;
   constexpr uint16_t PI_TRACTION_LEVEL = 0x124;
   constexpr uint16_t PI_WMI_ENABLE = 0x128;
+  constexpr uint16_t PI_FUEL_TYPE_SELECT = 0x129;
   constexpr uint16_t PI_NFC_AUTH = 0x140;
 
   constexpr uint16_t ARD_AIR_SHOT_STATUS = 0x130;
@@ -106,6 +107,7 @@ struct Outputs {
   uint8_t wg1_duty = 0;
   uint8_t wg2_duty = 0;
   uint8_t fuel_level_pct = 75;
+  uint8_t wmi_tank_level_pct = 0;
   uint16_t wmi_commanded_flow_cc_min = 0;
   uint16_t wmi_actual_flow_cc_min = 0;
   bool wmi_fault = false;
@@ -141,10 +143,15 @@ static constexpr uint8_t HIGH_BEAM_PIN = 30;
 static constexpr uint8_t BRAKE_LIGHT_PIN = 31;
 static constexpr uint8_t OIL_WARNING_PIN = 32;
 static constexpr uint8_t OIL_PRESSURE_SENSOR_PIN = A0;
+static constexpr uint8_t WMI_TANK_LEVEL_PIN = A1;
+static constexpr uint8_t WMI_FLOW_SENSOR_PIN = 19;
+static constexpr uint8_t WMI_PRESSURE_OK_PIN = 33;
 
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MIN_RAW = 102; // 0.5V on a 5V ADC
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_RAW = 921; // 4.5V on a 5V ADC
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_PSI_X10 = 1000; // 100.0 psi
+static constexpr float WMI_FLOW_PULSES_PER_LITER = 450.0f;
+static constexpr bool WMI_PRESSURE_OK_ACTIVE_LOW = true;
 
 // Hard safety caps by mode (psi*10); Pi sends the fuel/WMI-aware target.
 uint16_t modeBoostCap(uint8_t mode) {
@@ -255,6 +262,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
     case CanId::PI_WMI_ENABLE:
       if (len >= 1) g_commands.wmi_arm = data[0] != 0;
       break;
+    case CanId::PI_FUEL_TYPE_SELECT:
+      if (len >= 1) g_inputs.fuel_code = data[0];
+      break;
     case CanId::ECU_TO_ARD_FLAME_STATUS:
       // Deprecated path kept for backward compatibility; PI frame should be source of truth.
       if (len >= 1) g_commands.flame_mode = data[0] != 0;
@@ -280,6 +290,7 @@ static bool g_airshot_latched = false;
 static bool g_airshot_rearm_ready = true;
 static volatile uint32_t g_front_pulses = 0;
 static volatile uint32_t g_rear_pulses = 0;
+static volatile uint32_t g_wmi_flow_pulses = 0;
 static float g_front_wheel_mps = 0.0f;
 static float g_rear_wheel_mps = 0.0f;
 
@@ -354,6 +365,7 @@ uint8_t computeGearFromSpeedRpm(float speed_mph, uint16_t rpm, bool neutral_swit
 
 void frontWheelPulseISR() { g_front_pulses++; }
 void rearWheelPulseISR() { g_rear_pulses++; }
+void wmiFlowPulseISR() { g_wmi_flow_pulses++; }
 
 float tcSlipLimitForLevel(TractionLevel level) {
   switch (level) {
@@ -392,6 +404,63 @@ void updateWheelSpeeds() {
   g_rear_wheel_mps = r_rps * REAR_WHEEL.circumference_m;
 }
 
+uint8_t readWmiTankLevelPct() {
+  const int raw = analogRead(WMI_TANK_LEVEL_PIN);
+  const long scaled = map(constrain(raw, 0, 1023), 0, 1023, 0, 100);
+  return static_cast<uint8_t>(constrain(scaled, 0, 100));
+}
+
+bool readWmiPressureOk() {
+  const int level = digitalRead(WMI_PRESSURE_OK_PIN);
+  return WMI_PRESSURE_OK_ACTIVE_LOW ? (level == LOW) : (level == HIGH);
+}
+
+uint16_t readWmiFlowCcMin() {
+  static uint32_t last_ms = 0;
+  static uint32_t last_pulses = 0;
+  const uint32_t now = millis();
+
+  noInterrupts();
+  const uint32_t pulses = g_wmi_flow_pulses;
+  interrupts();
+
+  if (last_ms == 0) {
+    last_ms = now;
+    last_pulses = pulses;
+    return g_outputs.wmi_actual_flow_cc_min;
+  }
+
+  const uint32_t elapsed_ms = now - last_ms;
+  if (elapsed_ms < 100) {
+    return g_outputs.wmi_actual_flow_cc_min;
+  }
+
+  const uint32_t delta_pulses = pulses - last_pulses;
+  last_ms = now;
+  last_pulses = pulses;
+
+  if (elapsed_ms == 0 || WMI_FLOW_PULSES_PER_LITER <= 0.0f) {
+    return 0;
+  }
+
+  const float liters = delta_pulses / WMI_FLOW_PULSES_PER_LITER;
+  const float minutes = elapsed_ms / 60000.0f;
+  const float cc_min = (minutes > 0.0f) ? (liters * 1000.0f / minutes) : 0.0f;
+  return static_cast<uint16_t>(constrain(static_cast<long>(roundf(cc_min)), 0L, 65535L));
+}
+
+void updateWmiSensorOutputs(bool wmi_enable) {
+  g_outputs.wmi_tank_level_pct = readWmiTankLevelPct();
+  g_outputs.wmi_actual_flow_cc_min = readWmiFlowCcMin();
+
+  const bool pressure_ok = readWmiPressureOk();
+  const bool commanded = g_outputs.wmi_commanded_flow_cc_min >= 300;
+  const bool flow_low = commanded && (uint32_t(g_outputs.wmi_actual_flow_cc_min) * 10UL < uint32_t(g_outputs.wmi_commanded_flow_cc_min) * 6UL);
+  const bool tank_empty = wmi_enable && g_outputs.wmi_tank_level_pct < 3;
+  const bool pressure_fault = wmi_enable && !pressure_ok;
+  g_outputs.wmi_fault = flow_low || tank_empty || pressure_fault;
+}
+
 
 uint16_t modeBoostLimitForAirShot(uint8_t mode) {
   switch (mode) {
@@ -399,6 +468,12 @@ uint16_t modeBoostLimitForAirShot(uint8_t mode) {
     case MODE_ALBATROSS: return 220;
     default: return 0;
   }
+}
+
+uint16_t requestedBoostLimitForAirShot() {
+  const uint16_t mode_cap = modeBoostLimitForAirShot(g_commands.mode);
+  if (mode_cap == 0) return 0;
+  return min(g_commands.boost_target_psi_x10, mode_cap);
 }
 
 uint8_t calculateShotsRemaining(uint16_t tank_psi_x10) {
@@ -412,7 +487,9 @@ uint8_t calculateShotsRemaining(uint16_t tank_psi_x10) {
 
 bool shouldTriggerAirShot() {
   const bool mode_ok = (g_commands.mode == MODE_RACE) || (g_commands.mode == MODE_ALBATROSS);
-  return mode_ok && g_airshot_rearm_ready && !g_airshot_latched && g_inputs.tps_pct > 90 && g_inputs.gear >= 2 && g_inputs.rpm > 5500 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0;
+  const uint16_t requested_limit = requestedBoostLimitForAirShot();
+  const bool boost_needed = requested_limit > 0 && (g_inputs.boost_psi_x10 + 5 < requested_limit);
+  return mode_ok && boost_needed && g_airshot_rearm_ready && !g_airshot_latched && g_inputs.tps_pct > 90 && g_inputs.gear >= 2 && g_inputs.rpm > 5500 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0;
 }
 
 void updateControllers() {
@@ -469,9 +546,7 @@ void updateControllers() {
   analogWrite(WMI_PUMP_PIN, wmi_pwm);
 
   g_outputs.wmi_commanded_flow_cc_min = static_cast<uint16_t>(roundf(demand * 1400.0f));
-  const uint16_t modeled_drop = (g_outputs.wmi_commanded_flow_cc_min > 200) ? 60 : 20;
-  g_outputs.wmi_actual_flow_cc_min = (g_outputs.wmi_commanded_flow_cc_min > modeled_drop) ? (g_outputs.wmi_commanded_flow_cc_min - modeled_drop) : 0;
-  g_outputs.wmi_fault = (g_outputs.wmi_commanded_flow_cc_min >= 300) && (g_outputs.wmi_actual_flow_cc_min + 150 < g_outputs.wmi_commanded_flow_cc_min);
+  updateWmiSensorOutputs(wmi_enable);
 
   const bool flame_enable = g_commands.flame_mode && (g_inputs.rpm > 3000) && g_commands.nfc_ok && !limp;
   digitalWrite(FLAME_EN_PIN, flame_enable ? HIGH : LOW);
@@ -491,7 +566,7 @@ void updateControllers() {
     g_airshot_rearm_ready = false;
   }
 
-  const uint16_t airshot_limit = modeBoostLimitForAirShot(g_commands.mode);
+  const uint16_t airshot_limit = requestedBoostLimitForAirShot();
   if (g_airshot_latched && (g_inputs.boost_psi_x10 >= airshot_limit || limp || airshot_limit == 0)) {
     g_airshot_latched = false;
   }
@@ -570,7 +645,7 @@ void publishStatusFrames() {
   publishFrame(CanId::ARD_FUEL_LEVEL, fuel, 1);
 
   uint8_t wmi[6] = {
-    uint8_t(g_outputs.fuel_level_pct),
+    uint8_t(g_outputs.wmi_tank_level_pct),
     uint8_t(g_outputs.wmi_commanded_flow_cc_min >> 8), uint8_t(g_outputs.wmi_commanded_flow_cc_min & 0xFF),
     uint8_t(g_outputs.wmi_actual_flow_cc_min >> 8), uint8_t(g_outputs.wmi_actual_flow_cc_min & 0xFF),
     uint8_t(g_outputs.wmi_fault ? 1 : 0)
@@ -607,10 +682,15 @@ void setup() {
   pinMode(BRAKE_LIGHT_PIN, INPUT);
   pinMode(OIL_WARNING_PIN, INPUT);
   pinMode(OIL_PRESSURE_SENSOR_PIN, INPUT);
+  pinMode(WMI_TANK_LEVEL_PIN, INPUT);
+  pinMode(WMI_FLOW_SENSOR_PIN, INPUT_PULLUP);
+  pinMode(WMI_PRESSURE_OK_PIN, INPUT_PULLUP);
   const int front_irq = digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN);
   const int rear_irq = digitalPinToInterrupt(REAR_WHEEL_HALL_PIN);
+  const int wmi_irq = digitalPinToInterrupt(WMI_FLOW_SENSOR_PIN);
   if (front_irq >= 0) attachInterrupt(front_irq, frontWheelPulseISR, RISING);
   if (rear_irq >= 0) attachInterrupt(rear_irq, rearWheelPulseISR, RISING);
+  if (wmi_irq >= 0) attachInterrupt(wmi_irq, wmiFlowPulseISR, RISING);
 
   digitalWrite(WG1_EN_PIN, LOW);
   digitalWrite(WG2_EN_PIN, LOW);
