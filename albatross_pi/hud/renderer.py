@@ -82,6 +82,7 @@ class HUDRenderer:
         self._available_devices: tuple[str, ...] = ()
         self._last_snapshot_time = self.state.environment.time
         self._last_can_fresh_monotonic = time.monotonic()
+        self._last_can_signature: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -373,6 +374,18 @@ class HUDRenderer:
             with self.state_lock:
                 state = self.state
             now_s = time.monotonic()
+            can_signature = (
+                float(state.engine.rpm),
+                float(state.engine.speed_mph),
+                float(state.engine.boost_psi),
+                float(state.engine.throttle_pct),
+                float(state.traction.slip_pct),
+                float(state.environment.fuel_level_pct),
+            )
+            has_live_signal = any(v > 0.0 for v in can_signature[:-1])
+            if has_live_signal and can_signature != self._last_can_signature:
+                self._last_can_fresh_monotonic = now_s
+            self._last_can_signature = can_signature
             if state.environment.time != self._last_snapshot_time:
                 self._last_snapshot_time = state.environment.time
                 self._last_can_fresh_monotonic = now_s
@@ -702,7 +715,7 @@ class HUDRenderer:
             mm = int(remaining // 60)
             ss = int(remaining % 60)
             rem_text = font(13, bold=True).render(f"-{mm}:{ss:02d}", True, glow)
-            self.screen.blit(rem_text, (tile.x + 214, tile.y + 44))
+            self.screen.blit(rem_text, (tile.x + 214, tile.y + 32))
 
         pygame.draw.rect(self.screen, bg, settings_rect, border_radius=6)
         s_focused = self._active_menu == "home" and self._focus_targets[self._focus_index] == "SETTINGS"
