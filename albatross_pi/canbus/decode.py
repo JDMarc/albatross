@@ -39,7 +39,7 @@ class CANStateAggregator:
             "rpm": 0,
             "rpm_redline": rpm_redline,
             "speed_mph": 0.0,
-            "gear": "N",
+            "gear": "?",
             "boost_psi": 0.0,
             "target_boost_psi": 0.0,
             "wastegate_duty_pct": 0.0,
@@ -54,7 +54,7 @@ class CANStateAggregator:
             "coolant_temp_f": 0.0,
             "oil_temp_f": 0.0,
             "oil_pressure_psi": 0.0,
-            "battery_voltage": 12.5,
+            "battery_voltage": -1.0,
             "intake_temp_f": 0.0,
             "exhaust_temp_f": 0.0,
             "alternator_temp_f": 0.0,
@@ -62,7 +62,7 @@ class CANStateAggregator:
         self._airshot = AirShotState()
         self._wmi = WMIState()
         self._traction = TractionState()
-        self._environment = EnvironmentState()
+        self._environment = replace(EnvironmentState(), fuel_level_pct=-1.0)
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_snapshot = StateSnapshot(
@@ -89,7 +89,7 @@ class CANStateAggregator:
                     coolant_temp_f=self._temps_data.get("coolant_temp_f", 0.0),
                     oil_temp_f=self._temps_data.get("oil_temp_f", 0.0),
                     oil_pressure_psi=self._temps_data.get("oil_pressure_psi", 0.0),
-                    battery_voltage=self._temps_data.get("battery_voltage", 12.5),
+                    battery_voltage=self._temps_data.get("battery_voltage", -1.0),
                     intake_temp_f=self._temps_data.get("intake_temp_f", 0.0),
                     exhaust_temp_f=self._temps_data.get("exhaust_temp_f", 0.0),
                     alternator_temp_f=self._temps_data.get("alternator_temp_f", 0.0),
