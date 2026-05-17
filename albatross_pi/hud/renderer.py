@@ -407,8 +407,9 @@ class HUDRenderer:
                 pressed = pygame.key.get_pressed()
                 if pressed[self._ack_key]:
                     self._post_fault_active = False
-
-            self._render_frame(state)
+            # Keep clock display live without mutating CAN freshness timestamps.
+            render_state = replace(state, environment=replace(state.environment, time=datetime.now()))
+            self._render_frame(render_state)
             self.clock.tick(TARGET_FPS)
 
             now = time.perf_counter()
