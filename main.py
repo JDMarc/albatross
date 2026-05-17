@@ -15,6 +15,7 @@ from typing import Iterable, Iterator
 
 import pygame
 
+from albatross_pi.boost_strategy import calculate_boost_target
 from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
 from albatross_pi.canbus.encode import (
     build_boost_target_frame,
@@ -26,7 +27,7 @@ from albatross_pi.canbus.encode import (
 )
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
-from albatross_pi.state.snapshot import LightingState, StateSnapshot
+from albatross_pi.state.snapshot import LightingState, StateSnapshot, WMIState
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from dataclasses import replace
 
@@ -148,6 +149,10 @@ def main() -> None:
             assert can_interface is not None
             can_interface.send(*frame)
             aggregator.mark_sent_frame(*frame)
+            snapshot = aggregator.current_snapshot()
+            boost_frame = build_boost_target_frame(calculate_boost_target(snapshot))
+            can_interface.send(*boost_frame)
+            aggregator.mark_sent_frame(*boost_frame)
 
         def _send_media_control(command: str, value: int) -> None:
             assert can_interface is not None
@@ -181,6 +186,8 @@ def main() -> None:
             prev_boost_psi = 0.0
             prev_wg_duty = 0.0
             wg_stuck_start: float | None = None
+            last_requested_boost: float | None = None
+            last_requested_boost_ts = 0.0
             while True:
                 snap = aggregator.current_snapshot()
                 faults: list[str] = []
@@ -206,11 +213,7 @@ def main() -> None:
                     faults.append("CLUTCH SLIP")
                 if snap.temps.oil_pressure_psi < 12 and snap.engine.rpm > 2000:
                     faults.append("LOW OIL PRESS")
-                if snap.lighting.oil_warning and snap.engine.rpm > 1200:
-                    faults.append("LOW OIL PRESS")
                 if snap.temps.oil_pressure_psi < 8 and snap.engine.rpm > 2200:
-                    faults.append("CRITICAL OIL PRESS")
-                if snap.lighting.oil_warning and snap.engine.rpm > 2200:
                     faults.append("CRITICAL OIL PRESS")
                 if snap.temps.coolant_temp_f > 240:
                     faults.append("COOLANT HOT")
@@ -278,6 +281,17 @@ def main() -> None:
                 prev_wg_duty = snap.engine.wastegate_duty_pct
 
                 severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HOT", "CLUTCH SLIP"))
+                desired_boost = 0.0 if severe else calculate_boost_target(snap)
+                if (
+                    last_requested_boost is None
+                    or abs(desired_boost - last_requested_boost) >= 0.1
+                    or (now_ts - last_requested_boost_ts) >= 1.0
+                ):
+                    frame = build_boost_target_frame(desired_boost)
+                    can_interface.send(*frame)
+                    aggregator.mark_sent_frame(*frame)
+                    last_requested_boost = desired_boost
+                    last_requested_boost_ts = now_ts
 
                 # Critical oil-pressure handling with anti-false-positive protections:
                 # - ignore cranking/idle zones
@@ -429,6 +443,7 @@ def main() -> None:
                 env = replace(
                     snap.environment,
                     mode=str(obj.get("mode", snap.environment.mode)),
+                    fuel_type=str(obj.get("fuel_type", snap.environment.fuel_type)),
                     fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
                     message_line=str(obj.get("msg", snap.environment.message_line)),
                 )
@@ -437,6 +452,12 @@ def main() -> None:
                     pressure_psi=float(obj.get("tank_psi", snap.air_shot.pressure_psi)),
                     charges_remaining=int(obj.get("airshot_charges", snap.air_shot.charges_remaining)),
                     is_firing=bool(obj.get("airshot_firing", snap.air_shot.is_firing)),
+                )
+                wmi = WMIState(
+                    tank_level_pct=float(obj.get("wmi_tank", snap.wmi.tank_level_pct)),
+                    commanded_flow_cc_min=float(obj.get("wmi_commanded", snap.wmi.commanded_flow_cc_min)),
+                    actual_flow_cc_min=float(obj.get("wmi_actual", snap.wmi.actual_flow_cc_min)),
+                    fault_active=bool(obj.get("wmi_fault", snap.wmi.fault_active)),
                 )
                 trac = replace(
                     snap.traction,
@@ -460,6 +481,7 @@ def main() -> None:
                         traction=trac,
                         lighting=lighting,
                         air_shot=air,
+                        wmi=wmi,
                     )
                 )
 

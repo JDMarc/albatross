@@ -50,6 +50,8 @@ namespace CanId {
   constexpr uint16_t ARD_WMI_STATUS = 0x139;
   constexpr uint16_t ARD_CLUTCH_SLIP_STATUS = 0x13A;
   constexpr uint16_t ARD_LIGHT_STATUS = 0x13B;
+  constexpr uint16_t ARD_OIL_PRESSURE_STATUS = 0x13C;
+  constexpr uint16_t ARD_FUEL_TYPE_STATUS = 0x13D;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -138,15 +140,20 @@ static constexpr uint8_t RIGHT_INDICATOR_PIN = 29;
 static constexpr uint8_t HIGH_BEAM_PIN = 30;
 static constexpr uint8_t BRAKE_LIGHT_PIN = 31;
 static constexpr uint8_t OIL_WARNING_PIN = 32;
+static constexpr uint8_t OIL_PRESSURE_SENSOR_PIN = A0;
 
-// Placeholder base boost caps by mode (psi*10).
+static constexpr uint16_t OIL_PRESSURE_SENSOR_MIN_RAW = 102; // 0.5V on a 5V ADC
+static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_RAW = 921; // 4.5V on a 5V ADC
+static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_PSI_X10 = 1000; // 100.0 psi
+
+// Hard safety caps by mode (psi*10); Pi sends the fuel/WMI-aware target.
 uint16_t modeBoostCap(uint8_t mode) {
   switch (mode) {
-    case MODE_ECO: return 70;       // 7.0 psi
-    case MODE_NORMAL: return 110;   // 11.0 psi
-    case MODE_SPORT: return 150;    // 15.0 psi
+    case MODE_ECO: return 0;
+    case MODE_NORMAL: return 0;
+    case MODE_SPORT: return 130;    // 13.0 psi
     case MODE_RACE: return 180;     // 18.0 psi
-    case MODE_ALBATROSS: return 210;// 21.0 psi
+    case MODE_ALBATROSS: return 220;// 22.0 psi
     default: return 80;
   }
 }
@@ -309,6 +316,17 @@ uint8_t readLightingStatus() {
   return flags;
 }
 
+uint16_t readOilPressurePsiX10() {
+  const int raw = analogRead(OIL_PRESSURE_SENSOR_PIN);
+  const long scaled = map(
+      constrain(raw, OIL_PRESSURE_SENSOR_MIN_RAW, OIL_PRESSURE_SENSOR_MAX_RAW),
+      OIL_PRESSURE_SENSOR_MIN_RAW,
+      OIL_PRESSURE_SENSOR_MAX_RAW,
+      0,
+      OIL_PRESSURE_SENSOR_MAX_PSI_X10);
+  return static_cast<uint16_t>(constrain(scaled, 0, OIL_PRESSURE_SENSOR_MAX_PSI_X10));
+}
+
 uint8_t classifyClutchSlipSeverity(float slip_pct) {
   if (slip_pct < 8.0f) return 0;   // nominal
   if (slip_pct < 15.0f) return 1;  // mild
@@ -378,7 +396,7 @@ void updateWheelSpeeds() {
 uint16_t modeBoostLimitForAirShot(uint8_t mode) {
   switch (mode) {
     case MODE_RACE: return 180;
-    case MODE_ALBATROSS: return 210;
+    case MODE_ALBATROSS: return 220;
     default: return 0;
   }
 }
@@ -526,6 +544,13 @@ void publishStatusFrames() {
   uint8_t lights[1] = {readLightingStatus()};
   publishFrame(CanId::ARD_LIGHT_STATUS, lights, 1);
 
+  const uint16_t oil_pressure = readOilPressurePsiX10();
+  uint8_t oilp[2] = {uint8_t(oil_pressure >> 8), uint8_t(oil_pressure & 0xFF)};
+  publishFrame(CanId::ARD_OIL_PRESSURE_STATUS, oilp, 2);
+
+  uint8_t fuel_type[1] = {g_inputs.fuel_code};
+  publishFrame(CanId::ARD_FUEL_TYPE_STATUS, fuel_type, 1);
+
   uint8_t tank[2] = {uint8_t(g_outputs.tank_psi_x10 >> 8), uint8_t(g_outputs.tank_psi_x10 & 0xFF)};
   publishFrame(CanId::ARD_TANK_PRESSURE, tank, 2);
 
@@ -581,6 +606,7 @@ void setup() {
   pinMode(HIGH_BEAM_PIN, INPUT);
   pinMode(BRAKE_LIGHT_PIN, INPUT);
   pinMode(OIL_WARNING_PIN, INPUT);
+  pinMode(OIL_PRESSURE_SENSOR_PIN, INPUT);
   const int front_irq = digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN);
   const int rear_irq = digitalPinToInterrupt(REAR_WHEEL_HALL_PIN);
   if (front_irq >= 0) attachInterrupt(front_irq, frontWheelPulseISR, RISING);

@@ -54,7 +54,9 @@ Arduino computes slip ratio and publishes torque-cut request (`0x125`) for ECU-s
 
 ## CAN notes
 
-- Arduino reports lamp status in `0x13B` payload byte 0: bit 0 left indicator, bit 1 right indicator, bit 2 high beam, bit 3 neutral, bit 4 brake light, bit 5 oil warning.
+- Arduino reports lamp status in `0x13B` payload byte 0: bit 0 left indicator, bit 1 right indicator, bit 2 high beam, bit 3 neutral, bit 4 brake light, bit 5 oil warning. The oil warning lamp is status only; pressure decisions use the real pressure sensor path.
+- Arduino can report fallback oil pressure in `0x13C` as psi x10 from `OIL_PRESSURE_SENSOR_PIN` if the ECU cannot publish oil pressure.
+- Arduino reports fuel type in `0x13D` using the shared fuel code map: 0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).
 - Arduino reports Air Shot active flag in `0x130` payload byte 1 for HUD “air shot active” indicator.
 
@@ -76,3 +78,4 @@ Both channels currently mirror the same command request for synchronized twin-ac
 - Dual e-wastegate channels use independent `PWM/DIR/EN` groups; PWM outputs are on pins `5` and `6` (both PWM-capable on Mega).
 - Air compressor relay uses pin `27`; pin `10` is reserved for MCP2515 chip select.
 - Lamp feed inputs use pins `28`-`32`; condition bike voltage to 5V logic and provide external pulldowns.
+- Fallback oil pressure input uses `A0`, assuming a 0.5V-4.5V sender scaled to 0-100 psi.

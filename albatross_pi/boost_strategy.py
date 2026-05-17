@@ -1,0 +1,72 @@
+"""Boost target strategy for Pi-originated ride-mode requests."""
+from __future__ import annotations
+
+from .state.snapshot import StateSnapshot, WMIState
+
+
+MODE_TARGET_RATIO = {
+    "ECO": 0.0,
+    "NORMAL": 0.0,
+    "SPORT": 0.55,
+    "RACE": 0.82,
+    "ALBATROSS": 1.0,
+}
+
+FUEL_CAP_WITH_WMI = {
+    "87": 10.0,
+    "91": 14.0,
+    "93": 18.0,
+    "100": 20.0,
+    "E85": 22.0,
+    "C16": 22.0,
+}
+
+FUEL_CAP_DRY = {
+    "87": 6.0,
+    "91": 8.0,
+    "93": 10.0,
+    "100": 12.0,
+    "E85": 16.0,
+    "C16": 16.0,
+}
+
+
+def wmi_available(wmi: WMIState) -> bool:
+    if wmi.fault_active or wmi.tank_level_pct <= 5.0:
+        return False
+    if wmi.commanded_flow_cc_min <= 0:
+        return True
+    return wmi.actual_flow_cc_min >= (0.65 * wmi.commanded_flow_cc_min)
+
+
+def _thermal_multiplier(snapshot: StateSnapshot) -> float:
+    multiplier = 1.0
+    if snapshot.temps.intake_temp_f >= 170.0:
+        multiplier *= 0.70
+    elif snapshot.temps.intake_temp_f >= 145.0:
+        multiplier *= 0.85
+    if snapshot.temps.coolant_temp_f >= 235.0:
+        multiplier *= 0.65
+    elif snapshot.temps.coolant_temp_f >= 225.0:
+        multiplier *= 0.85
+    if snapshot.temps.exhaust_temp_f >= 1650.0:
+        multiplier *= 0.60
+    elif snapshot.temps.exhaust_temp_f >= 1550.0:
+        multiplier *= 0.80
+    return multiplier
+
+
+def calculate_boost_target(snapshot: StateSnapshot, *, mode: str | None = None) -> float:
+    requested_mode = (mode or snapshot.environment.mode or "ECO").upper()
+    ratio = MODE_TARGET_RATIO.get(requested_mode, 0.0)
+    if ratio <= 0.0:
+        return 0.0
+
+    fuel = (snapshot.environment.fuel_type or "93").upper()
+    caps = FUEL_CAP_WITH_WMI if wmi_available(snapshot.wmi) else FUEL_CAP_DRY
+    fuel_cap = caps.get(fuel, caps["93"])
+    boost = fuel_cap * ratio * _thermal_multiplier(snapshot)
+
+    if snapshot.engine.knock_events > 0:
+        boost *= 0.75
+    return round(max(0.0, boost), 1)

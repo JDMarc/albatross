@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable, Iterator
 
+from albatross_pi.boost_strategy import calculate_boost_target
 from .snapshot import (
     AirShotState,
     EngineState,
@@ -85,7 +86,7 @@ class StateSimulator:
             gear_index = max(1, min(6, int(speed // 12) + 1))
             gear = str(gear_index)
         boost = max(0.0, 18.0 * math.sin(self._phase * math.tau))
-        target_boost = 20.0
+        target_boost = snapshot.engine.target_boost_psi
         afr_left = 12.5 + math.sin(self._phase * math.tau * 2) * 0.2
         afr_right = 12.6 + math.cos(self._phase * math.tau * 2) * 0.2
         spark = 14.0 + math.sin(self._phase * math.tau * 0.5) * 5
@@ -177,7 +178,7 @@ class StateSimulator:
 
         shift_light = engine.rpm > 10000
 
-        return StateSnapshot(
+        next_snapshot = StateSnapshot(
             engine=engine,
             temps=temps,
             air_shot=air_shot,
@@ -187,6 +188,10 @@ class StateSimulator:
             environment=environment,
             shift_light=shift_light,
             faults=alerts,
+        )
+        return replace(
+            next_snapshot,
+            engine=replace(engine, target_boost_psi=calculate_boost_target(next_snapshot)),
         )
 
     def stream(self) -> Iterator[StateSnapshot]:

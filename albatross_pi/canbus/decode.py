@@ -10,6 +10,7 @@ from typing import Callable, Dict, Optional
 from .ids import (
     ArduinoToHudID,
     ECUToHudID,
+    FUEL_NAMES,
     MODE_NAMES,
     PiToArduinoID,
     SystemCommandID,
@@ -168,6 +169,12 @@ class CANStateAggregator:
         pressure_raw, temp_raw = struct.unpack_from(">HH", data)
         self._temps_data["oil_pressure_psi"] = pressure_raw / 10.0
         self._temps_data["oil_temp_f"] = _c_to_f(temp_raw / 10.0)
+
+    def _update_arduino_oil_pressure(self, data: bytes) -> None:
+        if len(data) < 2:
+            return
+        (pressure_raw,) = struct.unpack_from(">H", data)
+        self._temps_data["oil_pressure_psi"] = pressure_raw / 10.0
 
     def _update_coolant(self, data: bytes) -> None:
         if len(data) < 2:
@@ -343,6 +350,13 @@ class CANStateAggregator:
             oil_warning=bool(flags & 0x20),
         )
 
+    def _update_fuel_type(self, data: bytes) -> None:
+        if not data:
+            return
+        env_dict = self._environment.__dict__.copy()
+        env_dict["fuel_type"] = FUEL_NAMES.get(data[0], env_dict.get("fuel_type", "93"))
+        self._environment = EnvironmentState(**env_dict)
+
     def _update_nfc_auth(self, data: bytes) -> None:
         if not data:
             return
@@ -386,6 +400,8 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.WMI_STATUS): CANStateAggregator._update_wmi_status,
     int(ArduinoToHudID.CLUTCH_SLIP_STATUS): CANStateAggregator._update_clutch_slip_status,
     int(ArduinoToHudID.LIGHT_STATUS): CANStateAggregator._update_light_status,
+    int(ArduinoToHudID.OIL_PRESSURE_STATUS): CANStateAggregator._update_arduino_oil_pressure,
+    int(ArduinoToHudID.FUEL_TYPE_STATUS): CANStateAggregator._update_fuel_type,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,

@@ -61,7 +61,7 @@ What Arduino currently publishes for the HUD/stack:
 - Tank pressure (0x133)
 - Twin turbo feedback (0x134)
 - Wastegate status (0x135)
-- WMI, clutch slip, and motorcycle lamp status frames (0x139-0x13B)
+- WMI, clutch slip, motorcycle lamp, oil-pressure fallback, and fuel-type status frames (0x139-0x13D)
 - Gear + wheel speed/fuel support frames (0x136–0x138)
 
 Bring-up reminder for this repo architecture:
