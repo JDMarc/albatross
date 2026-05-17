@@ -35,6 +35,7 @@ namespace CanId {
   constexpr uint16_t PI_FLAME_MODE = 0x122;
   constexpr uint16_t PI_LIMP_MODE = 0x123;
   constexpr uint16_t PI_TRACTION_LEVEL = 0x124;
+  constexpr uint16_t PI_WMI_ENABLE = 0x128;
   constexpr uint16_t PI_NFC_AUTH = 0x140;
 
   constexpr uint16_t ARD_AIR_SHOT_STATUS = 0x130;
@@ -46,6 +47,7 @@ namespace CanId {
   constexpr uint16_t ARD_GEAR_POSITION = 0x136;
   constexpr uint16_t ARD_WHEEL_SPEED = 0x137;
   constexpr uint16_t ARD_FUEL_LEVEL = 0x138;
+  constexpr uint16_t ARD_WMI_STATUS = 0x139;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -76,6 +78,7 @@ struct Inputs {
   uint16_t egt_right_c_x10 = 7500;
   uint8_t engine_status = 0;
   uint8_t gear = 0;
+  uint8_t fuel_code = 0x02; // default to 93 octane table if unknown
 };
 
 struct Commands {
@@ -85,6 +88,7 @@ struct Commands {
   bool flame_mode = false;
   bool limp_mode = false;
   uint16_t wmi_trigger_pct_x10 = 0;
+  bool wmi_arm = false;
   TractionLevel traction_level = TC_MED;
 };
 
@@ -98,6 +102,9 @@ struct Outputs {
   uint8_t wg1_duty = 0;
   uint8_t wg2_duty = 0;
   uint8_t fuel_level_pct = 75;
+  uint16_t wmi_commanded_flow_cc_min = 0;
+  uint16_t wmi_actual_flow_cc_min = 0;
+  bool wmi_fault = false;
 };
 
 Inputs g_inputs;
@@ -136,6 +143,20 @@ uint16_t modeBoostCap(uint8_t mode) {
 
 static inline uint16_t clampU16(uint16_t v, uint16_t lo, uint16_t hi) {
   return (v < lo) ? lo : ((v > hi) ? hi : v);
+}
+
+float wmiFuelGain(uint8_t fuel_code) {
+  // Relative WMI dependence by fuel knock/cooling headroom.
+  // Higher gain => more meth/water needed for same boost/load condition.
+  switch (fuel_code) {
+    case 0x00: return 1.00f; // 87 pump gas: strongest WMI dependence
+    case 0x01: return 0.90f; // 91
+    case 0x02: return 0.82f; // 93
+    case 0x03: return 0.65f; // 100 race gas
+    case 0x04: return 0.48f; // E85 already has strong charge cooling + octane
+    case 0x05: return 0.35f; // C16 least dependent on WMI
+    default: return 0.82f;
+  }
 }
 
 uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x10, uint8_t tps_pct, bool knock) {
@@ -193,6 +214,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
     case CanId::ECU_GEAR:
       if (len >= 1) g_inputs.gear = data[0];
       break;
+    case CanId::ECU_FUEL:
+      if (len >= 1) g_inputs.fuel_code = data[0];
+      break;
     case CanId::PI_BOOST_TARGET:
       if (len >= 2) g_commands.boost_target_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
       break;
@@ -210,6 +234,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       break;
     case CanId::PI_TRACTION_LEVEL:
       if (len >= 1) g_commands.traction_level = static_cast<TractionLevel>(data[0]);
+      break;
+    case CanId::PI_WMI_ENABLE:
+      if (len >= 1) g_commands.wmi_arm = data[0] != 0;
       break;
     case CanId::ECU_TO_ARD_FLAME_STATUS:
       // Deprecated path kept for backward compatibility; PI frame should be source of truth.
@@ -371,8 +398,32 @@ void updateControllers() {
   analogWrite(WG2_PWM_PIN, wg2_pwm);
 
   // Ancillary controls handled Arduino-side.
-  const bool wmi_enable = (g_commands.wmi_trigger_pct_x10 > 0) && (g_inputs.tps_pct > 45) && g_commands.nfc_ok;
-  digitalWrite(WMI_PUMP_PIN, wmi_enable ? HIGH : LOW);
+  const bool wmi_conditions =
+      g_commands.nfc_ok && !limp && g_commands.wmi_arm &&
+      g_inputs.rpm > 3300 && g_inputs.tps_pct > 38 && g_inputs.boost_psi_x10 >= 60;
+  const bool legacy_trigger = (g_commands.wmi_trigger_pct_x10 > 0) && (g_inputs.tps_pct > 45) && g_commands.nfc_ok;
+  const bool wmi_enable = wmi_conditions || legacy_trigger;
+
+  const float boost_ratio = constrain(g_inputs.boost_psi_x10 / 220.0f, 0.0f, 1.0f);
+  const float target_ratio = constrain(g_commands.boost_target_psi_x10 / 220.0f, 0.0f, 1.0f);
+  const float load_ratio = constrain(g_inputs.tps_pct / 100.0f, 0.0f, 1.0f);
+  const float rpm_ratio = constrain((g_inputs.rpm - 3000) / 9000.0f, 0.0f, 1.0f);
+  const float fuel_gain = wmiFuelGain(g_inputs.fuel_code);
+
+  float demand = 0.0f;
+  if (wmi_enable) {
+    demand = (0.42f * boost_ratio) + (0.24f * target_ratio) + (0.22f * load_ratio) + (0.12f * rpm_ratio);
+    demand *= fuel_gain;
+    demand = constrain(demand, 0.0f, 1.0f);
+  }
+
+  const uint8_t wmi_pwm = static_cast<uint8_t>(roundf(demand * 255.0f));
+  analogWrite(WMI_PUMP_PIN, wmi_pwm);
+
+  g_outputs.wmi_commanded_flow_cc_min = static_cast<uint16_t>(roundf(demand * 1400.0f));
+  const uint16_t modeled_drop = (g_outputs.wmi_commanded_flow_cc_min > 200) ? 60 : 20;
+  g_outputs.wmi_actual_flow_cc_min = (g_outputs.wmi_commanded_flow_cc_min > modeled_drop) ? (g_outputs.wmi_commanded_flow_cc_min - modeled_drop) : 0;
+  g_outputs.wmi_fault = (g_outputs.wmi_commanded_flow_cc_min >= 300) && (g_outputs.wmi_actual_flow_cc_min + 150 < g_outputs.wmi_commanded_flow_cc_min);
 
   const bool flame_enable = g_commands.flame_mode && (g_inputs.rpm > 3000) && g_commands.nfc_ok && !limp;
   digitalWrite(FLAME_EN_PIN, flame_enable ? HIGH : LOW);
@@ -447,6 +498,14 @@ void publishStatusFrames() {
 
   uint8_t fuel[1] = {g_outputs.fuel_level_pct};
   publishFrame(CanId::ARD_FUEL_LEVEL, fuel, 1);
+
+  uint8_t wmi[6] = {
+    uint8_t(g_outputs.fuel_level_pct),
+    uint8_t(g_outputs.wmi_commanded_flow_cc_min >> 8), uint8_t(g_outputs.wmi_commanded_flow_cc_min & 0xFF),
+    uint8_t(g_outputs.wmi_actual_flow_cc_min >> 8), uint8_t(g_outputs.wmi_actual_flow_cc_min & 0xFF),
+    uint8_t(g_outputs.wmi_fault ? 1 : 0)
+  };
+  publishFrame(CanId::ARD_WMI_STATUS, wmi, 6);
 
   uint16_t front_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_front_wheel_mps * 100.0f), 0, 65535));
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));
