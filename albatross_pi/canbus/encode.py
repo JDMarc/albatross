@@ -63,3 +63,9 @@ def build_engine_run_switch_frame(enabled: bool) -> tuple[int, bytes]:
     """
     payload = bytes((0x01 if enabled else 0x00,))
     return int(PiToArduinoID.ENGINE_RUN_SWITCH), payload
+
+
+def build_wmi_enable_frame(enabled: bool) -> tuple[int, bytes]:
+    """Return the frame arming/disarming Arduino-managed WMI strategy."""
+    payload = bytes((0x01 if enabled else 0x00,))
+    return int(PiToArduinoID.WMI_ENABLE), payload
