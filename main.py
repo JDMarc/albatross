@@ -428,7 +428,6 @@ def main() -> None:
                     afr_right=float(obj.get("afr_r", snap.engine.afr_right)),
                     knock_events=int(bin(int(obj.get("knock_mask", 0))).count("1")) if "knock_mask" in obj else snap.engine.knock_events,
                     engine_load_pct=float(obj.get("load", snap.engine.engine_load_pct)),
-                    target_boost_psi=(float(obj.get("turbo1", snap.engine.target_boost_psi)) + float(obj.get("turbo2", snap.engine.target_boost_psi))) / 2.0,
                     wastegate_duty_pct=(float(obj.get("wg1", snap.engine.wastegate_duty_pct)) + float(obj.get("wg2", snap.engine.wastegate_duty_pct))) / 2.0,
                 )
                 temps = replace(
@@ -472,16 +471,20 @@ def main() -> None:
                     brake=bool(obj.get("brake_light", obj.get("brake", snap.lighting.brake))),
                     oil_warning=bool(obj.get("oil_warning", snap.lighting.oil_warning)),
                 )
+                updated = replace(
+                    snap,
+                    engine=eng,
+                    temps=temps,
+                    environment=env,
+                    traction=trac,
+                    lighting=lighting,
+                    air_shot=air,
+                    wmi=wmi,
+                )
                 renderer.update_state(
                     replace(
-                        snap,
-                        engine=eng,
-                        temps=temps,
-                        environment=env,
-                        traction=trac,
-                        lighting=lighting,
-                        air_shot=air,
-                        wmi=wmi,
+                        updated,
+                        engine=replace(updated.engine, target_boost_psi=calculate_boost_target(updated)),
                     )
                 )
 

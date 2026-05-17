@@ -282,9 +282,8 @@ class CANStateAggregator:
     def _update_twin_turbo(self, data: bytes) -> None:
         if len(data) < 4:
             return
-        turbo1, turbo2 = struct.unpack_from(">HH", data[:4])
-        average = (turbo1 + turbo2) / 20.0
-        self._engine_data["target_boost_psi"] = average
+        # Turbo feedback is not a boost request. The HUD request display is
+        # sourced only from Pi BOOST_TARGET_COMMAND frames.
 
     def _update_wastegate_status(self, data: bytes) -> None:
         if len(data) < 2:

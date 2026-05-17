@@ -31,12 +31,12 @@ FUEL_CAP_DRY = {
 }
 
 
-def wmi_available(wmi: WMIState) -> bool:
+def wmi_effectiveness(wmi: WMIState) -> float:
     if wmi.fault_active or wmi.tank_level_pct <= 5.0:
-        return False
+        return 0.0
     if wmi.commanded_flow_cc_min <= 0:
-        return True
-    return wmi.actual_flow_cc_min >= (0.65 * wmi.commanded_flow_cc_min)
+        return 1.0
+    return max(0.0, min(1.0, wmi.actual_flow_cc_min / wmi.commanded_flow_cc_min))
 
 
 def _thermal_multiplier(snapshot: StateSnapshot) -> float:
@@ -48,6 +48,10 @@ def _thermal_multiplier(snapshot: StateSnapshot) -> float:
     if snapshot.temps.coolant_temp_f >= 235.0:
         multiplier *= 0.65
     elif snapshot.temps.coolant_temp_f >= 225.0:
+        multiplier *= 0.85
+    if snapshot.temps.oil_temp_f >= 285.0:
+        multiplier *= 0.65
+    elif snapshot.temps.oil_temp_f >= 260.0:
         multiplier *= 0.85
     if snapshot.temps.exhaust_temp_f >= 1650.0:
         multiplier *= 0.60
@@ -63,8 +67,9 @@ def calculate_boost_target(snapshot: StateSnapshot, *, mode: str | None = None) 
         return 0.0
 
     fuel = (snapshot.environment.fuel_type or "93").upper()
-    caps = FUEL_CAP_WITH_WMI if wmi_available(snapshot.wmi) else FUEL_CAP_DRY
-    fuel_cap = caps.get(fuel, caps["93"])
+    dry_cap = FUEL_CAP_DRY.get(fuel, FUEL_CAP_DRY["93"])
+    wmi_cap = FUEL_CAP_WITH_WMI.get(fuel, FUEL_CAP_WITH_WMI["93"])
+    fuel_cap = dry_cap + ((wmi_cap - dry_cap) * wmi_effectiveness(snapshot.wmi))
     boost = fuel_cap * ratio * _thermal_multiplier(snapshot)
 
     if snapshot.engine.knock_events > 0:
