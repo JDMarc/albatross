@@ -60,6 +60,8 @@ class App:
             "awc_enabled": tk.BooleanVar(value=True),
             "lean_deg": tk.DoubleVar(value=1.5),
             "traction": tk.StringVar(value="MED"),
+            "clutch_slip_pct": tk.IntVar(value=0),
+            "clutch_slip_severity": tk.StringVar(value="NONE"),
             "turbo1": tk.DoubleVar(value=6.0),
             "turbo2": tk.DoubleVar(value=6.0),
             "wg1": tk.IntVar(value=45),
@@ -113,6 +115,7 @@ class App:
             ("Turbo2 psi", "turbo2", 0, 30),
             ("Wastegate1 %", "wg1", 0, 100),
             ("Wastegate2 %", "wg2", 0, 100),
+            ("Clutch Slip %", "clutch_slip_pct", 0, 100),
         ]
         for row, (label, key, lo, hi) in enumerate(ard_sliders):
             self._slider(ard, label, key, lo, hi, row)
@@ -124,6 +127,8 @@ class App:
 
         row += 1
         ttk.Checkbutton(ard, text="AWC Enabled", variable=self.vars["awc_enabled"]).grid(row=row, column=0, sticky="w")
+        ttk.Label(ard, text="Slip Severity").grid(row=row, column=1, sticky="e")
+        ttk.Combobox(ard, textvariable=self.vars["clutch_slip_severity"], values=["NONE", "MILD", "MODERATE", "SEVERE"], width=12, state="readonly").grid(row=row, column=2, sticky="w")
 
         ttk.Label(cmds, text="Gear").grid(row=0, column=0, sticky="w")
         ttk.Combobox(cmds, textvariable=self.vars["gear"], values=["N", "1", "2", "3", "4", "5", "6"], width=8).grid(row=0, column=1, sticky="w")
@@ -159,6 +164,7 @@ class App:
         gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
         mode_map = {"ECO": 1, "NORMAL": 2, "SPORT": 3, "RACE": 4, "ALBATROSS": 5}
         trac_map = {"LOW": 1, "MED": 2, "HIGH": 3, "OFF": 4}
+        slip_sev_map = {"NONE": 0, "MILD": 1, "MODERATE": 2, "SEVERE": 3}
 
         rpm = int(self.vars["rpm"].get())
         speed_mps100 = int(max(0.0, float(self.vars["speed"].get()) / 2.236936) * 100)
@@ -185,13 +191,22 @@ class App:
 
         airshot_flags = 0x01 if bool(self.vars["airshot_firing"].get()) else 0x00
         self._send(int(ArduinoToHudID.AIR_SHOT_STATUS), bytes((max(0, min(255, int(self.vars["airshot_charges"].get()))), airshot_flags)))
-        self._send(int(ArduinoToHudID.AWC_STATE), bytes((1 if bool(self.vars["awc_enabled"].get()) else 0,)) + struct.pack(">h", lean_raw))
+        self._send(int(ArduinoToHudID.AWC_STATE), bytes((1 if bool(self.vars["awc_enabled"].get()) else 0, max(-127, min(127, int(lean_raw / 10))) & 0xFF)))
         self._send(int(ArduinoToHudID.TANK_PRESSURE), struct.pack(">H", int(max(0.0, float(self.vars["tank_psi"].get())) * 10)))
         self._send(int(ArduinoToHudID.TWIN_TURBO_STATUS), struct.pack(">HH", int(max(0.0, float(self.vars["turbo1"].get())) * 10), int(max(0.0, float(self.vars["turbo2"].get())) * 10)))
         self._send(int(ArduinoToHudID.WASTEGATE_STATUS), bytes((max(0, min(100, int(self.vars["wg1"].get()))), max(0, min(100, int(self.vars["wg2"].get()))))))
         self._send(int(ArduinoToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
         self._send(int(ArduinoToHudID.WHEEL_SPEED), struct.pack(">HH", speed_mps100, speed_mps100))
         self._send(int(ArduinoToHudID.FUEL_LEVEL), bytes((max(0, min(100, int(self.vars["fuel"].get()))),)))
+        self._send(
+            int(ArduinoToHudID.CLUTCH_SLIP_STATUS),
+            bytes(
+                (
+                    max(0, min(100, int(self.vars["clutch_slip_pct"].get()))),
+                    slip_sev_map.get(self.vars["clutch_slip_severity"].get(), 0),
+                )
+            ),
+        )
 
         self._send(int(PiToArduinoID.MODE_SELECTION), bytes((mode_map[self.vars["mode"].get()],)))
         self._send(int(PiToArduinoID.TRACTION_LEVEL), bytes((trac_map[self.vars["traction"].get()],)))

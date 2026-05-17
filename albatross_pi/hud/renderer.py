@@ -53,11 +53,22 @@ class EvaAlertAudio:
             "KNOCK": "long_beeps.wav",
             "KNOCK ESCALATE": "long_beeps.wav",
             "WMI FLOW LOW": "long_beeps.wav",
+            "WMI TANK EMPTY": "long_beeps.wav",
+            "WMI PUMP FAULT": "long_beeps.wav",
+            "WMI PRESSURE LOW": "long_beeps.wav",
             "CAN STALE": "long_beeps.wav",
             "ECU STALE": "long_beeps.wav",
             "CLUTCH SLIP": "long_beeps.wav",
+            "CYL EGT BOOST MISMATCH": "long_beeps.wav",
+            "OVERBOOST": "long_beeps.wav",
+            "BOOST CONTROL ERROR": "long_beeps.wav",
+            "WASTEGATE STUCK": "long_beeps.wav",
+            "AIR SHOT LOW": "long_beeps.wav",
             "SPEED SENSOR": "long_beeps.wav",
             "GEAR SENSOR": "long_beeps.wav",
+            "INTAKE AIR HOT": "long_beeps.wav",
+            "BATTERY LOW": "long_beeps.wav",
+            "BATTERY HIGH": "long_beeps.wav",
         }
         if not self._init_mixer():
             return

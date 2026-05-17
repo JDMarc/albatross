@@ -48,6 +48,7 @@ namespace CanId {
   constexpr uint16_t ARD_WHEEL_SPEED = 0x137;
   constexpr uint16_t ARD_FUEL_LEVEL = 0x138;
   constexpr uint16_t ARD_WMI_STATUS = 0x139;
+  constexpr uint16_t ARD_CLUTCH_SLIP_STATUS = 0x13A;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -105,6 +106,8 @@ struct Outputs {
   uint16_t wmi_commanded_flow_cc_min = 0;
   uint16_t wmi_actual_flow_cc_min = 0;
   bool wmi_fault = false;
+  uint8_t clutch_slip_pct = 0;
+  uint8_t clutch_slip_severity = 0;
 };
 
 Inputs g_inputs;
@@ -285,6 +288,15 @@ static constexpr float GEAR_RATIO_FROM_RPM_MPH[] = {
   125.0f, // 5th
   110.0f  // 6th
 };
+// NOTE: These are placeholder rpm:mph ratios for now.
+// Replace with measured ratios after real-world validation.
+
+uint8_t classifyClutchSlipSeverity(float slip_pct) {
+  if (slip_pct < 8.0f) return 0;   // nominal
+  if (slip_pct < 15.0f) return 1;  // mild
+  if (slip_pct < 25.0f) return 2;  // moderate
+  return 3;                        // severe
+}
 
 uint8_t computeGearFromSpeedRpm(float speed_mph, uint16_t rpm, bool neutral_switch_active) {
   if (neutral_switch_active) return 0; // Neutral
@@ -469,6 +481,18 @@ void updateControllers() {
   const bool neutral_active = (digitalRead(NEUTRAL_SWITCH_PIN) == LOW);
   const float speed_mph = max(g_front_wheel_mps, g_rear_wheel_mps) * 2.236936f;
   g_inputs.gear = computeGearFromSpeedRpm(speed_mph, g_inputs.rpm, neutral_active);
+
+  g_outputs.clutch_slip_pct = 0;
+  g_outputs.clutch_slip_severity = 0;
+  if (!neutral_active && g_inputs.gear >= 1 && g_inputs.gear <= 6 && speed_mph > 10.0f && g_inputs.rpm > 2500) {
+    const float observed = g_inputs.rpm / max(1.0f, speed_mph);
+    const float expected = GEAR_RATIO_FROM_RPM_MPH[g_inputs.gear];
+    if (expected > 0.0f) {
+      const float pct_diff = fabsf(observed - expected) / expected * 100.0f;
+      g_outputs.clutch_slip_pct = static_cast<uint8_t>(constrain(static_cast<int>(roundf(pct_diff)), 0, 100));
+      g_outputs.clutch_slip_severity = classifyClutchSlipSeverity(pct_diff);
+    }
+  }
 }
 
 void publishStatusFrames() {
@@ -506,6 +530,9 @@ void publishStatusFrames() {
     uint8_t(g_outputs.wmi_fault ? 1 : 0)
   };
   publishFrame(CanId::ARD_WMI_STATUS, wmi, 6);
+
+  uint8_t clutch_slip[2] = {g_outputs.clutch_slip_pct, g_outputs.clutch_slip_severity};
+  publishFrame(CanId::ARD_CLUTCH_SLIP_STATUS, clutch_slip, 2);
 
   uint16_t front_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_front_wheel_mps * 100.0f), 0, 65535));
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));

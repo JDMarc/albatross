@@ -230,14 +230,26 @@ class CANStateAggregator:
             return
         active = bool(data[0])
         lean_deg = 0.0
-        if len(data) >= 3:
-            (lean_raw,) = struct.unpack_from(">h", data, 1)
-            lean_deg = lean_raw / 10.0
+        if len(data) >= 2:
+            lean_raw = struct.unpack_from(">b", data, 1)[0]
+            lean_deg = float(lean_raw)
         self._traction = replace(
             self._traction,
             intervention_level="ON" if active else "OFF",
             wheelie_pitch_deg=lean_deg,
-            slip_pct=self._traction.slip_pct if active else 0.0,
+            slip_pct=self._traction.slip_pct,
+        )
+
+    def _update_clutch_slip_status(self, data: bytes) -> None:
+        if len(data) < 2:
+            return
+        slip_pct = float(max(0, min(100, data[0])))
+        severity_code = data[1]
+        severity_map = {0: "NONE", 1: "MILD", 2: "MODERATE", 3: "SEVERE"}
+        self._traction = replace(
+            self._traction,
+            slip_pct=slip_pct,
+            intervention_level=severity_map.get(severity_code, self._traction.intervention_level),
         )
 
     def _update_tank_pressure(self, data: bytes) -> None:
@@ -337,6 +349,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.WHEEL_SPEED): CANStateAggregator._update_wheel_speed,
     int(ArduinoToHudID.FUEL_LEVEL): CANStateAggregator._update_arduino_fuel,
     int(ArduinoToHudID.WMI_STATUS): CANStateAggregator._update_wmi_status,
+    int(ArduinoToHudID.CLUTCH_SLIP_STATUS): CANStateAggregator._update_clutch_slip_status,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
