@@ -306,9 +306,9 @@ class HUDRenderer:
             ("COOLANT SENSOR", state.temps.coolant_temp_f > 0),
             ("OIL TEMP SENSOR", state.temps.oil_temp_f > 0),
             ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
-            ("FUEL LEVEL SENSOR", has_can_signal and state.environment.fuel_level_pct < 100.0),
-            ("BATTERY VOLT", has_can_signal and state.temps.battery_voltage != 12.5),
-            ("GEAR INPUT", has_can_signal and state.engine.gear in {"1", "2", "3", "4", "5", "6", "N", "?"} and state.engine.gear != "N"),
+            ("FUEL LEVEL SENSOR", has_can_signal and state.environment.fuel_level_pct >= 0.0),
+            ("BATTERY VOLT", has_can_signal and state.temps.battery_voltage >= 0.0),
+            ("GEAR INPUT", has_can_signal and state.engine.gear in {"1", "2", "3", "4", "5", "6", "N"}),
             ("TRACTION INPUT", has_can_signal and state.traction.intervention_level != ""),
             ("CAN LINK", has_can_signal or bool(state.environment.message_line)),
             ("USB INPUT", pygame.joystick.get_count() > 0),
@@ -345,7 +345,7 @@ class HUDRenderer:
                     self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
                     self._create_widgets()
                 elif event.type == pygame.KEYDOWN:
-                    if self._post_fault_active:
+                    if (not self._post_complete) or self._post_fault_active:
                         continue
                     if event.key in (pygame.K_TAB, pygame.K_m):
                         self._mode_index = (self._mode_index + 1) % len(self._modes)
@@ -421,7 +421,7 @@ class HUDRenderer:
             if not self._post_complete:
                 self._run_post(state)
 
-            if self._post_fault_active:
+            if self._post_complete and self._post_fault_active:
                 pressed = pygame.key.get_pressed()
                 if pressed[self._ack_key]:
                     self._post_fault_active = False
@@ -459,7 +459,7 @@ class HUDRenderer:
             self._render_media_overlay()
         self._render_global_hints()
         self._apply_brightness_overlay(state)
-        if self._post_complete and self._post_fault_active:
+        if (not self._post_complete) or self._post_fault_active:
             self._render_post_overlay()
         if present and self._use_display:
             pygame.display.flip()
