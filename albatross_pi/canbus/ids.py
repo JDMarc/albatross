@@ -43,6 +43,8 @@ class PiToArduinoID(IntEnum):
     FLAME_MODE = 0x122
     LIMP_MODE = 0x123
     TRACTION_LEVEL = 0x124
+    MEDIA_CONTROL = 0x125
+    PHONE_LINK = 0x126
     NFC_AUTH = 0x140
 
 
