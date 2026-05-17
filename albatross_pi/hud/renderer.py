@@ -1,10 +1,16 @@
 """Pygame HUD renderer for the Albatross project."""
 from __future__ import annotations
 
+import logging
+import sunau
 import threading
 import time
+import urllib.request
+import wave
+import audioop
 from dataclasses import replace
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Iterable, List
 
 import pygame
@@ -25,6 +31,126 @@ from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
 TARGET_FPS = 60
+LOGGER = logging.getLogger(__name__)
+
+
+class EvaAlertAudio:
+    """Fault-to-voice alert mapper for EVA Chrysler prompts."""
+
+    def __init__(self) -> None:
+        self._enabled = False
+        self._channel: pygame.mixer.Channel | None = None
+        self._sounds: dict[str, pygame.mixer.Sound] = {}
+        self._active_faults: set[str] = set()
+        self._played_faults: set[str] = set()
+        self._pending_faults: list[str] = []
+        self._mapping = {
+            "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
+            "LOW OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
+            "COOLANT HOT": "your_engine_is_overheating_prompt_service_is_required.wav",
+            "EGT HOT": "your_engine_temperature_is_above_normal.wav",
+            "LOW FUEL": "please_check_your_fuel_level.wav",
+            "KNOCK": "long_beeps.wav",
+            "KNOCK ESCALATE": "long_beeps.wav",
+            "WMI FLOW LOW": "long_beeps.wav",
+            "CAN STALE": "long_beeps.wav",
+            "ECU STALE": "long_beeps.wav",
+            "CLUTCH SLIP": "long_beeps.wav",
+            "SPEED SENSOR": "long_beeps.wav",
+            "GEAR SENSOR": "long_beeps.wav",
+        }
+        if not self._init_mixer():
+            return
+        self._channel = pygame.mixer.Channel(2)
+        self._load_sounds()
+        self._enabled = bool(self._sounds)
+
+    def _init_mixer(self) -> bool:
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.pre_init(44100, -16, 2, 512)
+                pygame.mixer.init()
+            return True
+        except pygame.error as exc:
+            LOGGER.warning("Audio alerts disabled (pygame mixer init failed): %s", exc)
+            return False
+
+    def _load_sounds(self) -> None:
+        cache_dir = Path.home() / ".cache" / "albatross" / "eva24"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        base_url = "https://raw.githubusercontent.com/jnewb1/eva-sounds/main/sounds_eva24"
+        resolved: dict[str, Path] = {}
+        for name in sorted(set(self._mapping.values())):
+            wav_path = cache_dir / name
+            if not wav_path.exists():
+                try:
+                    urllib.request.urlretrieve(f"{base_url}/{name}", wav_path)
+                except Exception as exc:
+                    LOGGER.warning("Failed downloading EVA clip %s: %s", name, exc)
+                    continue
+            resolved[name] = wav_path
+        loaded_by_name: dict[str, pygame.mixer.Sound] = {}
+        for name, source_path in resolved.items():
+            try:
+                loaded_by_name[name] = pygame.mixer.Sound(str(source_path))
+                continue
+            except pygame.error:
+                pass
+            transcoded_path = source_path.with_suffix(".pcm.wav")
+            try:
+                self._transcode_au_to_pcm_wav(source_path, transcoded_path)
+                loaded_by_name[name] = pygame.mixer.Sound(str(transcoded_path))
+            except Exception as exc:
+                LOGGER.warning("Failed loading EVA clip %s (%s): %s", name, source_path, exc)
+        for fault, name in self._mapping.items():
+            sound = loaded_by_name.get(name)
+            if sound is not None:
+                self._sounds[fault] = sound
+
+    @staticmethod
+    def _transcode_au_to_pcm_wav(source_path: Path, dest_path: Path) -> None:
+        with sunau.open(str(source_path), "rb") as src:
+            nchannels = src.getnchannels()
+            sampwidth = src.getsampwidth()
+            framerate = src.getframerate()
+            nframes = src.getnframes()
+            frames = src.readframes(nframes)
+        # pygame mixers are most compatible with 16-bit PCM wav.
+        if sampwidth == 1:
+            frames = audioop.ulaw2lin(frames, 2)
+            sampwidth = 2
+        elif sampwidth != 2:
+            frames = audioop.lin2lin(frames, sampwidth, 2)
+            sampwidth = 2
+        with wave.open(str(dest_path), "wb") as out:
+            out.setnchannels(nchannels)
+            out.setsampwidth(sampwidth)
+            out.setframerate(framerate)
+            out.writeframes(frames)
+
+    def update(self, faults: tuple[str, ...], *, allow_playback: bool) -> None:
+        if not self._enabled or not allow_playback:
+            return
+        current_faults = set(faults)
+        cleared_faults = self._active_faults - current_faults
+        for fault in cleared_faults:
+            self._played_faults.discard(fault)
+        self._active_faults = current_faults
+
+        for fault in faults:
+            if fault in self._played_faults or fault in self._pending_faults:
+                continue
+            if fault in self._sounds:
+                self._pending_faults.append(fault)
+
+        if self._channel is None or self._channel.get_busy() or not self._pending_faults:
+            return
+        fault = self._pending_faults.pop(0)
+        sound = self._sounds.get(fault)
+        if sound is None:
+            return
+        self._channel.play(sound)
+        self._played_faults.add(fault)
 
 
 class HUDRenderer:
@@ -86,6 +212,7 @@ class HUDRenderer:
         self._last_can_fresh_monotonic = time.monotonic()
         self._display_time_anchor = self.state.environment.time
         self._display_time_anchor_monotonic = self._last_can_fresh_monotonic
+        self._audio = EvaAlertAudio()
         self._create_widgets()
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
@@ -425,6 +552,10 @@ class HUDRenderer:
                 pressed = pygame.key.get_pressed()
                 if pressed[self._ack_key]:
                     self._post_fault_active = False
+            self._audio.update(
+                state.faults,
+                allow_playback=self._post_complete and not self._post_fault_active,
+            )
             self._render_frame(state)
             self.clock.tick(TARGET_FPS)
 
