@@ -197,6 +197,7 @@ class HUDRenderer:
         self._ack_key = pygame.K_RETURN
         self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
         self._mode_index = 0
+        self._mode_selection_index = 0
         self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
@@ -292,6 +293,8 @@ class HUDRenderer:
             self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
         if not hasattr(self, "_mode_index"):
             self._mode_index = 0
+        if not hasattr(self, "_mode_selection_index"):
+            self._mode_selection_index = self._mode_index
         if not hasattr(self, "_mode_layout_state"):
             self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
 
@@ -492,6 +495,7 @@ class HUDRenderer:
                         continue
                     if event.key in (pygame.K_TAB, pygame.K_m):
                         self._mode_index = (self._mode_index + 1) % len(self._modes)
+                        self._mode_selection_index = self._mode_index
                         if self._mode_callback:
                             self._mode_callback(self._mode_index + 1)
                         self._create_widgets()
@@ -534,6 +538,7 @@ class HUDRenderer:
             state = replace(state, faults=self._runtime_faults(state, now_s))
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
+                self._mode_selection_index = self._mode_index
 
             # Keep the HUD clock moving even when telemetry timestamps stop updating.
             display_time = self._display_time_anchor + timedelta(
@@ -662,9 +667,7 @@ class HUDRenderer:
             elif item == "BRIGHTNESS":
                 self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
             elif item == "MODE":
-                self._mode_index = (self._mode_index + 1) % len(self._modes)
-                if self._mode_callback:
-                    self._mode_callback(self._mode_index + 1)
+                self._mode_selection_index = (self._mode_selection_index + 1) % len(self._modes)
             elif item == "PHONE LINK":
                 self._phone_link_enabled = True
                 if self._media_callback:
@@ -692,9 +695,7 @@ class HUDRenderer:
             elif item == "BRIGHTNESS":
                 self._brightness_index = max(self._brightness_index - 1, 0)
             elif item == "MODE":
-                self._mode_index = (self._mode_index - 1) % len(self._modes)
-                if self._mode_callback:
-                    self._mode_callback(self._mode_index + 1)
+                self._mode_selection_index = (self._mode_selection_index - 1) % len(self._modes)
             elif item == "PHONE LINK":
                 self._phone_link_enabled = False
                 if self._media_callback:
@@ -805,6 +806,8 @@ class HUDRenderer:
             self.screen.blit(text, (panel.x + 16, row_y))
             if active:
                 pygame.draw.line(self.screen, bright, (panel.x + 14, row_y + 24), (panel.right - 14, row_y + 24), 1)
+            if item == "MODE" and active:
+                self._render_mode_picker(panel, row_y + 28)
         y = panel.bottom - 26
         dev_title = font(12, bold=True).render("BT DEVICES", True, glow)
         self.screen.blit(dev_title, (panel.x + 16, y))
@@ -882,6 +885,21 @@ class HUDRenderer:
         if item == "THEME":
             return self._themes[self._theme_index]
         return "ON" if self._auto_dim_enabled else "OFF"
+
+    def _render_mode_picker(self, panel: pygame.Rect, y: int) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        orange = (255, 140, 0)
+        x = panel.x + 16
+        for idx, mode in enumerate(self._modes):
+            selected = idx == self._mode_selection_index
+            applied = idx == self._mode_index
+            color = bright if selected else (glow if not applied else orange)
+            label = font(13, bold=selected).render(mode, True, color)
+            self.screen.blit(label, (x, y))
+            if selected:
+                uy = y + label.get_height() + 1
+                pygame.draw.line(self.screen, orange, (x, uy), (x + label.get_width(), uy), 2)
+            x += label.get_width() + 16
 
     def _render_global_hints(self) -> None:
         _bg, _bright, glow, _fault = self._theme_colors()
@@ -964,6 +982,33 @@ class HUDRenderer:
         s_hint = font(12).render("SELECT", True, glow)
         self.screen.blit(s_label, (settings_rect.x + 12, settings_rect.y + 10))
         self.screen.blit(s_hint, (settings_rect.x + 30, settings_rect.y + 32))
+        mode_preview = self._modes[self._mode_selection_index]
+        mode_color = bright if self._mode_selection_index == self._mode_index else (255, 140, 0)
+        mode_text = font(12, bold=True).render(mode_preview, True, mode_color)
+        mode_x = settings_rect.right - mode_text.get_width() - 10
+        mode_y = settings_rect.y + 32
+        self.screen.blit(mode_text, (mode_x, mode_y))
+        if self._active_menu == "home":
+            underline_y = mode_y + mode_text.get_height() + 1
+            pygame.draw.line(self.screen, (255, 140, 0), (mode_x, underline_y), (mode_x + mode_text.get_width(), underline_y), 2)
+        self._render_home_mode_focus_strip(settings_rect.x - 8, settings_rect.bottom + 4)
+
+    def _render_home_mode_focus_strip(self, x: int, y: int) -> None:
+        if self._active_menu != "home":
+            return
+        _bg, bright, glow, _fault = self._theme_colors()
+        cx = x
+        for idx, mode in enumerate(self._modes):
+            target = f"MODE:{idx}"
+            focused = self._home_focus_target() == target
+            applied = idx == self._mode_index
+            color = bright if focused else ((255, 140, 0) if applied else glow)
+            t = font(11, bold=focused).render(mode, True, color)
+            self.screen.blit(t, (cx, y))
+            if focused:
+                uy = y + t.get_height() + 1
+                pygame.draw.line(self.screen, (255, 140, 0), (cx, uy), (cx + t.get_width(), uy), 2)
+            cx += t.get_width() + 10
 
     def _render_modal_dimmer(self) -> None:
         dim = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
