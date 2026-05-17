@@ -41,8 +41,9 @@ class EvaAlertAudio:
         self._enabled = False
         self._channel: pygame.mixer.Channel | None = None
         self._sounds: dict[str, pygame.mixer.Sound] = {}
-        self._last_played: dict[str, float] = {}
-        self._cooldown_s = 8.0
+        self._active_faults: set[str] = set()
+        self._played_faults: set[str] = set()
+        self._pending_faults: list[str] = []
         self._mapping = {
             "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
             "LOW OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
@@ -130,17 +131,26 @@ class EvaAlertAudio:
     def update(self, faults: tuple[str, ...], *, allow_playback: bool) -> None:
         if not self._enabled or not allow_playback:
             return
-        now = time.monotonic()
+        current_faults = set(faults)
+        cleared_faults = self._active_faults - current_faults
+        for fault in cleared_faults:
+            self._played_faults.discard(fault)
+        self._active_faults = current_faults
+
         for fault in faults:
-            sound = self._sounds.get(fault)
-            if sound is None:
+            if fault in self._played_faults or fault in self._pending_faults:
                 continue
-            if (now - self._last_played.get(fault, 0.0)) < self._cooldown_s:
-                continue
-            if self._channel is not None and not self._channel.get_busy():
-                self._channel.play(sound)
-                self._last_played[fault] = now
-                return
+            if fault in self._sounds:
+                self._pending_faults.append(fault)
+
+        if self._channel is None or self._channel.get_busy() or not self._pending_faults:
+            return
+        fault = self._pending_faults.pop(0)
+        sound = self._sounds.get(fault)
+        if sound is None:
+            return
+        self._channel.play(sound)
+        self._played_faults.add(fault)
 
 
 class HUDRenderer:
