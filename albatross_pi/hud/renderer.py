@@ -315,7 +315,12 @@ class HUDRenderer:
         ]
         self._post_lines = [(f"TEST {name:<18} {'OK' if ok else 'FAULT'}", ok) for name, ok in checks]
         self._post_fault_active = any(not ok for _, ok in checks)
-        self._post_complete = True
+
+        # Keep POST live briefly so late-arriving telemetry can clear false startup faults.
+        elapsed = time.monotonic() - self._post_started_at
+        all_passed = not self._post_fault_active
+        timed_out = elapsed >= 2.5
+        self._post_complete = all_passed or timed_out
 
     def update_state(self, snapshot: StateSnapshot) -> None:
         with self.state_lock:
