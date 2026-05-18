@@ -34,6 +34,7 @@ SCREEN_SIZE = (1920, 720)
 TARGET_FPS = 60
 LOGGER = logging.getLogger(__name__)
 RETRO_ERROR_BEEP = "__retro_error_beep__"
+RETRO_ERROR_BEEP_PATH = Path(__file__).resolve().parent / "assets" / "audio" / "new_error_sound.wav"
 
 
 class EvaAlertAudio:
@@ -117,34 +118,14 @@ class EvaAlertAudio:
                 loaded_by_name[name] = pygame.mixer.Sound(str(transcoded_path))
             except Exception as exc:
                 LOGGER.warning("Failed loading EVA clip %s (%s): %s", name, source_path, exc)
-        loaded_by_name[RETRO_ERROR_BEEP] = self._build_retro_error_beep()
+        try:
+            loaded_by_name[RETRO_ERROR_BEEP] = pygame.mixer.Sound(str(RETRO_ERROR_BEEP_PATH))
+        except pygame.error as exc:
+            LOGGER.warning("Failed loading retro error beep %s: %s", RETRO_ERROR_BEEP_PATH, exc)
         for fault, name in self._mapping.items():
             sound = loaded_by_name.get(name)
             if sound is not None:
                 self._sounds[fault] = sound
-
-    @staticmethod
-    def _build_retro_error_beep() -> pygame.mixer.Sound:
-        init = pygame.mixer.get_init()
-        sample_rate = init[0] if init else 44100
-        tones = [(880.0, 0.08), (0.0, 0.035), (660.0, 0.08), (0.0, 0.035), (440.0, 0.14)]
-        samples = bytearray()
-        amplitude = 7000
-        for freq, duration_s in tones:
-            frames = max(1, int(sample_rate * duration_s))
-            for idx in range(frames):
-                if freq <= 0.0:
-                    value = 0
-                else:
-                    # A softened square wave gives the alert an 80s computer tone without
-                    # the harsh EVA long-beep clip.
-                    phase = math.sin(2.0 * math.pi * freq * idx / sample_rate)
-                    value = int(amplitude * (1.0 if phase >= 0.0 else -1.0))
-                    envelope = min(1.0, idx / max(1, int(sample_rate * 0.01)), (frames - idx) / max(1, int(sample_rate * 0.018)))
-                    value = int(value * max(0.0, envelope))
-                samples.extend(value.to_bytes(2, "little", signed=True))
-                samples.extend(value.to_bytes(2, "little", signed=True))
-        return pygame.mixer.Sound(buffer=bytes(samples))
 
     @staticmethod
     def _transcode_au_to_pcm_wav(source_path: Path, dest_path: Path) -> None:
