@@ -71,7 +71,7 @@
 - Air Shot firing requires two-step confirmation and safety conditions.
 
 ## 6. Pi-Side Calculations
-- **Boost target**: derived from fuel, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp.
+- **Boost target**: derived from selected fuel strategy, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp. Flex content verifies/derates E85 requests; it does not raise 87/91/93 selections above their own caps.
 - **eTRAC profile**: weather + sensors select traction profile; GPS/sensor fusion can switch to GRAVEL/ROUGH.
 - **Timing bias**: suggest advance for high-octane fuels with clean knock history; otherwise neutral/retard.
 - **Launch setpoint**: mode-based and conditioned on temps/pressures.

@@ -38,10 +38,11 @@ def _flex_blend_caps(snapshot: StateSnapshot) -> tuple[float, float] | None:
     fuel = (snapshot.environment.fuel_type or "93").upper()
     if fuel in {"100", "C16"}:
         return None
-    pump_basis = fuel if fuel in {"87", "91", "93"} else "93"
+    if fuel in {"87", "91", "93"}:
+        return FUEL_CAP_DRY[fuel], FUEL_CAP_WITH_WMI[fuel]
     blend = max(0.0, min(1.0, (ethanol_pct - 10.0) / 75.0))
-    dry = FUEL_CAP_DRY[pump_basis] + ((FUEL_CAP_DRY["E85"] - FUEL_CAP_DRY[pump_basis]) * blend)
-    wmi = FUEL_CAP_WITH_WMI[pump_basis] + ((FUEL_CAP_WITH_WMI["E85"] - FUEL_CAP_WITH_WMI[pump_basis]) * blend)
+    dry = FUEL_CAP_DRY["93"] + ((FUEL_CAP_DRY["E85"] - FUEL_CAP_DRY["93"]) * blend)
+    wmi = FUEL_CAP_WITH_WMI["93"] + ((FUEL_CAP_WITH_WMI["E85"] - FUEL_CAP_WITH_WMI["93"]) * blend)
     return dry, wmi
 
 

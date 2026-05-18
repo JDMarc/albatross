@@ -23,7 +23,7 @@ Current build wiring assumption:
 
 - Oil pressure: wired to MS3Pro Mini analog input and published to HUD/CAN by MS3-side telemetry.
 - Oil temperature: wired to MS3Pro Mini sensor input and published to HUD/CAN by MS3-side telemetry.
-- Flex fuel: wired to MS3Pro Mini flex input; HUD consumes ethanol percentage as ECU flex telemetry and uses it for boost cap interpolation on pump/E85 blends.
+- Flex fuel: wired to MS3Pro Mini flex input; HUD consumes ethanol percentage as ECU flex telemetry. Flex content verifies/derates the E85 boost strategy, but it does not upgrade an 87/91/93 manual selection into E85 boost by itself.
 - Wheel speed: handled by Arduino hall inputs and published on Arduino HUD wheel-speed frames.
 - WMI tank, flow, and status: handled by Arduino and published on Arduino WMI status frames.
 - Arduino oil pressure remains a fallback provision only if the MS3 oil pressure path is unavailable during bench testing.
@@ -39,7 +39,7 @@ Current build wiring assumption:
 ## 2) Ignition and fueling safety baseline
 
 1. Configure conservative base spark and VE maps for first-fire.
-2. Configure fuel-specific VE/AFR/stoich behavior for the fuels in the Pi fuel profile frame (`0x150`). Current table indexes are 0=pump gas, 1=100 octane, 2=E85, and 3=C16. With the flex sensor wired to MS3, let MS3 own real fuel composition correction; the Pi uses ethanol percentage only for supervisory boost-cap interpolation.
+2. Configure fuel-specific VE/AFR/stoich behavior for the fuels in the Pi fuel profile frame (`0x150`). Current table indexes are 0=pump gas, 1=100 octane, 2=E85, and 3=C16. With the flex sensor wired to MS3, let MS3 own real fuel composition correction; the Pi uses ethanol percentage only for supervisory boost-cap derating/validation.
 3. Configure Spark Table 1/2 as the initial/conservative strategy and Spark Table 3/4 or the configured switched strategy as the SPORT+ performance spark map. The Pi sends `0x151` with 0 for ECO/NORMAL and 1 for SPORT/RACE/ALBATROSS.
 4. Enable over-temp and AFR protection strategies available in your firmware.
 5. Set hard rev limit and soft rev limit with predictable cut behavior.
