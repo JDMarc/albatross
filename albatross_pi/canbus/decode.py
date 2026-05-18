@@ -234,6 +234,14 @@ class CANStateAggregator:
         (raw_mv,) = struct.unpack_from(">H", data)
         self._temps_data["battery_voltage"] = raw_mv / 1000.0
 
+    def _update_flex_fuel(self, data: bytes) -> None:
+        if not data:
+            return
+        ethanol_pct = max(0.0, min(100.0, float(data[0])))
+        env_dict = self._environment.__dict__.copy()
+        env_dict["ethanol_content_pct"] = ethanol_pct
+        self._environment = EnvironmentState(**env_dict)
+
     def _update_air_shot_status(self, data: bytes) -> None:
         if not data:
             return
@@ -418,6 +426,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ECUToHudID.INTAKE_AIR_TEMP): CANStateAggregator._update_intake_temp,
     int(ECUToHudID.EXHAUST_GAS_TEMP): CANStateAggregator._update_exhaust_temp,
     int(ECUToHudID.BATTERY_VOLTAGE): CANStateAggregator._update_battery_voltage,
+    int(ECUToHudID.FLEX_FUEL): CANStateAggregator._update_flex_fuel,
     int(ArduinoToHudID.AIR_SHOT_STATUS): CANStateAggregator._update_air_shot_status,
     int(ArduinoToHudID.AWC_STATE): CANStateAggregator._update_awc_state,
     int(ArduinoToHudID.RGB_LIGHTING): lambda self, data: None,

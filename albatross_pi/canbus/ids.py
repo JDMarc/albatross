@@ -20,6 +20,7 @@ class ECUToHudID(IntEnum):
     INTAKE_AIR_TEMP = 0x10A
     EXHAUST_GAS_TEMP = 0x10B
     BATTERY_VOLTAGE = 0x10C
+    FLEX_FUEL = 0x10D
 
 
 class ArduinoToHudID(IntEnum):

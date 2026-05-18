@@ -59,8 +59,9 @@ The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut
 ## CAN notes
 
 - Arduino reports lamp status in `0x13B` payload byte 0: bit 0 left indicator, bit 1 right indicator, bit 2 high beam, bit 3 neutral, bit 4 brake light, bit 5 oil warning. The oil warning lamp is status only; pressure decisions use the real pressure sensor path.
-- Arduino can report fallback oil pressure in `0x13C` as psi x10 from `OIL_PRESSURE_SENSOR_PIN` if the ECU cannot publish oil pressure.
+- Arduino can report fallback oil pressure in `0x13C` as psi x10 from `OIL_PRESSURE_SENSOR_PIN` if the ECU cannot publish oil pressure. On the current MS3Pro Mini plan, oil pressure and oil temperature are MS3-owned inputs, so this should stay a bench/fallback path rather than the normal bike path.
 - Arduino consumes ECU fuel level on `0x107`; fuel type selection is not inferred from this frame.
+- MS3 publishes flex-fuel ethanol content to the HUD on ECU frame `0x10D` (byte 0 = ethanol %). Arduino does not infer fuel type from the flex sensor; the Pi/HUD uses ethanol percentage for supervisory boost caps.
 - Arduino reports fuel type in `0x13D` using the shared fuel code map: 0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
 - Arduino accepts Pi fuel type selection on `0x129` using the same shared fuel code map.
 - Arduino reports WMI status in `0x139`: byte 0 tank level %, bytes 1-2 commanded cc/min, bytes 3-4 sensed cc/min, byte 5 aggregate fault.

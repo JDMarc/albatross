@@ -11,11 +11,22 @@ Yes. The MS3Pro firmware and TunerStudio workflow support the core ECU-side feat
 
 This means we can keep the architecture: **Pi plans + supervises, Arduino performs fast actuator control, MS3Pro manages core fueling/ignition/engine safeguards**.
 
+TunerStudio MS Lite is sufficient for ECU setup, CAN parameters, sensor calibration, table switching, and the MS3 CAN broadcast/receive menus. It is not the runtime bridge for Albatross-specific CAN; it configures the MS3Pro Mini, then the Pi/Arduino handle live traffic.
+
 ## Recommended control split (final)
 
 - **Pi**: mode selection UX, weather/profile logic, requests (`boost target`, `flame request`, `limp request`), HUD.
-- **Arduino**: electronic wastegate actuator command, Air Shot compressor + shot latch logic, WMI/flame interlocks, failsafe execution.
-- **MS3Pro**: fueling, ignition, safe map selection, launch/2-step, hard engine protections.
+- **Arduino**: electronic wastegate actuator command, Air Shot compressor + shot latch logic, wheel speed, WMI tank/flow/status sensing, WMI/flame interlocks, failsafe execution.
+- **MS3Pro Mini**: fueling, ignition, MAP/RPM/TPS/CLT/IAT/wideband, oil pressure, oil temperature, flex fuel, safe map selection, launch/2-step, hard engine protections.
+
+Current build wiring assumption:
+
+- Oil pressure: wired to MS3Pro Mini analog input and published to HUD/CAN by MS3-side telemetry.
+- Oil temperature: wired to MS3Pro Mini sensor input and published to HUD/CAN by MS3-side telemetry.
+- Flex fuel: wired to MS3Pro Mini flex input; HUD consumes ethanol percentage as ECU flex telemetry and uses it for boost cap interpolation on pump/E85 blends.
+- Wheel speed: handled by Arduino hall inputs and published on Arduino HUD wheel-speed frames.
+- WMI tank, flow, and status: handled by Arduino and published on Arduino WMI status frames.
+- Arduino oil pressure remains a fallback provision only if the MS3 oil pressure path is unavailable during bench testing.
 
 ## Required MS3Pro configuration steps
 
@@ -23,12 +34,12 @@ This means we can keep the architecture: **Pi plans + supervises, Arduino perfor
 
 1. Load a stable MS3Pro firmware build supported by your hardware.
 2. Create a fresh TunerStudio project for that exact firmware signature.
-3. Confirm all critical sensors are calibrated (TPS, MAP, CLT, IAT, wideband, oil pressure if wired).
+3. Confirm all critical sensors are calibrated (TPS, MAP, CLT, IAT, wideband, oil pressure, oil temperature, flex fuel).
 
 ## 2) Ignition and fueling safety baseline
 
 1. Configure conservative base spark and VE maps for first-fire.
-2. Configure fuel-specific VE/AFR/stoich behavior for the fuels in the Pi fuel profile frame (`0x150`). Current table indexes are 0=pump gas, 1=100 octane, 2=E85, and 3=C16.
+2. Configure fuel-specific VE/AFR/stoich behavior for the fuels in the Pi fuel profile frame (`0x150`). Current table indexes are 0=pump gas, 1=100 octane, 2=E85, and 3=C16. With the flex sensor wired to MS3, let MS3 own real fuel composition correction; the Pi uses ethanol percentage only for supervisory boost-cap interpolation.
 3. Configure Spark Table 1/2 as the initial/conservative strategy and Spark Table 3/4 or the configured switched strategy as the SPORT+ performance spark map. The Pi sends `0x151` with 0 for ECO/NORMAL and 1 for SPORT/RACE/ALBATROSS.
 4. Enable over-temp and AFR protection strategies available in your firmware.
 5. Set hard rev limit and soft rev limit with predictable cut behavior.
@@ -44,7 +55,7 @@ This means we can keep the architecture: **Pi plans + supervises, Arduino perfor
 
 1. Keep MS3Pro boost target ceilings conservative to act as ECU-side safety envelope.
 2. Allow Arduino to execute real-time electronic actuator positioning and derates.
-3. Ensure MAP, TPS, RPM, gear, knock, and thermal channels are available over CAN for Arduino decisions.
+3. Ensure MAP, TPS, RPM, gear, knock, oil pressure, oil temperature, CLT, IAT, EGT, battery voltage, and flex content are available to the HUD/Pi over CAN. Arduino should not be the source of truth for oil pressure/temp on this build.
 
 ## 5) Launch control
 
@@ -54,9 +65,12 @@ This means we can keep the architecture: **Pi plans + supervises, Arduino perfor
 
 ## 6) CAN integration
 
-1. Verify IDs match the project CAN contract.
-2. Confirm periodic publish rates for ECU sensor frames are stable.
-3. Validate that Pi/Arduino commands are visible and correctly decoded.
+1. Enable CAN master/global CAN in `CAN bus / Testmodes > CAN Parameters`, set the baud rate to match the bus (`500k` unless we deliberately change the Arduino sketch), burn, and power cycle.
+2. Enable MS3 CAN broadcast output for the engine data the Pi needs. TunerStudio's built-in broadcasts use standard 11-bit IDs and predefined layouts, so the Pi decoder should either consume MS3's native broadcast format directly or use a small translator. Do not rely on TunerStudio Lite to emit arbitrary Albatross `0x100`-style frames at runtime.
+3. For the current Albatross canonical telemetry map, reserve ECU/HUD IDs `0x100`-`0x10D`; `0x10D` is flex fuel ethanol percentage, byte 0 = ethanol content percent.
+4. Keep Arduino status ownership on `0x130`-`0x13E`, including wheel speed (`0x137`) and WMI status (`0x139`).
+5. Confirm periodic publish rates are stable before enabling safety logic: 20-50 Hz is enough for HUD/oil/flex data; wheel speed and WMI can remain Arduino-side at the sketch's 20 Hz status cadence until road testing proves a need for more.
+6. Validate with `candump` or TunerStudio's CAN test tools that Pi/Arduino commands are visible and correctly decoded.
 
 ## 7) Limp mode behavior (critical)
 
@@ -85,7 +99,7 @@ When limp is asserted by Pi (and enforced by Arduino), ensure MS3Pro is configur
 MS3 already has native traction-control provisions (wheel-speed and external slip-based strategies).
 Recommended approach for this project:
 
-1. Keep Arduino as the aggressiveness/slip pre-processor and profile selector.
+1. Keep Arduino as the wheel-speed/slip pre-processor and profile selector.
 2. Feed slip/torque-reduction intent to MS3 and let MS3 perform ignition/fuel/torque cuts using native strategies. Arduino publishes torque cut on `0x12A` and external slip on `0x12B`.
 3. Validate cut authority in logs before road use.
 

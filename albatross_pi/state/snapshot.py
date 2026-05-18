@@ -79,6 +79,7 @@ class TemperaturesState:
 class EnvironmentState:
     mode: str = "ECO"
     fuel_type: str = "93"
+    ethanol_content_pct: float = -1.0
     ambient_temp_f: float = 70.0
     gps_lock: bool = False
     rain: bool = False

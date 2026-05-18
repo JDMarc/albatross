@@ -65,6 +65,7 @@ class App:
             "clt": tk.DoubleVar(value=190.0),
             "batt_v": tk.DoubleVar(value=13.8),
             "fuel": tk.IntVar(value=75),
+            "ethanol_pct": tk.IntVar(value=10),
             "fuel_type": tk.StringVar(value="93"),
             "gear": tk.StringVar(value="N"),
             "load": tk.IntVar(value=35),
@@ -138,6 +139,7 @@ class App:
             ("Coolant F", "clt", 70, 280),
             ("Battery V", "batt_v", 8.0, 16.0),
             ("Fuel %", "fuel", 0, 100),
+            ("Flex Ethanol %", "ethanol_pct", 0, 100),
             ("Engine Load %", "load", 0, 100),
             ("Intake F", "iat", 40, 250),
             ("EGT Bank1 F", "egt_b1", 500, 2000),
@@ -257,6 +259,7 @@ class App:
         self._send(int(ECUToHudID.COOLANT_TEMP), struct.pack(">H", clt_c10))
         self._send(int(ECUToHudID.BATTERY_VOLTAGE), struct.pack(">H", int(max(0.0, float(self.vars["batt_v"].get())) * 1000)))
         self._send(int(ECUToHudID.FUEL_LEVEL), bytes((max(0, min(100, int(self.vars["fuel"].get()))),)))
+        self._send(int(ECUToHudID.FLEX_FUEL), bytes((max(0, min(100, int(self.vars["ethanol_pct"].get()))),)))
         self._send(int(ECUToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
         self._send(int(ECUToHudID.ENGINE_LOAD), bytes((max(0, min(100, int(self.vars["load"].get()))),)))
         self._send(int(ECUToHudID.INTAKE_AIR_TEMP), struct.pack(">H", iat_c10))

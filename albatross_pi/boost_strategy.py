@@ -31,6 +31,20 @@ FUEL_CAP_DRY = {
 }
 
 
+def _flex_blend_caps(snapshot: StateSnapshot) -> tuple[float, float] | None:
+    ethanol_pct = snapshot.environment.ethanol_content_pct
+    if ethanol_pct < 0:
+        return None
+    fuel = (snapshot.environment.fuel_type or "93").upper()
+    if fuel in {"100", "C16"}:
+        return None
+    pump_basis = fuel if fuel in {"87", "91", "93"} else "93"
+    blend = max(0.0, min(1.0, (ethanol_pct - 10.0) / 75.0))
+    dry = FUEL_CAP_DRY[pump_basis] + ((FUEL_CAP_DRY["E85"] - FUEL_CAP_DRY[pump_basis]) * blend)
+    wmi = FUEL_CAP_WITH_WMI[pump_basis] + ((FUEL_CAP_WITH_WMI["E85"] - FUEL_CAP_WITH_WMI[pump_basis]) * blend)
+    return dry, wmi
+
+
 def wmi_effectiveness(wmi: WMIState) -> float:
     if wmi.fault_active or wmi.tank_level_pct <= 5.0:
         return 0.0
@@ -67,8 +81,12 @@ def calculate_boost_target(snapshot: StateSnapshot, *, mode: str | None = None) 
         return 0.0
 
     fuel = (snapshot.environment.fuel_type or "93").upper()
-    dry_cap = FUEL_CAP_DRY.get(fuel, FUEL_CAP_DRY["93"])
-    wmi_cap = FUEL_CAP_WITH_WMI.get(fuel, FUEL_CAP_WITH_WMI["93"])
+    flex_caps = _flex_blend_caps(snapshot)
+    if flex_caps is None:
+        dry_cap = FUEL_CAP_DRY.get(fuel, FUEL_CAP_DRY["93"])
+        wmi_cap = FUEL_CAP_WITH_WMI.get(fuel, FUEL_CAP_WITH_WMI["93"])
+    else:
+        dry_cap, wmi_cap = flex_caps
     fuel_cap = dry_cap + ((wmi_cap - dry_cap) * wmi_effectiveness(snapshot.wmi))
     boost = fuel_cap * ratio * _thermal_multiplier(snapshot)
 

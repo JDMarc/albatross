@@ -64,6 +64,8 @@ class HeaderBar(Widget):
             mx += mode_surface.get_width() + 8
 
         fuel_text = f"Fuel {env.fuel_type}"
+        if env.ethanol_content_pct >= 0:
+            fuel_text = f"{fuel_text} E{env.ethanol_content_pct:02.0f}"
         fuel_size = fit_font_size(fuel_text, int(self.rect.width * 0.16), line_height, start_size=max(12, int(line_height * 0.7)))
         fuel_surface = font(fuel_size).render(fuel_text, True, AMBER_GLOW)
         surface.blit(fuel_surface, (self.rect.x + padding, self.rect.y + padding // 2 + line_height))

@@ -26,7 +26,7 @@
 ## 2. CAN Responsibilities (SocketCAN)
 - **Interface**: `can0` at 500 kbps or 1 Mbps per MS3/Arduino configuration.
 - **ID ownership**:
-  - MS3Pro Mini: broadcasts engine channels, receives commands.
+  - MS3Pro Mini: broadcasts engine channels plus oil pressure, oil temperature, and flex fuel; receives ECU-safe map/limit requests.
   - Arduino: broadcasts IMU/wheel speeds/Air Shot/WMI status, receives targets/flags.
   - Pi: sends requests/targets, receives telemetry, initiates POST.
 - **Pi → Arduino frames** (examples):
@@ -37,8 +37,9 @@
   - Fuel profile/table requests (`0x150`) and spark-table requests (`0x151`).
   - Timing bias requests and torque ceiling trims (ECU firmware track).
   - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
-- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10C`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, and battery voltage; Arduino status (`0x130`-`0x13E`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, and traction status.
-- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10C`), Pi HUD commands, Pi-to-ECU map requests, Arduino supervisory status (`0x130`-`0x13E`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
+- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10D`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, battery voltage, and flex-fuel ethanol content; Arduino status (`0x130`-`0x13E`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, and traction status.
+- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10D`), Pi HUD commands, Pi-to-ECU map requests, Arduino supervisory status (`0x130`-`0x13E`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
+- **MS3Pro Mini build note**: oil pressure, oil temperature, and flex fuel are MS3-owned inputs. The current HUD extension adds `0x10D` for flex-fuel ethanol percentage; wheel speed and WMI status remain Arduino-owned.
 - **Timeouts & fallbacks**:
   - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Arduino.
   - Loss of Arduino heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.
@@ -70,7 +71,7 @@
 - Air Shot firing requires two-step confirmation and safety conditions.
 
 ## 6. Pi-Side Calculations
-- **Boost target**: derived from fuel, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp.
+- **Boost target**: derived from fuel, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp.
 - **eTRAC profile**: weather + sensors select traction profile; GPS/sensor fusion can switch to GRAVEL/ROUGH.
 - **Timing bias**: suggest advance for high-octane fuels with clean knock history; otherwise neutral/retard.
 - **Launch setpoint**: mode-based and conditioned on temps/pressures.

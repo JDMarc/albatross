@@ -465,6 +465,7 @@ def main() -> None:
                     snap.environment,
                     mode=str(obj.get("mode", snap.environment.mode)),
                     fuel_type=str(obj.get("fuel_type", snap.environment.fuel_type)),
+                    ethanol_content_pct=float(obj.get("ethanol_pct", snap.environment.ethanol_content_pct)),
                     fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
                     message_line=str(obj.get("msg", snap.environment.message_line)),
                 )

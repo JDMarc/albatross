@@ -26,6 +26,7 @@ namespace CanId {
   constexpr uint16_t ECU_IAT = 0x10A;
   constexpr uint16_t ECU_EGT = 0x10B;
   constexpr uint16_t ECU_BATTERY = 0x10C;
+  constexpr uint16_t ECU_FLEX_FUEL = 0x10D;
 
   constexpr uint16_t ECU_TO_ARD_FLAME_STATUS = 0x110;
   constexpr uint16_t ECU_TO_ARD_WMI_TRIGGER = 0x111;
@@ -94,6 +95,7 @@ struct Inputs {
   uint8_t engine_status = 0;
   uint8_t gear = 0;
   uint8_t fuel_code = 0x02; // default to 93 octane table if unknown
+  uint8_t ethanol_pct = 10;
 };
 
 struct Commands {
@@ -273,6 +275,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       break;
     case CanId::ECU_BATTERY:
       if (len >= 2) g_inputs.battery_mv = (uint16_t(data[0]) << 8) | data[1];
+      break;
+    case CanId::ECU_FLEX_FUEL:
+      if (len >= 1) g_inputs.ethanol_pct = constrain(data[0], 0, 100);
       break;
     case CanId::PI_BOOST_TARGET:
       if (len >= 2) g_commands.boost_target_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
