@@ -12,7 +12,7 @@ import audioop
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, List
+from typing import Callable, Iterable, List
 
 import pygame
 
@@ -214,6 +214,11 @@ class HUDRenderer:
         self._mode_callback = None
         self._media_callback = None
         self._fuel_type_callback = None
+        self._fault_log_callback: Callable[[tuple[str, ...], StateSnapshot], None] | None = None
+        self._log_export_callback: Callable[[], str] | None = None
+        self._last_logged_faults: set[str] = set()
+        self._fault_log_lock = threading.Lock()
+        self._log_export_status = "READY"
         self._focus_targets = ["SETTINGS", "MEDIA"]
         self._focus_index = 0
         self._active_menu = "home"
@@ -222,7 +227,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
@@ -406,6 +411,23 @@ class HUDRenderer:
 
     def configure_fuel_type_callback(self, callback) -> None:
         self._fuel_type_callback = callback
+
+    def configure_fault_log_callback(self, callback: Callable[[tuple[str, ...], StateSnapshot], None]) -> None:
+        self._fault_log_callback = callback
+
+    def configure_log_export_callback(self, callback: Callable[[], str]) -> None:
+        self._log_export_callback = callback
+
+    def _log_new_faults(self, state: StateSnapshot, *, clear_missing: bool = True) -> None:
+        current = set(state.faults)
+        with self._fault_log_lock:
+            new_faults = tuple(sorted(current - self._last_logged_faults))
+            if clear_missing:
+                self._last_logged_faults = current
+            else:
+                self._last_logged_faults.update(current)
+        if new_faults and self._fault_log_callback:
+            self._fault_log_callback(new_faults, state)
 
     def update_phone_status(self, *, artist: str, track: str, position_s: float, length_s: float, devices: tuple[tuple[str, str], ...]) -> None:
         self._phone_artist = artist
@@ -613,6 +635,8 @@ class HUDRenderer:
         with self.state_lock:
             self.state = snapshot
             self._last_can_fresh_monotonic = time.monotonic()
+        if snapshot.faults:
+            self._log_new_faults(snapshot, clear_missing=False)
 
     def run(self, state_source: Iterable[StateSnapshot] | None = None) -> None:
         self.running = True
@@ -717,6 +741,7 @@ class HUDRenderer:
                 pressed = pygame.key.get_pressed()
                 if pressed[self._ack_key]:
                     self._post_fault_active = False
+            self._log_new_faults(state)
             self._audio.update(
                 state.faults,
                 allow_playback=self._post_complete and not self._post_fault_active,
@@ -820,6 +845,8 @@ class HUDRenderer:
                 self._theme_index = (self._theme_index + 1) % len(self._themes)
             elif item == "AUTO DIM":
                 self._auto_dim_enabled = True
+            elif item == "EXPORT LOGS":
+                self._export_logs()
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -848,6 +875,8 @@ class HUDRenderer:
                 self._theme_index = (self._theme_index - 1) % len(self._themes)
             elif item == "AUTO DIM":
                 self._auto_dim_enabled = False
+            elif item == "EXPORT LOGS":
+                self._export_logs()
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -897,10 +926,14 @@ class HUDRenderer:
         if self._active_menu == "media":
             self._activate_media_action()
             return
-        if self._active_menu == "settings" and self._setting_items[self._settings_cursor] == "PHONE LINK":
-            self._phone_link_enabled = not self._phone_link_enabled
-            if self._media_callback:
-                self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+        if self._active_menu == "settings":
+            item = self._setting_items[self._settings_cursor]
+            if item == "PHONE LINK":
+                self._phone_link_enabled = not self._phone_link_enabled
+                if self._media_callback:
+                    self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+            elif item == "EXPORT LOGS":
+                self._export_logs()
             return
 
     def _handle_back(self) -> None:
@@ -925,6 +958,16 @@ class HUDRenderer:
                 self._media_device_menu_open = False
             else:
                 self._media_device_menu_open = True
+
+    def _export_logs(self) -> None:
+        if self._log_export_callback is None:
+            self._log_export_status = "UNAVAILABLE"
+            return
+        try:
+            self._log_export_status = self._log_export_callback()
+        except Exception as exc:
+            LOGGER.exception("Log export failed")
+            self._log_export_status = f"FAILED {exc.__class__.__name__}"
 
     def _render_settings_overlay(self) -> None:
         bg, bright, glow, _fault = self._theme_colors()
@@ -1024,6 +1067,8 @@ class HUDRenderer:
             return "ON" if self._phone_link_enabled else "OFF"
         if item == "THEME":
             return self._themes[self._theme_index]
+        if item == "EXPORT LOGS":
+            return self._log_export_status
         return "ON" if self._auto_dim_enabled else "OFF"
 
     def _apply_fuel_type_selection(self, fuel_type_index: int, *, notify: bool = True) -> None:

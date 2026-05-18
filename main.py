@@ -28,6 +28,7 @@ from albatross_pi.canbus.encode import (
     build_media_control_frame,
     build_phone_link_frame,
 )
+from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import ClutchState, LightingState, StateSnapshot, WMIState
@@ -61,6 +62,7 @@ def main() -> None:
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument("--fault-log-dir", type=Path, default=Path("logs"), help="directory for fault event logs")
     parser.add_argument("--phone-bt-mac", help="Paired phone Bluetooth MAC for media/weather/GPS bridge")
     parser.add_argument("--phone-telemetry-udp", default="127.0.0.1:5010", help="UDP host:port for phone weather/GPS telemetry")
     parser.add_argument("--bind-inputs", action="store_true", help="Prompt keyboard bindings for demo controls")
@@ -72,6 +74,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _configure_logging(args.log_level)
+    fault_logger = FaultLogger(args.fault_log_dir)
 
     if args.snapshot:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -92,6 +95,12 @@ def main() -> None:
             logging.warning("Unknown key binding '%s'; using RETURN", ack_name)
             ack_key = pygame.K_RETURN
         renderer.configure_input_bindings(ack_key)
+    def _record_faults(faults: tuple[str, ...], snapshot: StateSnapshot) -> None:
+        for fault in faults:
+            fault_logger.log_fault(fault, snapshot)
+
+    renderer.configure_fault_log_callback(_record_faults)
+    renderer.configure_log_export_callback(fault_logger.export_to_usb)
     phone_bridge: PhoneBridge | None = None
 
     def _apply_phone_status(status: PhoneStatus) -> None:
