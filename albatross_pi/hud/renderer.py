@@ -34,7 +34,8 @@ SCREEN_SIZE = (1920, 720)
 TARGET_FPS = 60
 LOGGER = logging.getLogger(__name__)
 RETRO_ERROR_BEEP = "__retro_error_beep__"
-RETRO_ERROR_BEEP_PATH = Path(__file__).resolve().parent / "assets" / "audio" / "new_error_sound.wav"
+AUDIO_ASSET_DIR = Path(__file__).resolve().parent / "assets" / "audio"
+RETRO_ERROR_BEEP_PATH = AUDIO_ASSET_DIR / "new_error_sound.wav"
 
 
 class EvaAlertAudio:
@@ -49,31 +50,33 @@ class EvaAlertAudio:
         self._pending_faults: list[str] = []
         self._mapping = {
             "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
-            "LOW OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
+            "LOW OIL PRESS": "LOW-OIL-PRESS.wav",
             "COOLANT HOT": "your_engine_is_overheating_prompt_service_is_required.wav",
-            "EGT HIGH": "your_engine_temperature_is_above_normal.wav",
+            "EGT HIGH": "EGT-HIGH.wav",
             "LOW FUEL": "please_check_your_fuel_level.wav",
+            "CAN TIMEOUT": "CAN-TIMEOUT.wav",
+            "IMU FAULT": "IMU-FAULT.wav",
+            "AIR SHOT LOW": "AIR-SHOT-LOW.wav",
             "KNOCK": RETRO_ERROR_BEEP,
-            "KNOCK ESCALATE": RETRO_ERROR_BEEP,
-            "WMI FLOW LOW": RETRO_ERROR_BEEP,
-            "WMI TANK EMPTY": RETRO_ERROR_BEEP,
-            "WMI PUMP FAULT": RETRO_ERROR_BEEP,
-            "WMI PRESSURE LOW": RETRO_ERROR_BEEP,
-            "CAN STALE": RETRO_ERROR_BEEP,
-            "ECU STALE": RETRO_ERROR_BEEP,
-            "CLUTCH SLIP": RETRO_ERROR_BEEP,
-            "CYL EGT BOOST MISMATCH": RETRO_ERROR_BEEP,
-            "OVERBOOST": RETRO_ERROR_BEEP,
-            "BOOST CONTROL ERROR": RETRO_ERROR_BEEP,
-            "SLOW TURBO SPOOL": RETRO_ERROR_BEEP,
-            "WASTEGATE STUCK": RETRO_ERROR_BEEP,
-            "AIR SHOT LOW": RETRO_ERROR_BEEP,
-            "SPEED SENSOR": RETRO_ERROR_BEEP,
-            "GEAR SENSOR": RETRO_ERROR_BEEP,
-            "INTAKE AIR HOT": RETRO_ERROR_BEEP,
-            "BATTERY LOW": RETRO_ERROR_BEEP,
-            "BATTERY HIGH": RETRO_ERROR_BEEP,
-            "SENSOR RANGE FAULT": RETRO_ERROR_BEEP,
+            "KNOCK ESCALATE": "KNOCK-ESCALATE.wav",
+            "WMI FLOW LOW": "WMI-FLOW-LOW.wav",
+            "WMI TANK EMPTY": "WMI-TANK-EMPTY.wav",
+            "WMI PUMP FAULT": "WMI-PUMP-FAULT.wav",
+            "WMI PRESSURE LOW": "WMI-PRESSURE-LOW.wav",
+            "CAN STALE": "CAN-STALE.wav",
+            "ECU STALE": "ECU-STALE.wav",
+            "CLUTCH SLIP": "CLUTCH-SLIP.wav",
+            "CYL EGT BOOST MISMATCH": "CYL-EGT-BOOST-MISMATCH.wav",
+            "OVERBOOST": "OVERBOOST.wav",
+            "BOOST CONTROL ERROR": "BOOST-CONTROL-ERROR.wav",
+            "SLOW TURBO SPOOL": "SLOW-TURBO-SPOOL.wav",
+            "WASTEGATE STUCK": "WASTEGATE-STUCK.wav",
+            "SPEED SENSOR": "SPEED-SENSOR.wav",
+            "GEAR SENSOR": "GEAR-SENSOR.wav",
+            "INTAKE AIR HOT": "INTAKE-AIR-HOT.wav",
+            "BATTERY LOW": "BATTERY-LOW.wav",
+            "BATTERY HIGH": "BATTERY-HIGH.wav",
+            "SENSOR RANGE FAULT": "SENSOR-RANGE-FAULT.wav",
         }
         if not self._init_mixer():
             return
@@ -97,6 +100,12 @@ class EvaAlertAudio:
         base_url = "https://raw.githubusercontent.com/jnewb1/eva-sounds/main/sounds_eva24"
         resolved: dict[str, Path] = {}
         for name in sorted(set(self._mapping.values())):
+            local_path = AUDIO_ASSET_DIR / name
+            if local_path.exists():
+                resolved[name] = local_path
+                continue
+            if name == RETRO_ERROR_BEEP:
+                continue
             wav_path = cache_dir / name
             if not wav_path.exists():
                 try:

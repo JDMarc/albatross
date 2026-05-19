@@ -248,7 +248,7 @@ def main() -> None:
                 if snap.temps.coolant_temp_f > 240:
                     faults.append("COOLANT HOT")
                 if snap.temps.exhaust_temp_f > 1650:
-                    faults.append("EGT HOT")
+                    faults.append("EGT HIGH")
                 if snap.temps.intake_temp_f > 150:
                     faults.append("INTAKE AIR HOT")
                 if snap.temps.battery_voltage > 0 and snap.temps.battery_voltage < 11.2:
@@ -310,7 +310,7 @@ def main() -> None:
                 prev_boost_psi = snap.engine.boost_psi
                 prev_wg_duty = snap.engine.wastegate_duty_pct
 
-                severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HOT", "CLUTCH SLIP"))
+                severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HIGH", "CLUTCH SLIP"))
                 desired_boost = 0.0 if severe else calculate_boost_target(snap)
                 if (
                     last_requested_boost is None
@@ -346,7 +346,7 @@ def main() -> None:
                     should_shutdown_engine
                     or ("ECU STALE" in faults and snap.engine.rpm > 1800 and snap.engine.throttle_pct > 20)
                     or ("COOLANT HOT" in faults and snap.temps.coolant_temp_f > 250 and snap.engine.rpm > 2000)
-                    or ("EGT HOT" in faults and snap.temps.exhaust_temp_f > 1725 and snap.engine.rpm > 2200)
+                    or ("EGT HIGH" in faults and snap.temps.exhaust_temp_f > 1725 and snap.engine.rpm > 2200)
                 )
                 if severe and not last_fault_state:
                     # Fail-safe action set: cut boost command, enable limp, disable flame, max traction.
