@@ -91,6 +91,10 @@ def calculate_boost_target(snapshot: StateSnapshot, *, mode: str | None = None) 
     fuel_cap = dry_cap + ((wmi_cap - dry_cap) * wmi_effectiveness(snapshot.wmi))
     boost = fuel_cap * ratio * _thermal_multiplier(snapshot)
 
+    if snapshot.economy.injector_duty_pct >= 92.0:
+        boost *= 0.70
+    elif snapshot.economy.injector_duty_pct >= 85.0:
+        boost *= 0.85
     if snapshot.engine.knock_events > 0:
         boost *= 0.75
     return round(max(0.0, boost), 1)

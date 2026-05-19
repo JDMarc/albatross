@@ -98,6 +98,7 @@ class StateSimulator:
         afr_left = 12.5 + math.sin(self._phase * math.tau * 2) * 0.2
         afr_right = 12.6 + math.cos(self._phase * math.tau * 2) * 0.2
         spark = 14.0 + math.sin(self._phase * math.tau * 0.5) * 5
+        pulse_width_ms = max(1.2, 2.6 + throttle * 0.045 + max(0.0, boost) * 0.22)
         knock = 1 if rng.random() > 0.97 else 0
 
         engine = replace(
@@ -203,6 +204,7 @@ class StateSimulator:
             clutch=clutch,
             lighting=lighting,
             environment=environment,
+            economy=replace(snapshot.economy, injector_pulse_width_ms=pulse_width_ms),
             shift_light=shift_light,
             faults=alerts,
         )

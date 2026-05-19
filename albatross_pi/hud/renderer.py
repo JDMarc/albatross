@@ -16,6 +16,7 @@ from typing import Callable, Iterable, List
 
 import pygame
 
+from ..economy import EconomyTracker
 from .widgets.airshot_panel import AirShotPanel
 from .widgets.afr_panel import AfrPanel
 from .widgets.alert_panel import AlertPanel
@@ -263,6 +264,7 @@ class HUDRenderer:
         self._fault_condition_since: dict[str, float] = {}
         self._display_time_anchor = self.state.environment.time
         self._display_time_anchor_monotonic = self._last_can_fresh_monotonic
+        self._economy_tracker = EconomyTracker()
         self._audio = EvaAlertAudio()
         self._create_widgets()
 
@@ -789,6 +791,7 @@ class HUDRenderer:
                 self._display_time_anchor = state.environment.time
                 self._display_time_anchor_monotonic = now_s
             state = replace(state, faults=self._runtime_faults(state, now_s))
+            state = self._economy_tracker.update(state, now_s)
             previous_mode_index = self._mode_index
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
@@ -825,6 +828,7 @@ class HUDRenderer:
                     clutch=state.clutch,
                     lighting=state.lighting,
                     environment=state.environment,
+                    economy=state.economy,
                     shift_light=state.shift_light,
                     faults=state.faults,
                 )
@@ -859,6 +863,7 @@ class HUDRenderer:
         else:
             with self.state_lock:
                 self.state = state
+        state = self._economy_tracker.update(state)
         self._render_frame(state, present=False)
         return self.screen.copy()
 

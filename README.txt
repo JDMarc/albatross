@@ -38,6 +38,8 @@ This is the short version of how this stuff works:
 - MS3Pro Mini ECU
   - Owns core engine management, primary telemetry, and ECU-side strategy.
   - Receives selected control intents/limits from the network.
+  - Publishes injector pulse width/duty on `0x10E` so the Pi can calculate
+    fuel burn, MPG, and range from actual injection data.
 
 - Arduino Mega 2560 controller (arduino/albatross_controller)
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).

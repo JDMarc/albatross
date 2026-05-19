@@ -17,7 +17,7 @@ TunerStudio MS Lite is sufficient for ECU setup, CAN parameters, sensor calibrat
 
 - **Pi**: mode selection UX, weather/profile logic, requests (`boost target`, `flame request`, `limp request`), HUD.
 - **Arduino**: electronic wastegate actuator command, Air Shot compressor + shot latch logic, wheel speed, WMI tank/flow/status sensing, WMI/flame interlocks, failsafe execution.
-- **MS3Pro Mini**: fueling, ignition, MAP/RPM/TPS/CLT/IAT/wideband, oil pressure, oil temperature, flex fuel, safe map selection, launch/2-step, hard engine protections.
+- **MS3Pro Mini**: fueling, ignition, MAP/RPM/TPS/CLT/IAT/wideband, oil pressure, oil temperature, flex fuel, injector pulse width/duty telemetry, safe map selection, launch/2-step, hard engine protections.
 
 Current build wiring assumption:
 
@@ -55,7 +55,7 @@ Current build wiring assumption:
 
 1. Keep MS3Pro boost target ceilings conservative to act as ECU-side safety envelope.
 2. Allow Arduino to execute real-time electronic actuator positioning and derates.
-3. Ensure MAP, TPS, RPM, gear, knock, oil pressure, oil temperature, CLT, IAT, EGT, battery voltage, and flex content are available to the HUD/Pi over CAN. Arduino should not be the source of truth for oil pressure/temp on this build.
+3. Ensure MAP, TPS, RPM, gear, knock, oil pressure, oil temperature, CLT, IAT, EGT, battery voltage, flex content, and injector pulse width/duty are available to the HUD/Pi over CAN. Arduino should not be the source of truth for oil pressure/temp on this build.
 
 ## 5) Launch control
 
@@ -67,7 +67,7 @@ Current build wiring assumption:
 
 1. Enable CAN master/global CAN in `CAN bus / Testmodes > CAN Parameters`, set the baud rate to match the bus (`500k` unless we deliberately change the Arduino sketch), burn, and power cycle.
 2. Enable MS3 CAN broadcast output for the engine data the Pi needs. TunerStudio's built-in broadcasts use standard 11-bit IDs and predefined layouts, so the Pi decoder should either consume MS3's native broadcast format directly or use a small translator. Do not rely on TunerStudio Lite to emit arbitrary Albatross `0x100`-style frames at runtime.
-3. For the current Albatross canonical telemetry map, reserve ECU/HUD IDs `0x100`-`0x10D`; `0x10D` is flex fuel ethanol percentage, byte 0 = ethanol content percent.
+3. For the current Albatross canonical telemetry map, reserve ECU/HUD IDs `0x100`-`0x10E`; `0x10D` is flex fuel ethanol percentage, byte 0 = ethanol content percent. `0x10E` is injector status: bytes 0-1 = injector pulse width in milliseconds x100, bytes 2-3 = injector duty percent x10. Duty may be 0 if the Pi should derive it from pulse width and RPM.
 4. Keep Arduino status ownership on `0x130`-`0x13E`, including wheel speed (`0x137`) and WMI status (`0x139`).
 5. Confirm periodic publish rates are stable before enabling safety logic: 20-50 Hz is enough for HUD/oil/flex data; wheel speed and WMI can remain Arduino-side at the sketch's 20 Hz status cadence until road testing proves a need for more.
 6. Validate with `candump` or TunerStudio's CAN test tools that Pi/Arduino commands are visible and correctly decoded.

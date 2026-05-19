@@ -5,49 +5,12 @@ import math
 
 import pygame
 
+from ...economy import fallback_mpg_estimate
 from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
 
-TANK_CAPACITY_GAL = 5.3
-BASE_MODE_MPG = {
-    "ECO": 48.0,
-    "NORMAL": 42.0,
-    "SPORT": 32.0,
-    "RACE": 24.0,
-    "ALBATROSS": 18.0,
-}
-FUEL_MPG_FACTOR = {
-    "87": 1.00,
-    "91": 1.00,
-    "93": 1.00,
-    "100": 0.98,
-    "E85": 0.72,
-    "C16": 0.92,
-}
-
-
-def _calculated_mpg(state: StateSnapshot) -> float | None:
-    speed = state.engine.speed_mph
-    if speed < 3.0:
-        return None
-    mode = state.environment.mode if state.environment.mode in BASE_MODE_MPG else "NORMAL"
-    base = BASE_MODE_MPG[mode] * FUEL_MPG_FACTOR.get(state.environment.fuel_type.upper(), 1.0)
-    throttle = max(0.0, min(100.0, state.engine.throttle_pct))
-    load = max(0.0, min(100.0, state.engine.engine_load_pct))
-    boost = max(0.0, state.engine.boost_psi)
-    rpm = max(0, state.engine.rpm)
-    speed_eff = max(0.45, 1.0 - abs(speed - 48.0) / 125.0)
-    load_penalty = 1.0 + throttle * 0.010 + load * 0.007 + boost * 0.075 + max(0.0, rpm - 4200) / 12000.0
-    mpg = base * speed_eff / load_penalty
-    return max(6.0, min(70.0, mpg))
-
-
-def _miles_to_empty(state: StateSnapshot, mpg: float | None) -> float | None:
-    if mpg is None or state.environment.fuel_level_pct < 0:
-        return None
-    fuel_gal = TANK_CAPACITY_GAL * max(0.0, min(100.0, state.environment.fuel_level_pct)) / 100.0
-    return mpg * fuel_gal
+KNOWN_MODES = {"ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"}
 
 
 def _fmt(value: float | None, suffix: str = "", precision: int = 0) -> str:
@@ -65,7 +28,7 @@ class ModeStatsPanel(Widget):
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)
         padding = max(7, int(min(self.rect.width, self.rect.height) * 0.09))
-        mode = state.environment.mode if state.environment.mode in BASE_MODE_MPG else "NORMAL"
+        mode = state.environment.mode if state.environment.mode in KNOWN_MODES else "NORMAL"
         rows = self._rows_for_mode(mode, state)
         title = f"{mode} DATA"
         title_font = fit_font_size(title, self.rect.width - 2 * padding, max(12, int(self.rect.height * 0.2)), start_size=max(12, int(self.rect.height * 0.18)), bold=True)
@@ -90,22 +53,24 @@ class ModeStatsPanel(Widget):
             surface.blit(value_surface, (self.rect.right - padding - value_surface.get_width(), row_y))
 
     def _rows_for_mode(self, mode: str, state: StateSnapshot) -> list[tuple[str, str, bool]]:
-        mpg = _calculated_mpg(state)
-        mte = _miles_to_empty(state, mpg)
+        instant_mpg = state.economy.instant_mpg if state.economy.instant_mpg > 0 else fallback_mpg_estimate(state)
+        average_mpg = state.economy.average_mpg if state.economy.average_mpg > 0 else instant_mpg
+        mte = state.economy.miles_to_empty if state.economy.miles_to_empty > 0 else None
+        economy_label = "AVG MPG" if state.economy.source == "INJECTOR" else "EST MPG"
         fuel_low = 0 <= state.environment.fuel_level_pct <= 15
         wmi_flow = f"{state.wmi.actual_flow_cc_min:.0f}/{state.wmi.commanded_flow_cc_min:.0f}"
         boost_error = abs(state.engine.boost_psi - state.engine.target_boost_psi) > 3.0 and state.engine.target_boost_psi > 4.0
         if mode == "ECO":
             return [
-                ("CALC MPG", _fmt(mpg, precision=1), mpg is not None and mpg < 24),
+                (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 24),
                 ("MILES LEFT", _fmt(mte, " mi"), fuel_low),
                 ("FUEL LEFT", _fmt(state.environment.fuel_level_pct, "%") if state.environment.fuel_level_pct >= 0 else "--", fuel_low),
             ]
         if mode == "NORMAL":
             return [
-                ("CALC MPG", _fmt(mpg, precision=1), mpg is not None and mpg < 20),
+                (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 20),
                 ("MILES LEFT", _fmt(mte, " mi"), fuel_low),
-                ("REQ BOOST", f"{state.engine.target_boost_psi:.1f} psi", state.engine.target_boost_psi > 0.5),
+                ("FUEL FLOW", _fmt(state.economy.fuel_flow_cc_min, "ccm") if state.economy.source == "INJECTOR" else "--", False),
             ]
         if mode == "SPORT":
             return [

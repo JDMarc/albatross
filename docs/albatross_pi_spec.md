@@ -37,9 +37,9 @@
   - Fuel profile/table requests (`0x150`) and spark-table requests (`0x151`).
   - Timing bias requests and torque ceiling trims (ECU firmware track).
   - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
-- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10D`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, battery voltage, and flex-fuel ethanol content; Arduino status (`0x130`-`0x13E`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, and traction status.
-- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10D`), Pi HUD commands, Pi-to-ECU map requests, Arduino supervisory status (`0x130`-`0x13E`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
-- **MS3Pro Mini build note**: oil pressure, oil temperature, and flex fuel are MS3-owned inputs. The current HUD extension adds `0x10D` for flex-fuel ethanol percentage; wheel speed and WMI status remain Arduino-owned.
+- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10E`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, battery voltage, flex-fuel ethanol content, and injector pulse width/duty; Arduino status (`0x130`-`0x13E`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, and traction status.
+- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10E`), Pi HUD commands, Pi-to-ECU map requests, Arduino supervisory status (`0x130`-`0x13E`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
+- **MS3Pro Mini build note**: oil pressure, oil temperature, flex fuel, and injector pulse width/duty are MS3-owned inputs. The current HUD extension adds `0x10D` for flex-fuel ethanol percentage and `0x10E` for injector status; wheel speed and WMI status remain Arduino-owned.
 - **Timeouts & fallbacks**:
   - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Arduino.
   - Loss of Arduino heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.
@@ -72,6 +72,7 @@
 
 ## 6. Pi-Side Calculations
 - **Boost target**: derived from selected fuel strategy, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp. Flex content verifies/derates E85 requests; it does not raise 87/91/93 selections above their own caps.
+- **Fuel economy/range**: Pi integrates distance from speed against fuel burn from MS3 injector pulse width/duty. Current default assumes two 1100 cc/min injectors and stock GL500 17.5 L / 4.62 US gal tank capacity; heuristic MPG is only a fallback when injector telemetry is absent.
 - **eTRAC profile**: weather + sensors select traction profile; GPS/sensor fusion can switch to GRAVEL/ROUGH.
 - **Timing bias**: suggest advance for high-octane fuels with clean knock history; otherwise neutral/retard.
 - **Launch setpoint**: mode-based and conditioned on temps/pressures.

@@ -21,6 +21,7 @@ from ..state.snapshot import (
     ClutchState,
     EngineState,
     EnvironmentState,
+    EconomyState,
     LightingState,
     StateSnapshot,
     TemperaturesState,
@@ -77,6 +78,7 @@ class CANStateAggregator:
         self._clutch = ClutchState()
         self._lighting = LightingState()
         self._environment = replace(EnvironmentState(), fuel_level_pct=-1.0)
+        self._economy = EconomyState()
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_snapshot = StateSnapshot(
@@ -114,6 +116,7 @@ class CANStateAggregator:
                 clutch=self._clutch,
                 lighting=self._lighting,
                 environment=self._environment,
+                economy=self._economy,
                 shift_light=self._shift_light,
                 faults=tuple(sorted(self._faults.values())),
             )
@@ -241,6 +244,19 @@ class CANStateAggregator:
         env_dict = self._environment.__dict__.copy()
         env_dict["ethanol_content_pct"] = ethanol_pct
         self._environment = EnvironmentState(**env_dict)
+
+    def _update_injector_status(self, data: bytes) -> None:
+        if len(data) < 2:
+            return
+        (pulse_width_x100,) = struct.unpack_from(">H", data)
+        duty_x10 = 0
+        if len(data) >= 4:
+            (duty_x10,) = struct.unpack_from(">H", data, 2)
+        self._economy = replace(
+            self._economy,
+            injector_pulse_width_ms=max(0.0, pulse_width_x100 / 100.0),
+            injector_duty_pct=max(0.0, min(100.0, duty_x10 / 10.0)),
+        )
 
     def _update_air_shot_status(self, data: bytes) -> None:
         if not data:
@@ -427,6 +443,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ECUToHudID.EXHAUST_GAS_TEMP): CANStateAggregator._update_exhaust_temp,
     int(ECUToHudID.BATTERY_VOLTAGE): CANStateAggregator._update_battery_voltage,
     int(ECUToHudID.FLEX_FUEL): CANStateAggregator._update_flex_fuel,
+    int(ECUToHudID.INJECTOR_STATUS): CANStateAggregator._update_injector_status,
     int(ArduinoToHudID.AIR_SHOT_STATUS): CANStateAggregator._update_air_shot_status,
     int(ArduinoToHudID.AWC_STATE): CANStateAggregator._update_awc_state,
     int(ArduinoToHudID.RGB_LIGHTING): lambda self, data: None,

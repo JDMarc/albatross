@@ -101,6 +101,12 @@ def engine_status(snapshot: StateSnapshot) -> dict[str, Any]:
         "exhaust_temp_f": _safe_float(snapshot.temps.exhaust_temp_f),
         "battery_voltage": _safe_float(snapshot.temps.battery_voltage),
         "fuel_level_pct": _safe_float(snapshot.environment.fuel_level_pct),
+        "instant_mpg": _safe_float(snapshot.economy.instant_mpg),
+        "average_mpg": _safe_float(snapshot.economy.average_mpg),
+        "miles_to_empty": _safe_float(snapshot.economy.miles_to_empty),
+        "fuel_flow_cc_min": _safe_float(snapshot.economy.fuel_flow_cc_min),
+        "injector_pulse_width_ms": _safe_float(snapshot.economy.injector_pulse_width_ms),
+        "economy_source": snapshot.economy.source,
         "wmi_tank_level_pct": _safe_float(snapshot.wmi.tank_level_pct),
         "wmi_commanded_flow_cc_min": _safe_float(snapshot.wmi.commanded_flow_cc_min),
         "wmi_actual_flow_cc_min": _safe_float(snapshot.wmi.actual_flow_cc_min),
@@ -223,6 +229,7 @@ class FaultLogger:
             f"oil={status['oil_pressure_psi']}psi/{status['oil_temp_f']}F "
             f"coolant={status['coolant_temp_f']}F iat={status['intake_temp_f']}F "
             f"egt={status['exhaust_temp_f']}F batt={status['battery_voltage']}V "
+            f"mpg={status['average_mpg']} range={status['miles_to_empty']}mi "
             f"wmi={status['wmi_actual_flow_cc_min']}/{status['wmi_commanded_flow_cc_min']}ccm"
         )
 

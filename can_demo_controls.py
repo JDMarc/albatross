@@ -66,6 +66,8 @@ class App:
             "batt_v": tk.DoubleVar(value=13.8),
             "fuel": tk.IntVar(value=75),
             "ethanol_pct": tk.IntVar(value=10),
+            "inj_pw_ms": tk.DoubleVar(value=3.5),
+            "inj_duty_pct": tk.DoubleVar(value=0.0),
             "fuel_type": tk.StringVar(value="93"),
             "gear": tk.StringVar(value="N"),
             "load": tk.IntVar(value=35),
@@ -140,6 +142,8 @@ class App:
             ("Battery V", "batt_v", 8.0, 16.0),
             ("Fuel %", "fuel", 0, 100),
             ("Flex Ethanol %", "ethanol_pct", 0, 100),
+            ("Injector PW ms", "inj_pw_ms", 0.0, 30.0),
+            ("Injector Duty %", "inj_duty_pct", 0.0, 100.0),
             ("Engine Load %", "load", 0, 100),
             ("Intake F", "iat", 40, 250),
             ("EGT Bank1 F", "egt_b1", 500, 2000),
@@ -260,6 +264,14 @@ class App:
         self._send(int(ECUToHudID.BATTERY_VOLTAGE), struct.pack(">H", int(max(0.0, float(self.vars["batt_v"].get())) * 1000)))
         self._send(int(ECUToHudID.FUEL_LEVEL), bytes((max(0, min(100, int(self.vars["fuel"].get()))),)))
         self._send(int(ECUToHudID.FLEX_FUEL), bytes((max(0, min(100, int(self.vars["ethanol_pct"].get()))),)))
+        self._send(
+            int(ECUToHudID.INJECTOR_STATUS),
+            struct.pack(
+                ">HH",
+                max(0, min(65535, int(float(self.vars["inj_pw_ms"].get()) * 100))),
+                max(0, min(1000, int(float(self.vars["inj_duty_pct"].get()) * 10))),
+            ),
+        )
         self._send(int(ECUToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
         self._send(int(ECUToHudID.ENGINE_LOAD), bytes((max(0, min(100, int(self.vars["load"].get()))),)))
         self._send(int(ECUToHudID.INTAKE_AIR_TEMP), struct.pack(">H", iat_c10))

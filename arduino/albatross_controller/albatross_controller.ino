@@ -27,6 +27,7 @@ namespace CanId {
   constexpr uint16_t ECU_EGT = 0x10B;
   constexpr uint16_t ECU_BATTERY = 0x10C;
   constexpr uint16_t ECU_FLEX_FUEL = 0x10D;
+  constexpr uint16_t ECU_INJECTOR_STATUS = 0x10E;
 
   constexpr uint16_t ECU_TO_ARD_FLAME_STATUS = 0x110;
   constexpr uint16_t ECU_TO_ARD_WMI_TRIGGER = 0x111;

@@ -465,6 +465,11 @@ def main() -> None:
                     engine_load_pct=float(obj.get("load", snap.engine.engine_load_pct)),
                     wastegate_duty_pct=(float(obj.get("wg1", snap.engine.wastegate_duty_pct)) + float(obj.get("wg2", snap.engine.wastegate_duty_pct))) / 2.0,
                 )
+                economy = replace(
+                    snap.economy,
+                    injector_pulse_width_ms=float(obj.get("inj_pw_ms", snap.economy.injector_pulse_width_ms)),
+                    injector_duty_pct=float(obj.get("inj_duty_pct", snap.economy.injector_duty_pct)),
+                )
                 temps = replace(
                     snap.temps,
                     coolant_temp_f=float(obj.get("clt_f", obj.get("clt", snap.temps.coolant_temp_f))),
@@ -520,6 +525,7 @@ def main() -> None:
                     engine=eng,
                     temps=temps,
                     environment=env,
+                    economy=economy,
                     traction=trac,
                     clutch=clutch,
                     lighting=lighting,

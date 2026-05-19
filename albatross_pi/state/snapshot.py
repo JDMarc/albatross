@@ -90,6 +90,19 @@ class EnvironmentState:
 
 
 @dataclass(frozen=True)
+class EconomyState:
+    injector_pulse_width_ms: float = 0.0
+    injector_duty_pct: float = 0.0
+    fuel_flow_cc_min: float = 0.0
+    instant_mpg: float = -1.0
+    average_mpg: float = -1.0
+    miles_to_empty: float = -1.0
+    distance_miles: float = 0.0
+    fuel_used_gal: float = 0.0
+    source: str = "EST"
+
+
+@dataclass(frozen=True)
 class StateSnapshot:
     engine: EngineState = field(default_factory=EngineState)
     temps: TemperaturesState = field(default_factory=TemperaturesState)
@@ -99,5 +112,6 @@ class StateSnapshot:
     clutch: ClutchState = field(default_factory=ClutchState)
     lighting: LightingState = field(default_factory=LightingState)
     environment: EnvironmentState = field(default_factory=EnvironmentState)
+    economy: EconomyState = field(default_factory=EconomyState)
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)
