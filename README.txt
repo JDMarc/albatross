@@ -88,6 +88,12 @@ Repository layout
 - albatross_pi/state/  
   Snapshot dataclasses and simulator.
 
+- logs/
+  Created on first startup. Faults are written as both raw JSONL
+  (`fault_events_YYYY-MM-DD.jsonl`) and a readable one-line summary
+  (`fault_events_YYYY-MM-DD.txt`). Use the text file for quick diagnosis;
+  use the JSONL when you need the complete snapshot.
+
 - deploy/albatross-hud.service  
   Example systemd unit for power-on auto-launch on Raspberry Pi.
 

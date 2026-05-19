@@ -16,6 +16,7 @@ from albatross_pi.state.snapshot import StateSnapshot
 
 
 FAULT_NAME_TO_CODE = {name: code for code, name in FAULT_CODE_MAP.items()}
+DRIVE_REMOVABLE = 2
 
 
 def _safe_float(value: float) -> float:
@@ -117,10 +118,28 @@ def engine_status(snapshot: StateSnapshot) -> dict[str, Any]:
     }
 
 
+def _is_accessible_dir(path: Path) -> bool:
+    try:
+        return path.exists() and path.is_dir()
+    except OSError:
+        return False
+
+
+def _windows_drive_type(root: Path) -> int | None:
+    try:
+        import ctypes
+
+        return int(ctypes.windll.kernel32.GetDriveTypeW(str(root)))
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
 def _iter_windows_drive_roots() -> Iterable[Path]:
     for letter in string.ascii_uppercase[3:]:
         root = Path(f"{letter}:\\")
-        if root.exists():
+        if _windows_drive_type(root) != DRIVE_REMOVABLE:
+            continue
+        if _is_accessible_dir(root):
             yield root
 
 
@@ -128,7 +147,7 @@ def find_usb_log_destination() -> Path | None:
     env_target = os.environ.get("ALBATROSS_LOG_EXPORT_DIR")
     if env_target:
         target = Path(env_target).expanduser()
-        if target.exists() and target.is_dir():
+        if _is_accessible_dir(target):
             return target
     user = os.environ.get("USER") or os.environ.get("USERNAME") or ""
     candidates = [
@@ -138,9 +157,13 @@ def find_usb_log_destination() -> Path | None:
         Path("/media"),
     ]
     for parent in candidates:
-        if parent.exists() and parent.is_dir():
-            for child in sorted(parent.iterdir()):
-                if child.is_dir():
+        if _is_accessible_dir(parent):
+            try:
+                children = sorted(parent.iterdir())
+            except OSError:
+                continue
+            for child in children:
+                if _is_accessible_dir(child):
                     return child
     for root in _iter_windows_drive_roots():
         return root
@@ -157,6 +180,7 @@ class FaultLogger:
         self._lock = threading.Lock()
         date = datetime.now().strftime("%Y-%m-%d")
         self._event_log = self.log_dir / f"fault_events_{date}.jsonl"
+        self._summary_log = self.log_dir / f"fault_events_{date}.txt"
 
     def update(self, faults: Iterable[str], snapshot: StateSnapshot) -> None:
         current = set(faults)
@@ -180,9 +204,27 @@ class FaultLogger:
             "snapshot": _snapshot_dict(snapshot),
         }
         line = json.dumps(event, sort_keys=True)
+        summary = self._format_summary(event)
         with self._lock:
             with self._event_log.open("a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
+            with self._summary_log.open("a", encoding="utf-8") as handle:
+                handle.write(summary + "\n")
+
+    @staticmethod
+    def _format_summary(event: dict[str, Any]) -> str:
+        status = event["engine_status"]
+        return (
+            f"{event['timestamp']} {event['code']} {event['fault']}: {event['reason']} | "
+            f"rpm={status['rpm']} speed={status['speed_mph']}mph gear={status['gear']} "
+            f"mode={status['mode']} fuel={status['fuel_type']} e={status['ethanol_content_pct']}% "
+            f"boost={status['boost_psi']}psi req={status['target_boost_psi']}psi "
+            f"wg={status['wastegate_duty_pct']}% tps={status['throttle_pct']}% "
+            f"oil={status['oil_pressure_psi']}psi/{status['oil_temp_f']}F "
+            f"coolant={status['coolant_temp_f']}F iat={status['intake_temp_f']}F "
+            f"egt={status['exhaust_temp_f']}F batt={status['battery_voltage']}V "
+            f"wmi={status['wmi_actual_flow_cc_min']}/{status['wmi_commanded_flow_cc_min']}ccm"
+        )
 
     def export_to_usb(self) -> str:
         destination_root = find_usb_log_destination()
