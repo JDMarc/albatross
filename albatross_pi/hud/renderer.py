@@ -23,6 +23,7 @@ from .widgets.boost_panel import BoostPanel
 from .widgets.fuel_panel import FuelPanel
 from .widgets.header_bar import HeaderBar
 from .widgets.message_line import MessageLine
+from .widgets.mode_stats_panel import ModeStatsPanel
 from .widgets.rpm_bar import RpmBar
 from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
@@ -218,7 +219,8 @@ class HUDRenderer:
         self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
         self._mode_index = 0
         self._mode_selection_index = 0
-        self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
+        self._mode_layout_state = {"boost": 0.32, "afr": 0.22, "stats": 0.18, "temps": 0.62}
+        self._mode_layout_anim_until = 0.0
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
         self._traction_callback = None
@@ -249,6 +251,7 @@ class HUDRenderer:
         self._auto_dim_enabled = True
         self._preferences = HUDPreferences(preferences_path)
         self._load_preferences()
+        self._mode_layout_anim_until = time.monotonic() + 0.9
         apply_theme(self._themes[self._theme_index])
         self._phone_track = ""
         self._phone_artist = ""
@@ -481,6 +484,7 @@ class HUDRenderer:
             self._mode_callback(self._mode_index + 1)
         if notify:
             self._save_preferences()
+        self._mode_layout_anim_until = time.monotonic() + 0.9
         self._create_widgets()
 
     def configure_media_callback(self, callback) -> None:
@@ -515,11 +519,11 @@ class HUDRenderer:
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
         profiles = {
-            "ECO": {"boost": 0.28, "afr": 0.24, "temps": 0.64},
-            "NORMAL": {"boost": 0.32, "afr": 0.25, "temps": 0.60},
-            "SPORT": {"boost": 0.40, "afr": 0.24, "temps": 0.52},
-            "RACE": {"boost": 0.42, "afr": 0.23, "temps": 0.53},
-            "ALBATROSS": {"boost": 0.46, "afr": 0.22, "temps": 0.50},
+            "ECO": {"boost": 0.24, "afr": 0.20, "stats": 0.30, "temps": 0.64},
+            "NORMAL": {"boost": 0.28, "afr": 0.21, "stats": 0.26, "temps": 0.60},
+            "SPORT": {"boost": 0.38, "afr": 0.21, "stats": 0.18, "temps": 0.55},
+            "RACE": {"boost": 0.44, "afr": 0.20, "stats": 0.16, "temps": 0.53},
+            "ALBATROSS": {"boost": 0.46, "afr": 0.18, "stats": 0.17, "temps": 0.50},
         }
         target = profiles.get(mode, profiles["NORMAL"])
         # Soft animation toward target ratios so gauges move smoothly.
@@ -536,7 +540,8 @@ class HUDRenderer:
         if not hasattr(self, "_mode_selection_index"):
             self._mode_selection_index = self._mode_index
         if not hasattr(self, "_mode_layout_state"):
-            self._mode_layout_state = {"boost": 0.30, "afr": 0.25, "temps": 0.62}
+            self._mode_layout_state = {"boost": 0.32, "afr": 0.22, "stats": 0.18, "temps": 0.62}
+        self._mode_layout_state.setdefault("stats", 0.18)
 
         width, height = self.screen.get_size()
         padding = max(int(width * 0.02), 24)
@@ -605,18 +610,25 @@ class HUDRenderer:
         ratios = self._mode_ratios(mode)
         boost_ratio = ratios["boost"]
         afr_ratio = ratios["afr"]
-        boost_height = max(int(content_height * boost_ratio), int(height * 0.2))
-        afr_height = max(int(content_height * afr_ratio), int(height * 0.15))
-        center_remaining = content_height - boost_height - afr_height - panel_gap
-        if center_remaining < 80:
-            afr_height = max(afr_height + center_remaining - 80, 80)
-            center_remaining = 80
+        stats_ratio = ratios["stats"]
+        fuel_height = max(int(content_height * 0.14), int(height * 0.1))
+        center_budget = max(content_height - fuel_height - 3 * panel_gap, 120)
+        center_weight = max(boost_ratio + afr_ratio + stats_ratio, 1e-6)
+        boost_height = max(int(center_budget * boost_ratio / center_weight), int(height * 0.16))
+        afr_height = max(int(center_budget * afr_ratio / center_weight), int(height * 0.11))
+        stats_height = max(int(center_budget * stats_ratio / center_weight), int(height * 0.1))
+        center_total = boost_height + afr_height + stats_height
+        if center_total > center_budget:
+            scale = center_budget / float(center_total)
+            boost_height = max(int(boost_height * scale), 56)
+            afr_height = max(int(afr_height * scale), 46)
+            stats_height = max(int(stats_height * scale), 46)
         boost_rect = pygame.Rect(center_x, content_top, center_width, boost_height)
         afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
+        stats_rect = pygame.Rect(center_x, afr_rect.bottom + panel_gap, center_width, stats_height)
 
         temps_ratio = ratios["temps"]
         temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
-        fuel_height = max(int(content_height * 0.16), int(height * 0.11))
         traction_height = max(int(content_height * 0.14), int(height * 0.1))
         airshot_height = max(int(content_height * 0.14), int(height * 0.09))
         # WMI panel removed; WMI readouts are merged into TempsGrid.
@@ -626,7 +638,7 @@ class HUDRenderer:
         # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
         fuel_width = center_width
         fuel_x = center_x
-        fuel_rect = pygame.Rect(fuel_x, afr_rect.bottom + panel_gap, fuel_width, fuel_height)
+        fuel_rect = pygame.Rect(fuel_x, stats_rect.bottom + panel_gap, fuel_width, fuel_height)
         traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
         airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
         # Prevent lower panels from overlapping the message line.
@@ -648,6 +660,7 @@ class HUDRenderer:
             SpeedGear(speed_rect, gear_rect),
             BoostPanel(boost_rect),
             AfrPanel(afr_rect),
+            ModeStatsPanel(stats_rect),
             AlertPanel(alert_rect),
             TempsGrid(temps_rect),
             FuelPanel(fuel_rect),
@@ -776,9 +789,12 @@ class HUDRenderer:
                 self._display_time_anchor = state.environment.time
                 self._display_time_anchor_monotonic = now_s
             state = replace(state, faults=self._runtime_faults(state, now_s))
+            previous_mode_index = self._mode_index
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
                 self._mode_selection_index = self._mode_index
+            if self._mode_index != previous_mode_index:
+                self._mode_layout_anim_until = now_s + 0.9
             if state.environment.fuel_type in self._fuel_types:
                 self._fuel_type_index = self._fuel_types.index(state.environment.fuel_type)
 
@@ -788,8 +804,8 @@ class HUDRenderer:
             )
             state = replace(state, environment=replace(state.environment, time=display_time))
 
-            # keep animating mode-based layout transitions
-            self._create_widgets()
+            if now_s < self._mode_layout_anim_until:
+                self._create_widgets()
             # Respect externally supplied mode telemetry.
             desired_trac = self._traction_levels[self._traction_index]
             if state.traction.intervention_level != desired_trac:
