@@ -63,6 +63,7 @@ def main() -> None:
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     parser.add_argument("--fault-log-dir", type=Path, default=Path("logs"), help="directory for fault event logs")
+    parser.add_argument("--settings-file", type=Path, default=Path("settings/hud_settings.json"), help="persistent HUD settings file")
     parser.add_argument("--phone-bt-mac", help="Paired phone Bluetooth MAC for media/weather/GPS bridge")
     parser.add_argument("--phone-telemetry-udp", default="127.0.0.1:5010", help="UDP host:port for phone weather/GPS telemetry")
     parser.add_argument("--bind-inputs", action="store_true", help="Prompt keyboard bindings for demo controls")
@@ -83,6 +84,7 @@ def main() -> None:
         renderer = HUDRenderer(
             screen_size=(args.width, args.height),
             use_display=args.snapshot is None,
+            preferences_path=args.settings_file,
         )
     except Exception:
         logging.exception("HUD renderer failed to initialize")
@@ -204,6 +206,7 @@ def main() -> None:
         renderer.configure_mode_callback(_send_mode_selection)
         renderer.configure_media_callback(_send_media_control)
         renderer.configure_fuel_type_callback(_send_fuel_type)
+        renderer.sync_persisted_controls()
 
         def _safety_supervisor() -> None:
             assert aggregator is not None and can_interface is not None
@@ -406,6 +409,7 @@ def main() -> None:
         simulator = StateSimulator()
         renderer.configure_mode_callback(simulator.set_mode)
         renderer.configure_fuel_type_callback(simulator.set_fuel_type)
+        renderer.sync_persisted_controls()
         if not args.snapshot:
             stream = simulator.stream()
 

@@ -28,6 +28,7 @@ from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
 from .widgets.traction_panel import TractionPanel
 from .widgets.ui_utils import apply_theme, fit_font_size, font
+from .preferences import HUDPreferences
 from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
@@ -194,6 +195,7 @@ class HUDRenderer:
         screen_size: tuple[int, int] = SCREEN_SIZE,
         *,
         use_display: bool = True,
+        preferences_path: Path | str | None = "settings/hud_settings.json",
     ) -> None:
         pygame.init()
         self._use_display = use_display
@@ -244,8 +246,10 @@ class HUDRenderer:
         self._fuel_type_index = self._fuel_types.index(self.state.environment.fuel_type) if self.state.environment.fuel_type in self._fuel_types else 2
         self._themes = ["AMBER", "NIGHT", "HIGH-CON"]
         self._theme_index = 0
-        apply_theme(self._themes[self._theme_index])
         self._auto_dim_enabled = True
+        self._preferences = HUDPreferences(preferences_path)
+        self._load_preferences()
+        apply_theme(self._themes[self._theme_index])
         self._phone_track = ""
         self._phone_artist = ""
         self._phone_position_s = 0.0
@@ -400,6 +404,68 @@ class HUDRenderer:
     def configure_mode_callback(self, callback) -> None:
         self._mode_callback = callback
 
+    @staticmethod
+    def _index_for_value(values: list, value, default: int) -> int:
+        try:
+            return values.index(value)
+        except ValueError:
+            return default
+
+    def _load_preferences(self) -> None:
+        preferences = self._preferences.load()
+        self._mode_index = self._index_for_value(self._modes, preferences.get("mode"), self._mode_index)
+        self._mode_selection_index = self._mode_index
+        self._traction_index = self._index_for_value(self._traction_levels, preferences.get("traction_level"), self._traction_index)
+        self._fuel_type_index = self._index_for_value(self._fuel_types, preferences.get("fuel_type"), self._fuel_type_index)
+        self._theme_index = self._index_for_value(self._themes, preferences.get("theme"), self._theme_index)
+        self._phone_link_enabled = bool(preferences.get("phone_link_enabled", self._phone_link_enabled))
+        self._auto_dim_enabled = bool(preferences.get("auto_dim_enabled", self._auto_dim_enabled))
+        brightness = preferences.get("brightness_pct")
+        if isinstance(brightness, (int, float)):
+            closest = min(
+                range(len(self._brightness_levels)),
+                key=lambda idx: abs(self._brightness_levels[idx] - float(brightness)),
+            )
+            self._brightness_index = closest
+        mode = self._modes[self._mode_index]
+        fuel_type = self._fuel_types[self._fuel_type_index]
+        traction_level = self._traction_levels[self._traction_index]
+        self.state = replace(
+            self.state,
+            environment=replace(
+                self.state.environment,
+                mode=mode,
+                fuel_type=fuel_type,
+                brightness_pct=float(self._brightness_levels[self._brightness_index]),
+            ),
+            traction=replace(self.state.traction, intervention_level=traction_level),
+        )
+
+    def _save_preferences(self) -> None:
+        self._preferences.save(
+            {
+                "version": 1,
+                "mode": self._modes[self._mode_index],
+                "traction_level": self._traction_levels[self._traction_index],
+                "fuel_type": self._fuel_types[self._fuel_type_index],
+                "brightness_pct": self._brightness_levels[self._brightness_index],
+                "phone_link_enabled": self._phone_link_enabled,
+                "theme": self._themes[self._theme_index],
+                "auto_dim_enabled": self._auto_dim_enabled,
+            }
+        )
+
+    def sync_persisted_controls(self) -> None:
+        """Send persisted settings to connected controllers after callbacks attach."""
+        if self._mode_callback:
+            self._mode_callback(self._mode_index + 1)
+        if self._traction_callback:
+            self._traction_callback(self._traction_index + 1)
+        if self._fuel_type_callback:
+            self._fuel_type_callback(self._fuel_type_index)
+        if self._media_callback:
+            self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+
     def _apply_mode_selection(self, mode_index: int, *, notify: bool = True) -> None:
         if not self._modes:
             return
@@ -413,6 +479,8 @@ class HUDRenderer:
             )
         if notify and self._mode_callback:
             self._mode_callback(self._mode_index + 1)
+        if notify:
+            self._save_preferences()
         self._create_widgets()
 
     def configure_media_callback(self, callback) -> None:
@@ -685,10 +753,12 @@ class HUDRenderer:
                         self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
                         if self._traction_callback:
                             self._traction_callback(self._traction_index + 1)
+                        self._save_preferences()
                     elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_PERIOD):
                         self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
                         if self._traction_callback:
                             self._traction_callback(self._traction_index + 1)
+                        self._save_preferences()
 
             if state_iter is not None:
                 try:
@@ -842,18 +912,23 @@ class HUDRenderer:
                 self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
                 if self._traction_callback:
                     self._traction_callback(self._traction_index + 1)
+                self._save_preferences()
             elif item == "FUEL TYPE":
                 self._apply_fuel_type_selection((self._fuel_type_index + 1) % len(self._fuel_types))
             elif item == "BRIGHTNESS":
                 self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
+                self._save_preferences()
             elif item == "PHONE LINK":
                 self._phone_link_enabled = True
                 if self._media_callback:
                     self._media_callback("phone_link", 1)
+                self._save_preferences()
             elif item == "THEME":
                 self._theme_index = (self._theme_index + 1) % len(self._themes)
+                self._save_preferences()
             elif item == "AUTO DIM":
                 self._auto_dim_enabled = True
+                self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
             return
@@ -872,18 +947,23 @@ class HUDRenderer:
                 self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
                 if self._traction_callback:
                     self._traction_callback(self._traction_index + 1)
+                self._save_preferences()
             elif item == "FUEL TYPE":
                 self._apply_fuel_type_selection((self._fuel_type_index - 1) % len(self._fuel_types))
             elif item == "BRIGHTNESS":
                 self._brightness_index = max(self._brightness_index - 1, 0)
+                self._save_preferences()
             elif item == "PHONE LINK":
                 self._phone_link_enabled = False
                 if self._media_callback:
                     self._media_callback("phone_link", 0)
+                self._save_preferences()
             elif item == "THEME":
                 self._theme_index = (self._theme_index - 1) % len(self._themes)
+                self._save_preferences()
             elif item == "AUTO DIM":
                 self._auto_dim_enabled = False
+                self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
             return
@@ -941,6 +1021,7 @@ class HUDRenderer:
                 self._phone_link_enabled = not self._phone_link_enabled
                 if self._media_callback:
                     self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+                self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
             return
@@ -1092,6 +1173,8 @@ class HUDRenderer:
             )
         if notify and self._fuel_type_callback:
             self._fuel_type_callback(self._fuel_type_index)
+        if notify:
+            self._save_preferences()
 
     def _render_mode_picker(self, panel: pygame.Rect, y: int) -> None:
         _bg, bright, glow, _fault = self._theme_colors()

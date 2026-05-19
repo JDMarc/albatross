@@ -94,6 +94,11 @@ Repository layout
   (`fault_events_YYYY-MM-DD.txt`). Use the text file for quick diagnosis;
   use the JSONL when you need the complete snapshot.
 
+- settings/
+  Created when rider-adjustable HUD preferences are changed. The default
+  `hud_settings.json` remembers selected mode, traction level, fuel type,
+  brightness, phone link, theme, and auto-dim across power cycles.
+
 - deploy/albatross-hud.service  
   Example systemd unit for power-on auto-launch on Raspberry Pi.
 
