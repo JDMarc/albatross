@@ -27,16 +27,16 @@ class ModeStatsPanel(Widget):
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)
-        padding = max(7, int(min(self.rect.width, self.rect.height) * 0.09))
+        padding = max(6, int(min(self.rect.width, self.rect.height) * 0.07))
         mode = state.environment.mode if state.environment.mode in KNOWN_MODES else "NORMAL"
         rows = self._rows_for_mode(mode, state)
         title = f"{mode} DATA"
-        title_font = fit_font_size(title, self.rect.width - 2 * padding, max(12, int(self.rect.height * 0.2)), start_size=max(12, int(self.rect.height * 0.18)), bold=True)
+        title_font = fit_font_size(title, self.rect.width - 2 * padding, max(12, int(self.rect.height * 0.18)), start_size=max(12, int(self.rect.height * 0.16)), bold=True)
         title_surface = font(title_font, bold=True).render(title, True, AMBER_BRIGHT)
         surface.blit(title_surface, (self.rect.x + padding, self.rect.y + max(3, padding // 2)))
 
-        y = self.rect.y + padding + title_surface.get_height()
-        available_h = max(18, self.rect.bottom - y - padding)
+        y = self.rect.y + max(4, padding // 2) + title_surface.get_height() + 2
+        available_h = max(18, self.rect.bottom - y - max(4, padding // 2))
         row_h = max(13, available_h // max(1, len(rows)))
         value_max_w = max(48, int(self.rect.width * 0.36))
         label_max_w = max(64, self.rect.width - 2 * padding - value_max_w - 8)

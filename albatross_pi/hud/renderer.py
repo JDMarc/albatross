@@ -521,11 +521,11 @@ class HUDRenderer:
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
         profiles = {
-            "ECO": {"boost": 0.24, "afr": 0.20, "stats": 0.30, "temps": 0.64},
-            "NORMAL": {"boost": 0.28, "afr": 0.21, "stats": 0.26, "temps": 0.60},
-            "SPORT": {"boost": 0.38, "afr": 0.21, "stats": 0.18, "temps": 0.55},
-            "RACE": {"boost": 0.44, "afr": 0.20, "stats": 0.16, "temps": 0.53},
-            "ALBATROSS": {"boost": 0.46, "afr": 0.18, "stats": 0.17, "temps": 0.50},
+            "ECO": {"boost": 0.23, "afr": 0.18, "stats": 0.36, "temps": 0.64},
+            "NORMAL": {"boost": 0.27, "afr": 0.19, "stats": 0.32, "temps": 0.60},
+            "SPORT": {"boost": 0.36, "afr": 0.20, "stats": 0.23, "temps": 0.55},
+            "RACE": {"boost": 0.41, "afr": 0.19, "stats": 0.22, "temps": 0.53},
+            "ALBATROSS": {"boost": 0.43, "afr": 0.17, "stats": 0.23, "temps": 0.50},
         }
         target = profiles.get(mode, profiles["NORMAL"])
         # Soft animation toward target ratios so gauges move smoothly.
@@ -613,12 +613,12 @@ class HUDRenderer:
         boost_ratio = ratios["boost"]
         afr_ratio = ratios["afr"]
         stats_ratio = ratios["stats"]
-        fuel_height = max(int(content_height * 0.14), int(height * 0.1))
+        fuel_height = max(int(content_height * 0.12), int(height * 0.085))
         center_budget = max(content_height - fuel_height - 3 * panel_gap, 120)
         center_weight = max(boost_ratio + afr_ratio + stats_ratio, 1e-6)
         boost_height = max(int(center_budget * boost_ratio / center_weight), int(height * 0.16))
         afr_height = max(int(center_budget * afr_ratio / center_weight), int(height * 0.11))
-        stats_height = max(int(center_budget * stats_ratio / center_weight), int(height * 0.1))
+        stats_height = max(int(center_budget * stats_ratio / center_weight), int(height * 0.13))
         center_total = boost_height + afr_height + stats_height
         if center_total > center_budget:
             scale = center_budget / float(center_total)
