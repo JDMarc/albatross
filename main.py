@@ -10,6 +10,7 @@ import signal
 import sys
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -30,10 +31,10 @@ from albatross_pi.canbus.encode import (
 )
 from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
+from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import ClutchState, LightingState, StateSnapshot, WMIState
-from albatross_pi.phone import PhoneBridge, PhoneStatus
-from dataclasses import replace
+from albatross_pi.updater import install_update_from_usb
 
 
 def _iter_can_snapshots(
@@ -103,6 +104,7 @@ def main() -> None:
 
     renderer.configure_fault_log_callback(_record_faults)
     renderer.configure_log_export_callback(fault_logger.export_to_usb)
+    renderer.configure_update_install_callback(lambda snapshot: install_update_from_usb(snapshot).display())
     phone_bridge: PhoneBridge | None = None
 
     def _apply_phone_status(status: PhoneStatus) -> None:

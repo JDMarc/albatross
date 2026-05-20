@@ -230,9 +230,11 @@ class HUDRenderer:
         self._fuel_type_callback = None
         self._fault_log_callback: Callable[[tuple[str, ...], StateSnapshot], None] | None = None
         self._log_export_callback: Callable[[], str] | None = None
+        self._update_install_callback: Callable[[StateSnapshot], str] | None = None
         self._last_logged_faults: set[str] = set()
         self._fault_log_lock = threading.Lock()
         self._log_export_status = "READY"
+        self._update_install_status = "READY"
         self._focus_targets = ["SETTINGS", "MEDIA"]
         self._focus_index = 0
         self._active_menu = "home"
@@ -241,7 +243,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
@@ -500,6 +502,9 @@ class HUDRenderer:
 
     def configure_log_export_callback(self, callback: Callable[[], str]) -> None:
         self._log_export_callback = callback
+
+    def configure_update_install_callback(self, callback: Callable[[StateSnapshot], str]) -> None:
+        self._update_install_callback = callback
 
     def _log_new_faults(self, state: StateSnapshot, *, clear_missing: bool = True) -> None:
         current = set(state.faults)
@@ -952,6 +957,8 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
+            elif item == "INSTALL UPDATE":
+                self._install_update()
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -987,6 +994,8 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
+            elif item == "INSTALL UPDATE":
+                self._install_update()
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1045,6 +1054,8 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
+            elif item == "INSTALL UPDATE":
+                self._install_update()
             return
 
     def _handle_back(self) -> None:
@@ -1079,6 +1090,18 @@ class HUDRenderer:
         except Exception as exc:
             LOGGER.exception("Log export failed")
             self._log_export_status = f"FAILED {exc.__class__.__name__}"
+
+    def _install_update(self) -> None:
+        if self._update_install_callback is None:
+            self._update_install_status = "UNAVAILABLE"
+            return
+        try:
+            with self.state_lock:
+                snapshot = self.state
+            self._update_install_status = self._update_install_callback(snapshot)
+        except Exception as exc:
+            LOGGER.exception("Update install failed")
+            self._update_install_status = f"FAILED {exc.__class__.__name__}"
 
     def _render_settings_overlay(self) -> None:
         bg, bright, glow, _fault = self._theme_colors()
@@ -1180,6 +1203,8 @@ class HUDRenderer:
             return self._themes[self._theme_index]
         if item == "EXPORT LOGS":
             return self._log_export_status
+        if item == "INSTALL UPDATE":
+            return self._update_install_status
         return "ON" if self._auto_dim_enabled else "OFF"
 
     def _apply_fuel_type_selection(self, fuel_type_index: int, *, notify: bool = True) -> None:

@@ -107,6 +107,10 @@ Repository layout
 - docs/  
   Project spec and ECU setup notes.
 
+- updates/
+  Created by USB update installs. Update bundles can install Pi app overlays
+  and flash the USB-connected Arduino Mega; see `docs/update_bundles.md`.
+
 Running the project
 -------------------
 
