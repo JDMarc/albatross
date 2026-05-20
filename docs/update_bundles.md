@@ -8,6 +8,35 @@ py -3.12 tools\install_update.py --bundle C:\path\to\albatross_update_2026_05_19
 
 The updater searches the connected USB drive for the newest `albatross_update*.zip` or unpacked `albatross_update*/manifest.json` bundle. You can force a bundle with `ALBATROSS_UPDATE_BUNDLE`.
 
+## Build A Pi Update Bundle
+
+From the repo root:
+
+```powershell
+py -3.12 tools\make_update_bundle.py
+```
+
+That creates:
+
+```text
+dist/albatross_update_VERSION.zip
+```
+
+To include a prebuilt Arduino firmware image:
+
+```powershell
+py -3.12 tools\make_update_bundle.py --arduino-hex C:\path\to\albatross_controller.hex
+```
+
+Useful options:
+
+```powershell
+py -3.12 tools\make_update_bundle.py --version test_001 --output-dir E:\
+py -3.12 tools\make_update_bundle.py --arduino-hex build\albatross_controller.hex --arduino-port /dev/ttyACM0
+```
+
+The packager excludes local/runtime files such as `.git`, `.venv`, `logs`, `settings`, `updates`, caches, and compiled Python files. It writes SHA-256 hashes into the manifest automatically.
+
 ## Bundle Layout
 
 ```text

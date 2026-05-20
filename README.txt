@@ -110,6 +110,7 @@ Repository layout
 - updates/
   Created by USB update installs. Update bundles can install Pi app overlays
   and flash the USB-connected Arduino Mega; see `docs/update_bundles.md`.
+  Build bundles with `py -3.12 tools\make_update_bundle.py`.
 
 Running the project
 -------------------
