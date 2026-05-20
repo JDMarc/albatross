@@ -6,13 +6,12 @@ import hashlib
 import json
 import shutil
 import subprocess
-import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDE_DIRS = {".git", ".venv", "__pycache__", "logs", "settings", "updates", ".pytest_cache"}
+EXCLUDE_DIRS = {".git", ".venv", "__pycache__", "dist", "logs", "settings", "updates", ".pytest_cache"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
 
@@ -43,6 +42,10 @@ def _should_include(path: Path) -> bool:
     rel = path.relative_to(ROOT)
     if any(part in EXCLUDE_DIRS for part in rel.parts):
         return False
+    if any(part.startswith(".bundle_work_") for part in rel.parts):
+        return False
+    if path.name.startswith("albatross_update") and path.suffix.lower() == ".zip":
+        return False
     if path.suffix.lower() in EXCLUDE_SUFFIXES:
         return False
     return True
@@ -57,10 +60,10 @@ def _sha256(path: Path) -> str:
 
 
 def _build_app_archive(output: Path) -> None:
+    files = [path for path in sorted(ROOT.rglob("*")) if path.is_file() and _should_include(path)]
+    print(f"Packaging {len(files)} files into pi/app.zip...", flush=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for path in sorted(ROOT.rglob("*")):
-            if not path.is_file() or not _should_include(path):
-                continue
+        for path in files:
             zf.write(path, path.relative_to(ROOT).as_posix())
 
 
