@@ -18,7 +18,12 @@ EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
 def _git_commit() -> str | None:
     try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True).strip()
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
 
