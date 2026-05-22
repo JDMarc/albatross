@@ -5,7 +5,8 @@ This sketch is pinned and validated for **Arduino Mega 2560 Rev3** pin capabilit
 
 ## What this controller now owns
 
-- Dual (2x) 3-pin electronic wastegate actuator command outputs (PWM + DIR + EN per actuator).
+- Arduino-side boost control for dual (2x) 3-pin electronic wastegate actuators
+  (PWM + DIR + EN per actuator).
 - Air Shot compressor relay + shot latch logic.
 - Air Shot active status reporting for HUD indicator.
 - Wheel-speed reporting for HUD speedometer from Hall sensor measurements.
@@ -18,6 +19,17 @@ This sketch is pinned and validated for **Arduino Mega 2560 Rev3** pin capabilit
 ## Single-point boost configuration
 
 Mode boost caps are centralized in `modeBoostCap()` so each mode only has one editable value.
+
+The Pi calculates a fuel/WMI/temperature-aware boost target and sends it over CAN.
+The Arduino is the actual boost controller: it clamps that request by mode and
+limp state, compares requested boost to MS3-reported MAP/boost, computes
+wastegate actuator duty, and drives the wastegate actuator power stages directly.
+There is no separate boost controller between the Arduino and the wastegate
+actuator drivers.
+
+If ECU telemetry or Pi command traffic goes stale, Arduino forces a no-boost
+limp state, disables flame/WMI/Air Shot outputs, and keeps publishing status
+frames so the HUD can report the fault.
 
 ## Air Shot behavior
 
@@ -68,12 +80,15 @@ The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut
 - Pi sends ECU fuel profile selection on `0x150`: fuel code, fuel table index, and stoich AFR x100. Current table indexes are 0=pump gas, 1=100 octane, 2=E85, 3=C16. Pi sends ECU spark table selection on `0x151`: 0 initial map, 1 SPORT+ performance map.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).
 - Pi engine run switch (`0x127`) is enforced by Arduino as limp/no-boost plus 100% torque-cut request while OFF.
+- Arduino enters no-boost limp if ECU telemetry is stale for `ECU_CAN_TIMEOUT_MS`
+  or Pi command traffic is stale for `PI_CAN_TIMEOUT_MS`.
 - Arduino reports Air Shot active flag in `0x130` payload byte 1 for HUD “air shot active” indicator.
 
 
 ## Dual wastegate pinout
 
-The sketch exposes separate pins for each 3-pin actuator:
+The sketch exposes separate pins for each 3-pin actuator. These pins are logic
+signals for external actuator power stages/H-bridges, not direct motor power:
 
 - WG1: `WG1_PWM_PIN`, `WG1_DIR_PIN`, `WG1_EN_PIN`
 - WG2: `WG2_PWM_PIN`, `WG2_DIR_PIN`, `WG2_EN_PIN`

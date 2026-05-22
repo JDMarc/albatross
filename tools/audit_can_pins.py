@@ -85,6 +85,33 @@ def _parse_arduino_constants() -> tuple[dict[str, int], dict[str, str]]:
     return can, pins
 
 
+def _duplicate_const_bool_names(function_name: str) -> list[str]:
+    text = ARDUINO_SKETCH.read_text(encoding="utf-8")
+    match = re.search(rf"void\s+{function_name}\s*\(\)\s*\{{", text)
+    if not match:
+        return [f"Unable to find Arduino function {function_name}()"]
+    start = match.end() - 1
+    depth = 0
+    end = start
+    for idx in range(start, len(text)):
+        char = text[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+    body = text[start:end]
+    seen: dict[str, int] = {}
+    duplicates: list[str] = []
+    for name in re.findall(r"\bconst\s+bool\s+(\w+)\s*=", body):
+        seen[name] = seen.get(name, 0) + 1
+        if seen[name] == 2:
+            duplicates.append(name)
+    return duplicates
+
+
 def _pin_number(value: str) -> int | None:
     return int(value) if value.isdigit() else None
 
@@ -122,6 +149,9 @@ def main() -> None:
         pin = _pin_number(pins.get(name, ""))
         if pin not in MEGA_INTERRUPT_PINS:
             errors.append(f"{name}={pins.get(name)} is not a Mega 2560 interrupt-capable pin")
+
+    for name in _duplicate_const_bool_names("updateControllers"):
+        errors.append(f"Duplicate const bool declaration in updateControllers(): {name}")
 
     if errors:
         raise SystemExit("\n".join(errors))

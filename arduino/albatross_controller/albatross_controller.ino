@@ -136,9 +136,13 @@ struct Outputs {
 Inputs g_inputs;
 Commands g_commands;
 Outputs g_outputs;
+static uint32_t g_last_ecu_frame_ms = 0;
+static uint32_t g_last_pi_command_ms = 0;
 
 // --- Hardware pins ---
-// Two 3-pin electronic wastegate actuators (PWM + DIR + EN each).
+// Arduino is the boost controller. These pins command the wastegate actuator
+// power stages directly; there is no separate boost-control module in between.
+// Each actuator channel uses PWM + direction + enable.
 static constexpr uint8_t WG1_PWM_PIN = 5;
 static constexpr uint8_t WG1_DIR_PIN = 22;
 static constexpr uint8_t WG1_EN_PIN = 23;
@@ -172,6 +176,8 @@ static constexpr float WMI_FLOW_PULSES_PER_LITER = 450.0f;
 static constexpr bool WMI_PRESSURE_OK_ACTIVE_LOW = true;
 static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pulse quantization cuts.
 static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
+static constexpr uint32_t ECU_CAN_TIMEOUT_MS = 300;
+static constexpr uint32_t PI_CAN_TIMEOUT_MS = 1500;
 
 // Hard safety caps by mode (psi*10); Pi sends the fuel/WMI-aware target.
 uint16_t modeBoostCap(uint8_t mode) {
@@ -204,8 +210,8 @@ float wmiFuelGain(uint8_t fuel_code) {
 }
 
 uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x10, uint8_t tps_pct, bool knock) {
-  // Designed for a traditional electronic wastegate actuator.
-  // Output is an actuator position request over PWM (0-100%).
+  // Closed-loop boost controller output for electronic wastegate actuators.
+  // Returns actuator position request as 0-100% PWM duty.
   const int16_t error = static_cast<int16_t>(target_psi_x10) - static_cast<int16_t>(actual_psi_x10);
   int16_t duty = 0;
 
@@ -232,7 +238,27 @@ void publishFrame(uint16_t id, const uint8_t *data, uint8_t len) {
   CANBUS.sendMsgBuf(id, 0, len, const_cast<uint8_t *>(data));
 }
 
+bool elapsedSince(uint32_t last_ms, uint32_t timeout_ms, uint32_t now_ms) {
+  return last_ms == 0 || static_cast<uint32_t>(now_ms - last_ms) > timeout_ms;
+}
+
+bool isEcuFrame(uint16_t id) {
+  return (id >= CanId::ECU_RPM && id <= CanId::ECU_INJECTOR_STATUS) ||
+      (id >= CanId::ECU_TO_ARD_FLAME_STATUS && id <= CanId::ECU_TO_ARD_ENGINE_STATUS);
+}
+
+bool isPiCommandFrame(uint16_t id) {
+  return (id >= CanId::PI_BOOST_TARGET && id <= CanId::PI_FUEL_TYPE_SELECT) || id == CanId::PI_NFC_AUTH;
+}
+
 void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
+  const uint32_t now = millis();
+  if (isEcuFrame(id)) {
+    g_last_ecu_frame_ms = now;
+  } else if (isPiCommandFrame(id)) {
+    g_last_pi_command_ms = now;
+  }
+
   switch (id) {
     case CanId::ECU_RPM:
       if (len >= 2) g_inputs.rpm = (uint16_t(data[0]) << 8) | data[1];
@@ -535,6 +561,10 @@ bool shouldTriggerAirShot() {
 }
 
 void updateControllers() {
+  const uint32_t now = millis();
+  const bool ecu_can_stale = elapsedSince(g_last_ecu_frame_ms, ECU_CAN_TIMEOUT_MS, now);
+  const bool pi_can_stale = elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now);
+  const bool control_link_stale = ecu_can_stale || pi_can_stale;
   const uint16_t cap = modeBoostCap(g_commands.mode);
   uint16_t target = min(g_commands.boost_target_psi_x10, cap);
 
@@ -548,12 +578,13 @@ void updateControllers() {
   const bool low_oil_pressure = (g_inputs.rpm > 2200) && (g_inputs.oil_pressure_psi_x10 > 0) && (g_inputs.oil_pressure_psi_x10 < 80);
   const bool voltage_fault = (g_inputs.battery_mv > 0) && (g_inputs.battery_mv < 10500 || g_inputs.battery_mv > 15500);
   const bool low_auth = !g_commands.nfc_ok;
-  const bool sensor_fault = (g_inputs.rpm == 0 && g_inputs.tps_pct > 20);
-  const bool limp = !g_commands.engine_run_enabled || g_commands.limp_mode || hot || low_oil_pressure || voltage_fault || (knock && g_inputs.boost_psi_x10 > target) || sensor_fault || low_auth;
+  const bool ecu_sensor_fault = (g_inputs.rpm == 0 && g_inputs.tps_pct > 20);
+  const bool limp = !g_commands.engine_run_enabled || g_commands.limp_mode || control_link_stale || hot || low_oil_pressure || voltage_fault || (knock && g_inputs.boost_psi_x10 > target) || ecu_sensor_fault || low_auth;
 
   if (limp) {
     target = 0;
     g_commands.flame_mode = false;
+    g_airshot_latched = false;
   } else {
     if (hot) target = (target > 30) ? target - 30 : target;
     if (knock) target = (target > 20) ? target - 20 : target;
@@ -573,9 +604,9 @@ void updateControllers() {
 
   // Ancillary controls handled Arduino-side.
   const bool wmi_conditions =
-      g_commands.nfc_ok && !limp && g_commands.wmi_arm &&
+      g_commands.nfc_ok && !limp && !control_link_stale && g_commands.wmi_arm &&
       g_inputs.rpm > 3300 && g_inputs.tps_pct > 38 && g_inputs.boost_psi_x10 >= 60;
-  const bool legacy_trigger = (g_commands.wmi_trigger_pct_x10 > 0) && (g_inputs.tps_pct > 45) && g_commands.nfc_ok;
+  const bool legacy_trigger = (g_commands.wmi_trigger_pct_x10 > 0) && (g_inputs.tps_pct > 45) && g_commands.nfc_ok && !control_link_stale;
   const bool wmi_enable = wmi_conditions || legacy_trigger;
 
   const float boost_ratio = constrain(g_inputs.boost_psi_x10 / 220.0f, 0.0f, 1.0f);
@@ -597,7 +628,7 @@ void updateControllers() {
   g_outputs.wmi_commanded_flow_cc_min = static_cast<uint16_t>(roundf(demand * 1400.0f));
   updateWmiSensorOutputs(wmi_enable);
 
-  const bool flame_enable = g_commands.flame_mode && (g_inputs.rpm > 3000) && g_commands.nfc_ok && !limp;
+  const bool flame_enable = g_commands.flame_mode && (g_inputs.rpm > 3000) && g_commands.nfc_ok && !limp && !control_link_stale;
   digitalWrite(FLAME_EN_PIN, flame_enable ? HIGH : LOW);
 
   const bool compressor_on = (g_outputs.tank_psi_x10 < 680) && (g_inputs.rpm < 1500) && (g_inputs.tps_pct < 5);
@@ -634,9 +665,9 @@ void updateControllers() {
   filtered_slip_ratio = (filtered_slip_ratio * 0.65f) + (raw_slip_ratio * 0.35f);
   const float vehicle_speed = max(front_speed, rear_speed);
   const bool wheel_speed_ok = vehicle_speed >= TC_MIN_SPEED_MPS;
-  const bool sensor_fault = wheel_speed_ok && ((front_speed < 0.5f && rear_speed > 5.0f) || (rear_speed < 0.5f && front_speed > 5.0f));
+  const bool wheel_speed_sensor_fault = wheel_speed_ok && ((front_speed < 0.5f && rear_speed > 5.0f) || (rear_speed < 0.5f && front_speed > 5.0f));
   const float tc_limit = tcSlipLimitForLevel(g_commands.traction_level);
-  const bool tc_allowed = !sensor_fault && (g_commands.traction_level != TC_OFF) && (g_inputs.tps_pct > 20) && (g_inputs.gear >= 2) && wheel_speed_ok;
+  const bool tc_allowed = !wheel_speed_sensor_fault && (g_commands.traction_level != TC_OFF) && (g_inputs.tps_pct > 20) && (g_inputs.gear >= 2) && wheel_speed_ok;
   if (tc_allowed && filtered_slip_ratio > tc_limit) {
     tc_latched = true;
   } else if (!tc_allowed || filtered_slip_ratio < (tc_limit - TC_EXIT_HYSTERESIS)) {
@@ -652,7 +683,7 @@ void updateControllers() {
   }
   g_outputs.traction_slip_pct_x10 = static_cast<int16_t>(constrain(static_cast<int>(roundf(filtered_slip_ratio * 1000.0f)), -1000, 1000));
   g_outputs.traction_active = tc_active || g_outputs.traction_torque_cut_pct > 0;
-  g_outputs.traction_sensor_fault = sensor_fault;
+  g_outputs.traction_sensor_fault = wheel_speed_sensor_fault;
   const uint8_t torque_cut_pct = !g_commands.engine_run_enabled ? 100 : (g_outputs.traction_sensor_fault ? 0 : g_outputs.traction_torque_cut_pct);
   uint8_t torque_cut_payload[1] = {torque_cut_pct};
   publishFrame(CanId::ARD_TO_ECU_TORQUE_CUT, torque_cut_payload, 1);

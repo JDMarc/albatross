@@ -1,0 +1,71 @@
+# Roadgoing Motorcycle Readiness Checklist
+
+This is the gap list for turning the Albatross electronics from a bench/project
+system into something appropriate for a street motorcycle. It is an engineering
+checklist, not a legal certification. Final requirements depend on registration
+state, inspection rules, insurance, and whether the bike is treated as a
+modified production motorcycle, reconstructed vehicle, or custom build.
+
+## Current Architecture
+
+- Pi: HUD, settings, logging, update flow, boost target planning, fuel/spark
+  profile requests.
+- Arduino: actual boost controller, WMI pump command, Air Shot, compressor relay,
+  wheel speed, traction slip calculation, light status sensing, and limp
+  enforcement.
+- MS3Pro Mini: core engine control, fueling, ignition, hard engine protections,
+  oil pressure, oil temperature, flex fuel, and engine telemetry.
+
+The Arduino is not connected to an external boost controller. It is the boost
+controller. The wastegate outputs must feed actuator power stages/H-bridges
+suited to the wastegate actuator current.
+
+## Must-Have Before Road Use
+
+| Area | Status | Gap / requirement |
+| --- | --- | --- |
+| Legal lighting | Partial | Headlight high/low, tail, brake, plate lamp, reflectors, indicators if required, and visible high-beam/indicator telltales must be verified with local rules. |
+| Brake system | External | Front/rear brakes, brake switches, hydraulic condition, brake light activation, and inspection compliance are outside the code but mandatory. |
+| Kill switch / run switch | Partial | Pi sends engine-run state and Arduino requests torque cut/no boost, but the bike still needs a hardwired ignition/fuel/ECU kill path independent of software. |
+| Fusing and power distribution | Missing in code | Every branch needs fuse sizing, relay strategy, wire gauge, and serviceable connectors documented. |
+| Load dump/transient protection | Missing in code | Pi, Arduino, CAN modules, and sensor inputs need automotive power protection, reverse polarity protection, and brownout behavior validation. |
+| Weather/vibration | Hardware | Enclosures, strain relief, sealed connectors, conformal coating where appropriate, and vibration mounts need to be selected. |
+| Watchdog/fail-silent behavior | Partial | Arduino no-boost CAN stale behavior exists, but hardware watchdog reset, Pi process supervision, and road simulation tests are still needed. |
+| Boost actuator power stage | Required | Arduino logic pins must feed a current-rated H-bridge/driver. Add position feedback if the chosen wastegate actuator supports it. |
+| Mechanical boost failsafe | Required | Wastegate should fail to spring/base boost or no boost on power loss, blown fuse, Arduino reset, CAN loss, or driver fault. |
+| MS3 hard limits | Required | MS3 must enforce boost/fuel/ignition/overboost/AFR/oil/temperature safeties even if Pi or Arduino misbehaves. |
+| Sensor calibration | Required | Wheel circumference, magnet count, gear ratios, WMI flow pulses/L, tank sender scaling, oil/flex/fuel sensors, and boost/MAP scaling need measured calibration. |
+| Logging and recovery | Partial | Fault logging and USB export exist; add a rider-readable fault summary and post-ride review workflow before relying on logs for diagnosis. |
+| Updates | Partial | USB update bundle flow exists; add rollback verification and "engine off, voltage OK" installation tests on the actual Pi. |
+| EMI/grounding | Hardware | CAN twisted pair, shield strategy, star/sensor grounds, ignitor/injector noise separation, and alternator noise testing need validation. |
+| Human factors | Partial | HUD has indicator/high-beam icons and fault voice lines; verify sunlight readability, glove controls, startup time, and no critical text overlap on the real display. |
+| Battery/charging health | Partial | Voltage faults exist; add current draw budget, parasitic draw target, alternator capacity check, and low-voltage graceful shutdown. |
+| Road-test plan | Missing | Add staged tests: powered bench, spinning-wheel bench, no-boost ride, spring/base-boost ride, low-boost ride, WMI-disabled ride, CAN-fault injection, thermal soak. |
+
+## Highest-Priority Engineering Additions
+
+1. Add a hardware kill path that does not depend on Pi, Arduino, CAN, or Python.
+2. Add or confirm mechanical boost fail-safe behavior with the wastegate actuator
+   and driver powered off.
+3. Add a watchdog on Arduino and a systemd restart/watchdog path on the Pi.
+4. Bench-test Arduino CAN stale timeout behavior with the wastegate actuator
+   driver powered, confirming zero boost, no Air Shot, no flame, and stable HUD
+   reporting when Pi or ECU frames stop.
+5. Add actual actuator position feedback or driver fault feedback if the
+   electronic wastegate actuator hardware supports it.
+6. Replace placeholder gear-ratio constants with measured road/stand data.
+7. Verify every 12 V input uses automotive-safe conditioning before connecting
+   the motorcycle harness.
+
+## Street Equipment To Confirm
+
+- DOT/legal headlight assembly, low beam, high beam, and high-beam indicator.
+- Tail lamp, stop lamp, license plate lamp, rear reflector.
+- Turn indicators and telltale behavior as required by the bike year/state.
+- Horn.
+- Mirrors.
+- Front and rear brakes and brake-light switches.
+- Tires, rims, chain/driveline guards, and speedometer/odometer requirements.
+- Secure battery, fuel system routing, overflow/vent routing, and exhaust heat
+  shielding.
+- VIN/title/inspection requirements for the final configuration.

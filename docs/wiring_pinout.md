@@ -81,7 +81,9 @@ Project ownership assumptions:
   battery voltage, oil pressure, oil temperature, flex fuel, fuel level if
   wired there, and injector pulse width/duty telemetry.
 - Arduino owns wheel speed, WMI tank/flow/status, light-status sensing, Air
-  Shot hardware, compressor relay, and electronic wastegate actuator commands.
+  Shot hardware, compressor relay, and boost control. It directly commands the
+  electronic wastegate actuator power stages; there is no separate boost
+  controller module.
 - Pi owns HUD/settings decisions and publishes boost target, mode, fuel profile,
   spark table select, WMI enable, and safety requests.
 
@@ -105,12 +107,12 @@ The Arduino sketch targets a Mega 2560 Rev3 plus an MCP2515 CAN module at
 
 | Mega pin | Direction | Function | Hookup notes |
 | --- | --- | --- | --- |
-| D5 | Output PWM | Wastegate actuator 1 PWM | To actuator driver/controller command input |
-| D22 | Output | Wastegate actuator 1 direction | To actuator driver/controller direction input |
-| D23 | Output | Wastegate actuator 1 enable | To actuator driver/controller enable input |
-| D6 | Output PWM | Wastegate actuator 2 PWM | To actuator driver/controller command input |
-| D24 | Output | Wastegate actuator 2 direction | To actuator driver/controller direction input |
-| D25 | Output | Wastegate actuator 2 enable | To actuator driver/controller enable input |
+| D5 | Output PWM | Wastegate actuator 1 PWM | To actuator power driver/H-bridge command input |
+| D22 | Output | Wastegate actuator 1 direction | To actuator power driver/H-bridge direction input |
+| D23 | Output | Wastegate actuator 1 enable | To actuator power driver/H-bridge enable input |
+| D6 | Output PWM | Wastegate actuator 2 PWM | To actuator power driver/H-bridge command input |
+| D24 | Output | Wastegate actuator 2 direction | To actuator power driver/H-bridge direction input |
+| D25 | Output | Wastegate actuator 2 enable | To actuator power driver/H-bridge enable input |
 | D7 | Output PWM | WMI pump command | Drive relay/MOSFET module, active high |
 | D8 | Output | Flame mode interlock | Drive external interlock circuit, active high |
 | D9 | Output | Air Shot solenoid | Drive MOSFET/relay, active high |
@@ -156,4 +158,3 @@ The Arduino sketch targets a Mega 2560 Rev3 plus an MCP2515 CAN module at
 | 0x140 | Pi to Arduino | NFC authorization |
 | 0x150-0x151 | Pi to MS3/ECU | Fuel profile select and spark table select |
 | 0x1F0-0x1F1 | System | POST request/response |
-
