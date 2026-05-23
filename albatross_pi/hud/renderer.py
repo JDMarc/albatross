@@ -258,6 +258,7 @@ class HUDRenderer:
         self._focus_index = 0
         self._active_menu = "home"
         self._fault_detail_index = 0
+        self._visible_faults: tuple[str, ...] = ()
         self._settings_cursor = 0
         self._media_items = ["PREV", "PLAY", "NEXT", "DEVICES"]
         self._media_index = 0
@@ -977,6 +978,7 @@ class HUDRenderer:
         return self.screen.copy()
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
+        self._visible_faults = tuple(state.faults)
         apply_theme(self._themes[self._theme_index])
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
@@ -1043,8 +1045,7 @@ class HUDRenderer:
         return sorted(set(state.faults))
 
     def _cycle_fault_detail(self, delta: int) -> None:
-        with self.state_lock:
-            count = len(self._active_faults_for_detail(self.state))
+        count = len(set(self._visible_faults))
         if count <= 0:
             return
         self._fault_detail_index = (self._fault_detail_index + delta) % count
@@ -1089,7 +1090,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index + 1) % (len(self._focus_targets) + len(self._modes))
+        self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_dpad_left(self) -> None:
         if self._active_menu == "fault_detail":
@@ -1131,7 +1132,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index - 1) % (len(self._focus_targets) + len(self._modes))
+        self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_up(self) -> None:
         if self._active_menu == "fault_detail":
@@ -1144,7 +1145,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
         elif self._active_menu == "home":
-            self._focus_index = (self._focus_index - 1) % (len(self._focus_targets) + len(self._modes))
+            self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_down(self) -> None:
         if self._active_menu == "fault_detail":
@@ -1157,7 +1158,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
         elif self._active_menu == "home":
-            self._focus_index = (self._focus_index + 1) % (len(self._focus_targets) + len(self._modes))
+            self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_select(self) -> None:
         if self._active_menu == "home":
@@ -1166,9 +1167,7 @@ class HUDRenderer:
                 self._apply_mode_selection(int(target.split(":", 1)[1]))
                 return
             if target == "FAULTS":
-                with self.state_lock:
-                    has_faults = bool(self.state.faults)
-                if has_faults:
+                if self._visible_faults:
                     self._fault_detail_index = 0
                     self._active_menu = "fault_detail"
                 return
@@ -1510,10 +1509,16 @@ class HUDRenderer:
         self.screen.blit(s, (self.screen.get_width() - s.get_width() - 24, self.screen.get_height() - 20))
 
     def _home_focus_target(self) -> str:
-        if self._focus_index < len(self._focus_targets):
-            return self._focus_targets[self._focus_index]
-        mode_idx = self._focus_index - len(self._focus_targets)
+        targets = self._home_focus_targets()
+        if self._focus_index < len(targets):
+            return targets[self._focus_index]
+        mode_idx = self._focus_index - len(targets)
         return f"MODE:{mode_idx}"
+
+    def _home_focus_targets(self) -> list[str]:
+        if self._visible_faults:
+            return ["FAULTS", "SETTINGS", "MEDIA"]
+        return list(self._focus_targets)
 
     def _render_home_fault_focus_outline(self, state: StateSnapshot) -> None:
         if self._active_menu != "home" or self._home_focus_target() != "FAULTS":
