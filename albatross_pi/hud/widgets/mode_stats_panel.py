@@ -11,13 +11,6 @@ from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_
 from ...state.snapshot import StateSnapshot
 
 KNOWN_MODES = {"ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"}
-MODE_TITLES = {
-    "ECO": "ECO RANGE",
-    "NORMAL": "NORMAL ROAD",
-    "SPORT": "SPORT BOOST",
-    "RACE": "RACE ATTACK",
-    "ALBATROSS": "ALBATROSS FULL",
-}
 
 
 def _fmt(value: float | None, suffix: str = "", precision: int = 0) -> str:
@@ -37,7 +30,7 @@ class ModeStatsPanel(Widget):
         padding = max(6, int(min(self.rect.width, self.rect.height) * 0.07))
         mode = state.environment.mode if state.environment.mode in KNOWN_MODES else "NORMAL"
         rows = self._rows_for_mode(mode, state)
-        title = MODE_TITLES.get(mode, f"{mode} DATA")
+        title = mode
         title_font = fit_font_size(title, self.rect.width - 2 * padding, max(12, int(self.rect.height * 0.18)), start_size=max(12, int(self.rect.height * 0.16)), bold=True)
         title_surface = font(title_font, bold=True).render(title, True, AMBER_BRIGHT)
         surface.blit(title_surface, (self.rect.x + padding, self.rect.y + max(3, padding // 2)))

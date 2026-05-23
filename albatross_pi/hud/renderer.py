@@ -16,6 +16,7 @@ from typing import Callable, Iterable, List
 
 import pygame
 
+from ..diagnostics.fault_logger import engine_status, fault_action, fault_reason
 from ..economy import EconomyTracker
 from .widgets.airshot_panel import AirShotPanel
 from .widgets.afr_panel import AfrPanel
@@ -253,9 +254,10 @@ class HUDRenderer:
         self._online_update_progress = 0.0
         self._online_update_busy = False
         self._online_update_lock = threading.Lock()
-        self._focus_targets = ["SETTINGS", "MEDIA"]
+        self._focus_targets = ["SETTINGS", "MEDIA", "FAULTS"]
         self._focus_index = 0
         self._active_menu = "home"
+        self._fault_detail_index = 0
         self._settings_cursor = 0
         self._media_items = ["PREV", "PLAY", "NEXT", "DEVICES"]
         self._media_index = 0
@@ -980,6 +982,7 @@ class HUDRenderer:
         for widget in self.widgets:
             widget.draw(self.screen, state)
         self._render_home_mode_hover_underline(state)
+        self._render_home_fault_focus_outline(state)
         self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
         if self._active_menu == "settings":
@@ -987,6 +990,9 @@ class HUDRenderer:
             self._render_settings_overlay()
         elif self._active_menu == "media":
             self._render_media_overlay()
+        elif self._active_menu == "fault_detail":
+            self._render_modal_dimmer()
+            self._render_fault_detail_overlay(state)
         self._render_global_hints()
         self._apply_brightness_overlay(state)
         if (not self._post_complete) or self._post_fault_active:
@@ -1033,7 +1039,20 @@ class HUDRenderer:
         ack_s = font(16, bold=True).render(ack, True, fault)
         self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
 
+    def _active_faults_for_detail(self, state: StateSnapshot) -> list[str]:
+        return sorted(set(state.faults))
+
+    def _cycle_fault_detail(self, delta: int) -> None:
+        with self.state_lock:
+            count = len(self._active_faults_for_detail(self.state))
+        if count <= 0:
+            return
+        self._fault_detail_index = (self._fault_detail_index + delta) % count
+
     def _handle_dpad_right(self) -> None:
+        if self._active_menu == "fault_detail":
+            self._cycle_fault_detail(1)
+            return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
             if item == "TRACTION":
@@ -1073,6 +1092,9 @@ class HUDRenderer:
         self._focus_index = (self._focus_index + 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu == "fault_detail":
+            self._cycle_fault_detail(-1)
+            return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
             if item == "TRACTION":
@@ -1112,7 +1134,9 @@ class HUDRenderer:
         self._focus_index = (self._focus_index - 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_up(self) -> None:
-        if self._active_menu == "settings":
+        if self._active_menu == "fault_detail":
+            self._cycle_fault_detail(-1)
+        elif self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor - 1) % len(self._setting_items)
         elif self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1123,7 +1147,9 @@ class HUDRenderer:
             self._focus_index = (self._focus_index - 1) % (len(self._focus_targets) + len(self._modes))
 
     def _handle_down(self) -> None:
-        if self._active_menu == "settings":
+        if self._active_menu == "fault_detail":
+            self._cycle_fault_detail(1)
+        elif self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor + 1) % len(self._setting_items)
         elif self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1139,6 +1165,13 @@ class HUDRenderer:
             if target.startswith("MODE:"):
                 self._apply_mode_selection(int(target.split(":", 1)[1]))
                 return
+            if target == "FAULTS":
+                with self.state_lock:
+                    has_faults = bool(self.state.faults)
+                if has_faults:
+                    self._fault_detail_index = 0
+                    self._active_menu = "fault_detail"
+                return
             if target == "SETTINGS":
                 cur = self.state
                 gear = (cur.engine.gear or "").strip().upper()
@@ -1150,6 +1183,9 @@ class HUDRenderer:
             return
         if self._active_menu == "media":
             self._activate_media_action()
+            return
+        if self._active_menu == "fault_detail":
+            self._cycle_fault_detail(1)
             return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
@@ -1244,6 +1280,88 @@ class HUDRenderer:
                 self._online_update_busy = False
 
         threading.Thread(target=worker, name="online-update", daemon=True).start()
+
+    @staticmethod
+    def _wrap_words(text: str, max_chars: int) -> list[str]:
+        words = text.split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if len(candidate) <= max_chars:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            current = word
+        if current:
+            lines.append(current)
+        return lines or [""]
+
+    def _render_fault_detail_overlay(self, state: StateSnapshot) -> None:
+        bg, bright, glow, fault_color = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(920, sw - 80), min(540, sh - 70))
+        panel.center = (sw // 2, sh // 2)
+        overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        overlay.fill((12, 8, 0, 238))
+        self.screen.blit(overlay, panel.topleft)
+        pygame.draw.rect(self.screen, fault_color, panel, width=2, border_radius=8)
+
+        faults = self._active_faults_for_detail(state)
+        if not faults:
+            title = font(22, bold=True).render("EVA FAULT DETAIL", True, bright)
+            self.screen.blit(title, (panel.x + 18, panel.y + 14))
+            msg = font(18, bold=True).render("NO ACTIVE FAULT", True, glow)
+            self.screen.blit(msg, (panel.x + 18, panel.y + 58))
+            return
+
+        self._fault_detail_index %= len(faults)
+        name = faults[self._fault_detail_index]
+        status = engine_status(state)
+        title = f"EVA FAULT DETAIL {self._fault_detail_index + 1}/{len(faults)}"
+        self.screen.blit(font(22, bold=True).render(title, True, bright), (panel.x + 18, panel.y + 12))
+        self.screen.blit(font(24, bold=True).render(name, True, fault_color), (panel.x + 18, panel.y + 48))
+
+        y = panel.y + 88
+        for heading, body in (
+            ("WHY", fault_reason(name, state)),
+            ("ACTION", fault_action(name, state)),
+        ):
+            self.screen.blit(font(15, bold=True).render(heading, True, bright), (panel.x + 18, y))
+            y += 18
+            for line in self._wrap_words(body, max(36, panel.width // 14)):
+                self.screen.blit(font(14).render(line, True, glow), (panel.x + 28, y))
+                y += 17
+            y += 6
+
+        rows = [
+            ("RPM", f"{status['rpm']}"),
+            ("SPD/GEAR", f"{status['speed_mph']} mph / {status['gear']}"),
+            ("MODE/FUEL", f"{status['mode']} / {status['fuel_type']} E{status['ethanol_content_pct']}"),
+            ("BOOST", f"{status['boost_psi']} / {status['target_boost_psi']} psi"),
+            ("WG/TPS", f"{status['wastegate_duty_pct']}% / {status['throttle_pct']}%"),
+            ("AFR", f"{status['afr_left']} / {status['afr_right']}"),
+            ("KNOCK", f"{status['knock_events']}"),
+            ("OIL", f"{status['oil_pressure_psi']} psi / {status['oil_temp_f']} F"),
+            ("CLT/IAT", f"{status['coolant_temp_f']} / {status['intake_temp_f']} F"),
+            ("EGT/BATT", f"{status['exhaust_temp_f']} F / {status['battery_voltage']} V"),
+            ("WMI", f"{status['wmi_actual_flow_cc_min']}/{status['wmi_commanded_flow_cc_min']} ccm {status['wmi_tank_level_pct']}%"),
+            ("TRAC", f"{status['traction_slip_pct']}% slip / {status['traction_torque_cut_pct']}% cut"),
+        ]
+        grid_x = panel.x + panel.width // 2 + 18
+        grid_y = panel.y + 88
+        label_w = max(70, int(panel.width * 0.13))
+        row_h = max(18, min(25, (panel.bottom - grid_y - 42) // len(rows)))
+        self.screen.blit(font(15, bold=True).render("CURRENT VALUES", True, bright), (grid_x, panel.y + 64))
+        for idx, (label, value) in enumerate(rows):
+            row_y = grid_y + idx * row_h
+            self.screen.blit(font(13, bold=True).render(label, True, glow), (grid_x, row_y))
+            self.screen.blit(font(14, bold=True).render(value, True, bright), (grid_x + label_w, row_y))
+
+        hint = "ARROWS: NEXT FAULT  |  ENTER: NEXT  |  ESC: BACK"
+        hint_surface = font(12, bold=True).render(hint, True, glow)
+        self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 18, panel.bottom - 24))
 
     def _render_settings_overlay(self) -> None:
         bg, bright, glow, _fault = self._theme_colors()
@@ -1396,6 +1514,19 @@ class HUDRenderer:
             return self._focus_targets[self._focus_index]
         mode_idx = self._focus_index - len(self._focus_targets)
         return f"MODE:{mode_idx}"
+
+    def _render_home_fault_focus_outline(self, state: StateSnapshot) -> None:
+        if self._active_menu != "home" or self._home_focus_target() != "FAULTS":
+            return
+        alert_rect = next((w.rect for w in self.widgets if isinstance(w, AlertPanel)), None)
+        if alert_rect is None:
+            return
+        _bg, bright, glow, fault = self._theme_colors()
+        color = fault if state.faults else bright
+        pygame.draw.rect(self.screen, color, alert_rect.inflate(6, 6), width=2, border_radius=6)
+        label = "SELECT FAULT" if state.faults else "NO FAULT"
+        surface = font(11, bold=True).render(label, True, color if state.faults else glow)
+        self.screen.blit(surface, (alert_rect.x + 8, max(0, alert_rect.y - surface.get_height() - 2)))
 
     def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
         _bg, bright, _glow, _fault = self._theme_colors()

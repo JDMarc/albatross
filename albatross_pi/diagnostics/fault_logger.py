@@ -78,6 +78,42 @@ def fault_reason(fault: str, snapshot: StateSnapshot) -> str:
     return reasons.get(fault, "Fault was reported by the HUD, CAN decoder, or safety supervisor.")
 
 
+def fault_action(fault: str, snapshot: StateSnapshot) -> str:
+    actions = {
+        "WMI FLOW LOW": "Boost request is derated; WMI status remains faulted until measured flow recovers.",
+        "EGT HIGH": "Boost is reduced and limp can be requested if exhaust temperature keeps rising.",
+        "CAN TIMEOUT": "Controller falls back to no-boost safety behavior until CAN traffic returns.",
+        "CAN STALE": "HUD flags stale telemetry; Arduino no-boost timeout covers stale control links.",
+        "IMU FAULT": "Lean-aware features should be ignored until IMU data is sane again.",
+        "AIR SHOT LOW": "Air Shot output is blocked or allowed to expire until tank pressure recovers.",
+        "LOW OIL PRESS": "Fault is logged; sustained/critical pressure escalates toward shutdown request.",
+        "CRITICAL OIL PRESS": "Safety supervisor requests no boost and can command engine-run off when safe.",
+        "OVERBOOST": "Boost controller drives toward no boost; MS3 hard limits should remain authoritative.",
+        "KNOCK": "Boost request is reduced and safety supervisor can enter limp if knock persists.",
+        "KNOCK ESCALATE": "Boost and timing authority are reduced through the supervisor/ECU safety stack.",
+        "COOLANT HOT": "Boost is derated and limp can be requested above the hard thermal ceiling.",
+        "ECU STALE": "Safety supervisor requests no boost, limp, flame-off, and high traction intervention.",
+        "SPEED SENSOR": "Traction intervention is suppressed when wheel-speed plausibility is bad.",
+        "GEAR SENSOR": "Gear-dependent features fall back to conservative behavior.",
+        "CLUTCH SLIP": "Fault is logged; supervisor can derate when slip is severe.",
+        "LOW FUEL": "Warning is shown and logged; no automatic shutdown is requested.",
+        "WMI TANK EMPTY": "WMI-dependent boost authority is removed until tank level recovers.",
+        "WMI PUMP FAULT": "WMI-dependent boost authority is removed while aggregate WMI fault is active.",
+        "WMI PRESSURE LOW": "Boost request is derated because WMI pressure/flow response is insufficient.",
+        "WASTEGATE STUCK": "Boost-control fault is logged; verify actuator, driver, and pressure plumbing.",
+        "BOOST CONTROL ERROR": "Supervisor reduces requested boost if deviation persists under load.",
+        "CYL EGT BOOST MISMATCH": "Fault is logged as a plausibility warning for tuning/boost validation.",
+        "INTAKE AIR HOT": "Boost target is thermally derated until intake temperature drops.",
+        "BATTERY LOW": "Fault is logged; update installs can be blocked by low voltage preflight.",
+        "BATTERY HIGH": "Fault is logged as charging-system over-voltage risk.",
+        "SENSOR RANGE FAULT": "Critical sensor values are treated as untrusted; conservative defaults apply.",
+        "ENGINE RUN SWITCH OFF": "Engine-run output was commanded off by the safety supervisor.",
+        "ENGINE SHUTDOWN REQUEST": "Shutdown escalation was issued after critical criteria persisted.",
+        "SLOW TURBO SPOOL": "Fault is logged; boost system should be checked for leaks, duty, or turbo response.",
+    }
+    return actions.get(fault, "Fault is logged with the current engine snapshot for diagnosis.")
+
+
 def engine_status(snapshot: StateSnapshot) -> dict[str, Any]:
     return {
         "rpm": int(snapshot.engine.rpm),
