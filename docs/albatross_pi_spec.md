@@ -34,7 +34,7 @@
   - `0x121`: Mode selector (1 byte: 1=ECO … 5=ALBATROSS) for synchronized HUD/actuator state.
   - `0x140`: NFC authentication acknowledgement (0x00 fail / 0x01 success).
 - **Pi → MS3 frames** (examples):
-  - Fuel profile/table requests (`0x150`) and spark-table requests (`0x151`).
+  - Fuel profile/table requests (`0x150`), spark-table requests (`0x151`), and rev-limiter strategy requests (`0x152`, 0=fuel cut, 1=ignition/spark cut for flame mode).
   - Timing bias requests and torque ceiling trims (ECU firmware track).
   - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
 - **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10E`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, battery voltage, flex-fuel ethanol content, and injector pulse width/duty; Arduino status (`0x130`-`0x13F`, `0x145`-`0x146`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, traction status, service sensor voltages, service pin/relay states, and firmware version.

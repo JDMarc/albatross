@@ -20,6 +20,7 @@ from tkinter import ttk
 from albatross_pi.canbus.encode import (
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
+    build_ecu_rev_limiter_strategy_frame,
     build_ecu_spark_table_frame,
     build_engine_run_switch_frame,
     build_flame_mode_frame,
@@ -356,6 +357,7 @@ class App:
             self._send(*build_nfc_auth_frame(bool(self.vars["nfc_ok"].get())))
             self._send(*build_wmi_enable_frame(bool(self.vars["wmi_arm"].get())))
             self._send(*build_flame_mode_frame(bool(self.vars["flame_mode"].get())))
+            self._send(*build_ecu_rev_limiter_strategy_frame(bool(self.vars["flame_mode"].get())))
             self._send(*build_limp_mode_frame(bool(self.vars["limp_mode"].get())))
             self._send(*build_engine_run_switch_frame(bool(self.vars["engine_run"].get())))
             self._send(*build_ecu_fuel_profile_frame(fuel_code))

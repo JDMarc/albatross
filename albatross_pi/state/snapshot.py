@@ -79,6 +79,8 @@ class TemperaturesState:
 class EnvironmentState:
     mode: str = "ECO"
     fuel_type: str = "93"
+    flame_mode_enabled: bool = False
+    rev_limiter_strategy: str = "FUEL CUT"
     ethanol_content_pct: float = -1.0
     ambient_temp_f: float = 70.0
     gps_lock: bool = False

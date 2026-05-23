@@ -5,6 +5,7 @@ from .iface import SocketCANInterface
 from .encode import (
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
+    build_ecu_rev_limiter_strategy_frame,
     build_ecu_spark_table_frame,
     build_engine_run_switch_frame,
     build_fuel_type_frame,
@@ -26,6 +27,7 @@ __all__ = [
     "SocketCANInterface",
     "build_boost_target_frame",
     "build_ecu_fuel_profile_frame",
+    "build_ecu_rev_limiter_strategy_frame",
     "build_ecu_spark_table_frame",
     "build_engine_run_switch_frame",
     "build_fuel_type_frame",

@@ -242,6 +242,7 @@ class HUDRenderer:
         self._mode_callback = None
         self._media_callback = None
         self._fuel_type_callback = None
+        self._flame_callback = None
         self._fault_log_callback: Callable[[tuple[str, ...], StateSnapshot], None] | None = None
         self._log_export_callback: Callable[[], str] | None = None
         self._update_install_callback: Callable[[StateSnapshot], str] | None = None
@@ -264,8 +265,9 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE"]
         self._phone_link_enabled = False
+        self._flame_mode_manual_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
         self._fuel_types = ["87", "91", "93", "100", "E85", "C16"]
@@ -448,6 +450,7 @@ class HUDRenderer:
         self._theme_index = self._index_for_value(self._themes, preferences.get("theme"), self._theme_index)
         self._phone_link_enabled = bool(preferences.get("phone_link_enabled", self._phone_link_enabled))
         self._auto_dim_enabled = bool(preferences.get("auto_dim_enabled", self._auto_dim_enabled))
+        self._flame_mode_manual_enabled = bool(preferences.get("flame_mode_enabled", self._flame_mode_manual_enabled))
         brightness = preferences.get("brightness_pct")
         if isinstance(brightness, (int, float)):
             closest = min(
@@ -464,6 +467,8 @@ class HUDRenderer:
                 self.state.environment,
                 mode=mode,
                 fuel_type=fuel_type,
+                flame_mode_enabled=self._effective_flame_mode_enabled(),
+                rev_limiter_strategy="IGNITION CUT" if self._effective_flame_mode_enabled() else "FUEL CUT",
                 brightness_pct=float(self._brightness_levels[self._brightness_index]),
             ),
             traction=replace(self.state.traction, intervention_level=traction_level),
@@ -476,6 +481,7 @@ class HUDRenderer:
                 "mode": self._modes[self._mode_index],
                 "traction_level": self._traction_levels[self._traction_index],
                 "fuel_type": self._fuel_types[self._fuel_type_index],
+                "flame_mode_enabled": self._flame_mode_manual_enabled,
                 "brightness_pct": self._brightness_levels[self._brightness_index],
                 "phone_link_enabled": self._phone_link_enabled,
                 "theme": self._themes[self._theme_index],
@@ -491,8 +497,28 @@ class HUDRenderer:
             self._traction_callback(self._traction_index + 1)
         if self._fuel_type_callback:
             self._fuel_type_callback(self._fuel_type_index)
+        self._notify_flame_mode()
         if self._media_callback:
             self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+
+    def _effective_flame_mode_enabled(self, mode_index: int | None = None) -> bool:
+        idx = self._mode_index if mode_index is None else mode_index
+        mode = self._modes[max(0, min(idx, len(self._modes) - 1))]
+        return self._flame_mode_manual_enabled or mode in {"RACE", "ALBATROSS"}
+
+    def _notify_flame_mode(self) -> None:
+        enabled = self._effective_flame_mode_enabled()
+        with self.state_lock:
+            self.state = replace(
+                self.state,
+                environment=replace(
+                    self.state.environment,
+                    flame_mode_enabled=enabled,
+                    rev_limiter_strategy="IGNITION CUT" if enabled else "FUEL CUT",
+                ),
+            )
+        if self._flame_callback:
+            self._flame_callback(enabled)
 
     def _apply_mode_selection(self, mode_index: int, *, notify: bool = True) -> None:
         if not self._modes:
@@ -508,6 +534,8 @@ class HUDRenderer:
         if notify and self._mode_callback:
             self._mode_callback(self._mode_index + 1)
         if notify:
+            self._notify_flame_mode()
+        if notify:
             self._save_preferences()
         self._mode_layout_anim_until = time.monotonic() + 0.9
         self._create_widgets()
@@ -517,6 +545,9 @@ class HUDRenderer:
 
     def configure_fuel_type_callback(self, callback) -> None:
         self._fuel_type_callback = callback
+
+    def configure_flame_callback(self, callback) -> None:
+        self._flame_callback = callback
 
     def configure_fault_log_callback(self, callback: Callable[[tuple[str, ...], StateSnapshot], None]) -> None:
         self._fault_log_callback = callback
@@ -1070,6 +1101,10 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "FUEL TYPE":
                 self._apply_fuel_type_selection((self._fuel_type_index + 1) % len(self._fuel_types))
+            elif item == "FLAME MODE":
+                self._flame_mode_manual_enabled = True
+                self._notify_flame_mode()
+                self._save_preferences()
             elif item == "BRIGHTNESS":
                 self._brightness_index = min(self._brightness_index + 1, len(self._brightness_levels) - 1)
                 self._save_preferences()
@@ -1114,6 +1149,10 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "FUEL TYPE":
                 self._apply_fuel_type_selection((self._fuel_type_index - 1) % len(self._fuel_types))
+            elif item == "FLAME MODE":
+                self._flame_mode_manual_enabled = False
+                self._notify_flame_mode()
+                self._save_preferences()
             elif item == "BRIGHTNESS":
                 self._brightness_index = max(self._brightness_index - 1, 0)
                 self._save_preferences()
@@ -1203,6 +1242,10 @@ class HUDRenderer:
                 self._phone_link_enabled = not self._phone_link_enabled
                 if self._media_callback:
                     self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+                self._save_preferences()
+            elif item == "FLAME MODE":
+                self._flame_mode_manual_enabled = not self._flame_mode_manual_enabled
+                self._notify_flame_mode()
                 self._save_preferences()
             elif item == "EXPORT LOGS":
                 self._export_logs()
@@ -1513,6 +1556,8 @@ class HUDRenderer:
         firmware_rows.extend(
             [
                 ("Mode", state.environment.mode, None),
+                ("Flame", "ON" if state.environment.flame_mode_enabled else "OFF", state.environment.flame_mode_enabled),
+                ("Rev limit", state.environment.rev_limiter_strategy, None),
                 (
                     "Fuel",
                     f"{state.environment.fuel_type} E{state.environment.ethanol_content_pct:.0f}"
@@ -1604,6 +1649,10 @@ class HUDRenderer:
             return self._traction_levels[self._traction_index]
         if item == "FUEL TYPE":
             return self._fuel_types[self._fuel_type_index]
+        if item == "FLAME MODE":
+            if self.state.environment.mode in {"RACE", "ALBATROSS"}:
+                return "AUTO ON"
+            return "ON" if self._flame_mode_manual_enabled else "OFF"
         if item == "BRIGHTNESS":
             return f"{self._brightness_levels[self._brightness_index]}%"
         if item == "PHONE LINK":

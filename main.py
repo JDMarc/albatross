@@ -21,6 +21,7 @@ from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mo
 from albatross_pi.canbus.encode import (
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
+    build_ecu_rev_limiter_strategy_frame,
     build_ecu_spark_table_frame,
     build_engine_run_switch_frame,
     build_fuel_type_frame,
@@ -186,6 +187,15 @@ def main() -> None:
                 aggregator.mark_sent_frame(*frame)
             _send_boost_request()
 
+        def _send_flame_mode(enabled: bool) -> None:
+            assert can_interface is not None
+            for frame in (
+                build_flame_mode_frame(enabled),
+                build_ecu_rev_limiter_strategy_frame(enabled),
+            ):
+                can_interface.send(*frame)
+                aggregator.mark_sent_frame(*frame)
+
         def _send_fuel_type(fuel_code: int) -> None:
             assert can_interface is not None
             for frame in (
@@ -217,6 +227,7 @@ def main() -> None:
         renderer.configure_mode_callback(_send_mode_selection)
         renderer.configure_media_callback(_send_media_control)
         renderer.configure_fuel_type_callback(_send_fuel_type)
+        renderer.configure_flame_callback(_send_flame_mode)
         renderer.sync_persisted_controls()
 
         def _safety_supervisor() -> None:
@@ -368,6 +379,7 @@ def main() -> None:
                         build_boost_target_frame(0.0),
                         build_limp_mode_frame(True),
                         build_flame_mode_frame(False),
+                        build_ecu_rev_limiter_strategy_frame(False),
                         build_traction_level_frame(3),
                     ):
                         can_interface.send(*frame)
@@ -386,6 +398,7 @@ def main() -> None:
                         build_boost_target_frame(0.0),
                         build_limp_mode_frame(True),
                         build_flame_mode_frame(False),
+                        build_ecu_rev_limiter_strategy_frame(False),
                         build_traction_level_frame(3),
                     ):
                         can_interface.send(*frame)
@@ -497,6 +510,8 @@ def main() -> None:
                     ethanol_content_pct=float(obj.get("ethanol_pct", snap.environment.ethanol_content_pct)),
                     fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
                     message_line=str(obj.get("msg", snap.environment.message_line)),
+                    flame_mode_enabled=bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)),
+                    rev_limiter_strategy="IGNITION CUT" if bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)) else "FUEL CUT",
                 )
                 air = replace(
                     snap.air_shot,

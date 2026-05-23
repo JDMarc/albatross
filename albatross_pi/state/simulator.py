@@ -184,6 +184,8 @@ class StateSimulator:
             snapshot.environment,
             mode=mode,
             fuel_type=fuel_type,
+            flame_mode_enabled=mode in {"RACE", "ALBATROSS"} or snapshot.environment.flame_mode_enabled,
+            rev_limiter_strategy="IGNITION CUT" if (mode in {"RACE", "ALBATROSS"} or snapshot.environment.flame_mode_enabled) else "FUEL CUT",
             ambient_temp_f=72 + math.sin(self._phase * math.tau * 0.2) * 5,
             gps_lock=rng.random() > 0.1,
             rain=rng.random() > 0.9,

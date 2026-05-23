@@ -75,6 +75,17 @@ def build_ecu_spark_table_frame(mode_code: int) -> tuple[int, bytes]:
     return int(PiToEcuID.SPARK_TABLE_SELECT), payload
 
 
+def build_ecu_rev_limiter_strategy_frame(flame_mode_enabled: bool) -> tuple[int, bytes]:
+    """Return a frame selecting MS3 rev limiter strategy.
+
+    Payload byte 0: 0=fuel cut, 1=ignition/spark cut. MS3/TunerStudio must map
+    this request to a real table/switch input; wasted-spark ignition mode itself
+    is not treated as a live CAN-toggleable setting here.
+    """
+    payload = bytes((0x01 if flame_mode_enabled else 0x00,))
+    return int(PiToEcuID.REV_LIMITER_STRATEGY), payload
+
+
 def build_engine_run_switch_frame(enabled: bool) -> tuple[int, bytes]:
     """Return a frame to emulate an engine run switch over CAN.
 

@@ -41,8 +41,10 @@ Current build wiring assumption:
 1. Configure conservative base spark and VE maps for first-fire.
 2. Configure fuel-specific VE/AFR/stoich behavior for the fuels in the Pi fuel profile frame (`0x150`). Current table indexes are 0=pump gas, 1=100 octane, 2=E85, and 3=C16. With the flex sensor wired to MS3, let MS3 own real fuel composition correction; the Pi uses ethanol percentage only for supervisory boost-cap derating/validation.
 3. Configure Spark Table 1/2 as the initial/conservative strategy and Spark Table 3/4 or the configured switched strategy as the SPORT+ performance spark map. The Pi sends `0x151` with 0 for ECO/NORMAL and 1 for SPORT/RACE/ALBATROSS.
-4. Enable over-temp and AFR protection strategies available in your firmware.
-5. Set hard rev limit and soft rev limit with predictable cut behavior.
+4. Configure rev limiter cut strategy switching for flame mode if your MS3 firmware/settings allow it. The Pi sends `0x152` with 0=fuel cut and 1=ignition/spark cut; RACE/ALBATROSS force the ignition-cut request, and the HUD flame setting can request it in other modes.
+5. Do not treat wasted-spark/COP/coil-count ignition mode as a live CAN toggle. MS3/TunerStudio exposes it as a core ignition setup item under Number Of Coils/Spark Output; configure and validate it before runtime rather than switching it while running.
+6. Enable over-temp and AFR protection strategies available in your firmware.
+7. Set hard rev limit and soft rev limit with predictable cut behavior.
 
 ## 3) Dual map / table switching for safe timing map
 
@@ -69,8 +71,9 @@ Current build wiring assumption:
 2. Enable MS3 CAN broadcast output for the engine data the Pi needs. TunerStudio's built-in broadcasts use standard 11-bit IDs and predefined layouts, so the Pi decoder should either consume MS3's native broadcast format directly or use a small translator. Do not rely on TunerStudio Lite to emit arbitrary Albatross `0x100`-style frames at runtime.
 3. For the current Albatross canonical telemetry map, reserve ECU/HUD IDs `0x100`-`0x10E`; `0x10D` is flex fuel ethanol percentage, byte 0 = ethanol content percent. `0x10E` is injector status: bytes 0-1 = injector pulse width in milliseconds x100, bytes 2-3 = injector duty percent x10. Duty may be 0 if the Pi should derive it from pulse width and RPM.
 4. Keep Arduino status ownership on `0x130`-`0x13E`, including wheel speed (`0x137`) and WMI status (`0x139`).
-5. Confirm periodic publish rates are stable before enabling safety logic: 20-50 Hz is enough for HUD/oil/flex data; wheel speed and WMI can remain Arduino-side at the sketch's 20 Hz status cadence until road testing proves a need for more.
-6. Validate with `candump` or TunerStudio's CAN test tools that Pi/Arduino commands are visible and correctly decoded.
+5. Reserve Pi-to-ECU command `0x152` for rev limiter strategy selection: byte 0 = 0 fuel cut, 1 ignition/spark cut. Map this only after confirming the MS3 firmware can safely expose that strategy switch through CAN or a CAN-driven generic input.
+6. Confirm periodic publish rates are stable before enabling safety logic: 20-50 Hz is enough for HUD/oil/flex data; wheel speed and WMI can remain Arduino-side at the sketch's 20 Hz status cadence until road testing proves a need for more.
+7. Validate with `candump` or TunerStudio's CAN test tools that Pi/Arduino commands are visible and correctly decoded.
 
 ## 7) Limp mode behavior (critical)
 

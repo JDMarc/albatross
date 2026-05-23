@@ -515,6 +515,22 @@ class CANStateAggregator:
         env_dict["message_line"] = f"SPARK {table}"
         self._environment = EnvironmentState(**env_dict)
 
+    def _update_flame_mode(self, data: bytes) -> None:
+        if not data:
+            return
+        enabled = bool(data[0])
+        env_dict = self._environment.__dict__.copy()
+        env_dict["flame_mode_enabled"] = enabled
+        env_dict["rev_limiter_strategy"] = "IGNITION CUT" if enabled else "FUEL CUT"
+        self._environment = EnvironmentState(**env_dict)
+
+    def _update_rev_limiter_strategy(self, data: bytes) -> None:
+        if not data:
+            return
+        env_dict = self._environment.__dict__.copy()
+        env_dict["rev_limiter_strategy"] = "IGNITION CUT" if data[0] else "FUEL CUT"
+        self._environment = EnvironmentState(**env_dict)
+
     def _update_nfc_auth(self, data: bytes) -> None:
         if not data:
             return
@@ -568,11 +584,13 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.SERVICE_FIRMWARE_VERSION): CANStateAggregator._update_service_firmware_version,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
+    int(PiToArduinoID.FLAME_MODE): CANStateAggregator._update_flame_mode,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,
     int(PiToArduinoID.FUEL_TYPE_SELECT): CANStateAggregator._update_fuel_type,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
     int(PiToEcuID.FUEL_PROFILE_SELECT): CANStateAggregator._update_ecu_fuel_profile,
     int(PiToEcuID.SPARK_TABLE_SELECT): CANStateAggregator._update_ecu_spark_table,
+    int(PiToEcuID.REV_LIMITER_STRATEGY): CANStateAggregator._update_rev_limiter_strategy,
     int(SystemCommandID.POST_REQUEST): CANStateAggregator._update_post_frame,
     int(SystemCommandID.POST_RESPONSE): CANStateAggregator._update_post_frame,
 }

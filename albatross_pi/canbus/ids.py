@@ -59,6 +59,7 @@ class PiToEcuID(IntEnum):
 
     FUEL_PROFILE_SELECT = 0x150
     SPARK_TABLE_SELECT = 0x151
+    REV_LIMITER_STRATEGY = 0x152
 
 
 class PiToArduinoID(IntEnum):
