@@ -7,17 +7,19 @@ import logging
 import os
 import socket
 import signal
+import struct
 import sys
 import threading
 import time
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator
 
 import pygame
 
 from albatross_pi.boost_strategy import calculate_boost_target
-from albatross_pi.canbus import CANStateAggregator, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
+from albatross_pi.canbus import ArduinoToHudID, CANStateAggregator, ECUToHudID, PiToArduinoID, PiToEcuID, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
 from albatross_pi.canbus.encode import (
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
@@ -34,7 +36,7 @@ from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.state.simulator import StateSimulator
-from albatross_pi.state.snapshot import ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, WMIState
+from albatross_pi.state.snapshot import CANFrameRecord, ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, WMIState
 from albatross_pi.updater import install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
 
 
@@ -51,6 +53,90 @@ def _configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+
+def _clamp_int(value: object, lo: int, hi: int, default: int = 0) -> int:
+    try:
+        return max(lo, min(hi, int(float(value))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _demo_frame_record(frame_id: int, name: str, payload: bytes, timestamp: datetime, direction: str = "RX") -> CANFrameRecord:
+    return CANFrameRecord(
+        arbitration_id=frame_id,
+        name=name,
+        data_hex=payload.hex(" ").upper(),
+        direction=direction,
+        timestamp=timestamp,
+    )
+
+
+def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...]:
+    """Build representative raw CAN records for the UDP-only Windows demo path."""
+    now = datetime.now()
+    gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
+    mode_map = {"ECO": 1, "NORMAL": 2, "SPORT": 3, "RACE": 4, "ALBATROSS": 5}
+    fuel_type_map = {"87": 0, "91": 1, "93": 2, "100": 3, "E85": 4, "C16": 5}
+    gear = str(obj.get("gear", "N"))
+    mode = str(obj.get("mode", "NORMAL"))
+    fuel_type = str(obj.get("fuel_type", "93"))
+    speed_mps100 = _clamp_int(float(obj.get("speed", 0.0)) / 2.236936 * 100, 0, 65535)
+    light_flags = 0
+    light_flags |= 0x01 if bool(obj.get("left_indicator", False)) else 0
+    light_flags |= 0x02 if bool(obj.get("right_indicator", False)) else 0
+    light_flags |= 0x04 if bool(obj.get("high_beam", False)) else 0
+    light_flags |= 0x08 if bool(obj.get("neutral_light", gear == "N")) else 0
+    light_flags |= 0x10 if bool(obj.get("brake_light", False)) else 0
+    light_flags |= 0x20 if bool(obj.get("oil_warning", False)) else 0
+
+    def f_to_cx10(key: str, default_f: float) -> int:
+        temp_f = float(obj.get(key, default_f))
+        return _clamp_int((temp_f - 32.0) * 5.0 / 9.0 * 10, 0, 65535)
+
+    output_bits = 0
+    output_bits |= 0x01 if _clamp_int(obj.get("wg1", 0), 0, 100) > 0 else 0
+    output_bits |= 0x02 if _clamp_int(obj.get("wg2", 0), 0, 100) > 0 else 0
+    output_bits |= 0x04 if bool(obj.get("wmi_arm", False)) else 0
+    output_bits |= 0x08 if bool(obj.get("flame_mode", False)) else 0
+    output_bits |= 0x10 if bool(obj.get("airshot_firing", False)) else 0
+    output_bits |= 0x20 if bool(obj.get("air_compressor", False)) else 0
+    output_bits |= 0x40 if _clamp_int(obj.get("wg1", 0), 0, 100) > 0 else 0
+    output_bits |= 0x80 if _clamp_int(obj.get("wg2", 0), 0, 100) > 0 else 0
+    command_bits = 0
+    command_bits |= 0x01 if bool(obj.get("nfc_ok", True)) else 0
+    command_bits |= 0x02 if bool(obj.get("flame_mode", False)) else 0
+    command_bits |= 0x04 if bool(obj.get("limp_mode", False)) else 0
+    command_bits |= 0x08 if bool(obj.get("engine_run", True)) else 0
+    command_bits |= 0x10 if bool(obj.get("wmi_arm", False)) else 0
+    fault_bits = 0
+    fault_bits |= 0x04 if bool(obj.get("wmi_fault", False)) else 0
+    fault_bits |= 0x08 if bool(obj.get("traction_fault", False)) else 0
+
+    records = [
+        (ECUToHudID.ENGINE_RPM, struct.pack(">H", _clamp_int(obj.get("rpm", 0), 0, 65535)), "RX"),
+        (ECUToHudID.THROTTLE_POSITION, bytes((_clamp_int(obj.get("tps", 0), 0, 100),)), "RX"),
+        (ECUToHudID.BOOST_PRESSURE, struct.pack(">H", _clamp_int(float(obj.get("boost", 0.0)) * 10, 0, 65535)), "RX"),
+        (ECUToHudID.OIL_PRESSURE_TEMP, struct.pack(">HH", _clamp_int(float(obj.get("oilp", 0.0)) * 10, 0, 65535), f_to_cx10("oilt", 205.0)), "RX"),
+        (ECUToHudID.COOLANT_TEMP, struct.pack(">H", f_to_cx10("clt", 190.0)), "RX"),
+        (ECUToHudID.BATTERY_VOLTAGE, struct.pack(">H", _clamp_int(float(obj.get("batt_v", 0.0)) * 1000, 0, 65535)), "RX"),
+        (ECUToHudID.FLEX_FUEL, bytes((_clamp_int(obj.get("ethanol_pct", 0), 0, 100),)), "RX"),
+        (ArduinoToHudID.WHEEL_SPEED, struct.pack(">HH", speed_mps100, speed_mps100), "RX"),
+        (ArduinoToHudID.WMI_STATUS, struct.pack(">BHHB", _clamp_int(obj.get("wmi_tank", 0), 0, 100), _clamp_int(obj.get("wmi_commanded", 0), 0, 65535), _clamp_int(obj.get("wmi_actual", 0), 0, 65535), 1 if bool(obj.get("wmi_fault", False)) else 0), "RX"),
+        (ArduinoToHudID.LIGHT_STATUS, bytes((light_flags,)), "RX"),
+        (ArduinoToHudID.WASTEGATE_STATUS, bytes((_clamp_int(obj.get("wg1", 0), 0, 100), _clamp_int(obj.get("wg2", 0), 0, 100))), "RX"),
+        (ArduinoToHudID.SERVICE_SENSOR_VOLTAGES, struct.pack(">HHHH", _clamp_int(float(obj.get("oil_sensor_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("wmi_tank_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("arduino_5v", 5.0)) * 1000, 0, 65535), 0), "RX"),
+        (ArduinoToHudID.SERVICE_DIGITAL_STATES, bytes((light_flags | (0x40 if bool(obj.get("wmi_pressure_ok", True)) else 0), output_bits, command_bits, fault_bits)), "RX"),
+        (PiToArduinoID.MODE_SELECTION, bytes((mode_map.get(mode, 2),)), "TX"),
+        (PiToArduinoID.FUEL_TYPE_SELECT, bytes((fuel_type_map.get(fuel_type, 2),)), "TX"),
+        (PiToArduinoID.FLAME_MODE, bytes((1 if bool(obj.get("flame_mode", False)) else 0,)), "TX"),
+        (PiToEcuID.REV_LIMITER_STRATEGY, bytes((1 if bool(obj.get("flame_mode", False)) else 0,)), "TX"),
+        (ArduinoToHudID.GEAR_POSITION, bytes((gear_map.get(gear, 0),)), "RX"),
+    ]
+    return tuple(
+        _demo_frame_record(int(frame_id), f"{frame_id.__class__.__name__}.{frame_id.name}", payload, now, direction)
+        for frame_id, payload, direction in reversed(records)
     )
 
 
@@ -547,7 +633,7 @@ def main() -> None:
                     oil_warning=bool(obj.get("oil_warning", snap.lighting.oil_warning)),
                 )
                 service = ServiceStatus(
-                    recent_can_frames=snap.service.recent_can_frames,
+                    recent_can_frames=_demo_recent_can_frames(obj),
                     sensor_voltages=(
                         ServiceReading("Oil pressure sensor", f"{float(obj.get('oil_sensor_v', 2.75)):.2f} V"),
                         ServiceReading("WMI tank sender", f"{float(obj.get('wmi_tank_v', 3.25)):.2f} V"),
