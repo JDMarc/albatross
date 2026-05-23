@@ -462,6 +462,33 @@ class HUDRenderer:
             if engine.rpm > 1600 and 12.0 <= temps.battery_voltage < 13.0:
                 active.add("BATTERY NOT CHARGING")
 
+        if "COOLANT HOT" not in faults and 225.0 < temps.coolant_temp_f <= 240.0:
+            active.add("COOLANT TEMP CLIMBING")
+        if "EGT HIGH" not in faults and 1550.0 < temps.exhaust_temp_f <= 1650.0:
+            active.add("EGT NEAR LIMIT")
+        if "LOW OIL PRESS" not in faults and engine.rpm > 1800 and 12.0 <= temps.oil_pressure_psi < 18.0:
+            active.add("OIL PRESSURE MARGINAL")
+        if temps.oil_temp_f > 260.0 and "COOLANT HOT" not in faults:
+            active.add("OIL TEMP HIGH")
+        if "KNOCK" not in faults and "KNOCK ESCALATE" not in faults and 0 < engine.knock_events < 3:
+            active.add("KNOCK ACTIVITY")
+        if "WMI TANK EMPTY" not in faults and 3.0 <= state.wmi.tank_level_pct < 12.0:
+            active.add("WMI TANK LOW")
+        if (
+            "WMI FLOW LOW" not in faults
+            and state.wmi.commanded_flow_cc_min > 0
+            and state.wmi.actual_flow_cc_min < state.wmi.commanded_flow_cc_min * 0.85
+        ):
+            active.add("WMI FLOW TREND")
+        if (
+            "BOOST CONTROL ERROR" not in faults
+            and "SLOW TURBO SPOOL" not in faults
+            and engine.target_boost_psi >= 8.0
+            and engine.throttle_pct > 35.0
+            and engine.boost_psi < engine.target_boost_psi - 3.0
+        ):
+            active.add("BOOST LAG WATCH")
+
         for advisory in active:
             self._advisory_latch_until[advisory] = now_s + 3.5
         self._advisory_latch_until = {
@@ -1016,6 +1043,7 @@ class HUDRenderer:
                     environment=state.environment,
                     economy=state.economy,
                     service=state.service,
+                    system=state.system,
                     shift_light=state.shift_light,
                     faults=state.faults,
                     advisories=state.advisories,
@@ -1566,6 +1594,37 @@ class HUDRenderer:
             self.screen.blit(value_surface, (value_x, y))
             y += row_h
 
+    def _draw_can_frame_group(self, title: str, frames, rect: pygame.Rect, now) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        pygame.draw.rect(self.screen, (28, 18, 0), rect, width=1, border_radius=5)
+        self.screen.blit(font(13, bold=True).render(title, True, bright), (rect.x + 10, rect.y + 8))
+        if not frames:
+            self.screen.blit(font(12).render("NO DATA", True, glow), (rect.x + 10, rect.y + 34))
+            return
+        y = rect.y + 30
+        row_h = 16
+        max_rows = max(1, (rect.bottom - y - 6) // row_h)
+        id_x = rect.x + 10
+        name_x = rect.x + 92
+        age_w = 58
+        age_x = rect.right - age_w - 10
+        data_x = rect.x + int(rect.width * 0.54)
+        data_w = max(48, age_x - data_x - 8)
+        name_w = max(80, data_x - name_x - 8)
+
+        for frame in frames[:max_rows]:
+            age_ms = max(0, int((now - frame.timestamp).total_seconds() * 1000))
+            id_text = f"{frame.direction:<2} {frame.arbitration_id:03X}"
+            name = frame.name.rsplit(".", 1)[-1]
+            name_size = fit_font_size(name, name_w, row_h, start_size=12)
+            data_size = fit_font_size(frame.data_hex, data_w, row_h, start_size=12)
+            age_text = f"{age_ms:>4}ms" if age_ms < 10000 else "9999ms"
+            self.screen.blit(font(12, bold=True).render(id_text, True, bright), (id_x, y))
+            self.screen.blit(font(name_size).render(name, True, glow), (name_x, y))
+            self.screen.blit(font(data_size).render(frame.data_hex, True, glow), (data_x, y))
+            self.screen.blit(font(12).render(age_text, True, glow), (age_x, y))
+            y += row_h
+
     def _render_service_overlay(self, state: StateSnapshot) -> None:
         bg, bright, glow, fault = self._theme_colors()
         sw, sh = self.screen.get_size()
@@ -1587,14 +1646,8 @@ class HUDRenderer:
         right_x = left.right + gap
         right_w = panel.right - right_x - 14
 
-        frame_rows: list[tuple[str, str, bool | None]] = []
         now = state.environment.time
-        for frame in state.service.recent_can_frames[:18]:
-            age_ms = max(0, int((now - frame.timestamp).total_seconds() * 1000))
-            label = f"{frame.direction} {frame.arbitration_id:03X}"
-            value = f"{frame.name.rsplit('.', 1)[-1]} {frame.data_hex} {age_ms}ms"
-            frame_rows.append((label, value, None))
-        self._draw_service_group("RAW CAN FRAMES", frame_rows, left)
+        self._draw_can_frame_group("RAW CAN FRAMES", state.service.recent_can_frames, left, now)
 
         sensor_rows = [(reading.label, reading.value, None) for reading in state.service.sensor_voltages]
         sensor_rows.extend([
@@ -1611,9 +1664,14 @@ class HUDRenderer:
         firmware_rows = [(reading.label, reading.value, None) for reading in state.service.firmware_versions]
         firmware_rows.extend(
             [
+                (
+                    "Limp",
+                    f"ACTIVE: {state.system.limp_mode_reason or 'REQUESTED'}"
+                    if state.system.limp_mode_active
+                    else "OFF",
+                    False if state.system.limp_mode_active else None,
+                ),
                 ("Mode", state.environment.mode, None),
-                ("Flame", "ON" if state.environment.flame_mode_enabled else "OFF", state.environment.flame_mode_enabled),
-                ("Rev limit", state.environment.rev_limiter_strategy, None),
                 (
                     "Fuel",
                     f"{state.environment.fuel_type} E{state.environment.ethanol_content_pct:.0f}"
@@ -1622,6 +1680,8 @@ class HUDRenderer:
                     None,
                 ),
                 ("Traction", state.traction.intervention_level or "UNKNOWN", None),
+                ("Flame", "ON" if state.environment.flame_mode_enabled else "OFF", True if state.environment.flame_mode_enabled else None),
+                ("Rev limit", state.environment.rev_limiter_strategy, None),
             ]
         )
 
@@ -1651,26 +1711,26 @@ class HUDRenderer:
         def add(name: str, value: str, status: str) -> None:
             rows.append((name, value, status))
 
-        add("CAN freshness", f"{can_age_s:.1f}s", "GREEN" if can_age_s <= 0.5 else ("YELLOW" if can_age_s <= 1.5 else "RED"))
-        add("RPM", f"{state.engine.rpm}", "GREEN" if 0 <= state.engine.rpm <= 16000 else "RED")
-        add("TPS", f"{state.engine.throttle_pct:.0f}%", "GREEN" if 0 <= state.engine.throttle_pct <= 100 else "RED")
-        add("Boost/MAP", f"{state.engine.boost_psi:.1f} psi", "GREEN" if -2.0 <= state.engine.boost_psi <= 45.0 else "RED")
-        add("Fuel level", f"{state.environment.fuel_level_pct:.0f}%", "GREEN" if state.environment.fuel_level_pct >= 10 else ("YELLOW" if state.environment.fuel_level_pct >= 5 else "RED"))
-        add("Flex fuel", f"E{state.environment.ethanol_content_pct:.0f}", "GREEN" if 0 <= state.environment.ethanol_content_pct <= 100 else "YELLOW")
-        add("Oil pressure", f"{state.temps.oil_pressure_psi:.1f} psi", "GREEN" if state.temps.oil_pressure_psi >= (12 if state.engine.rpm > 1800 else 3) else ("YELLOW" if state.temps.oil_pressure_psi >= 5 else "RED"))
-        add("Oil temp", f"{state.temps.oil_temp_f:.0f}F", "GREEN" if 50 <= state.temps.oil_temp_f <= 280 else ("YELLOW" if state.temps.oil_temp_f >= 0 else "RED"))
-        add("Coolant", f"{state.temps.coolant_temp_f:.0f}F", "GREEN" if 50 <= state.temps.coolant_temp_f <= 225 else ("YELLOW" if state.temps.coolant_temp_f <= 235 and state.temps.coolant_temp_f >= 0 else "RED"))
-        add("IAT", f"{state.temps.intake_temp_f:.0f}F", "GREEN" if 20 <= state.temps.intake_temp_f <= 130 else ("YELLOW" if state.temps.intake_temp_f <= 150 else "RED"))
-        add("EGT", f"{state.temps.exhaust_temp_f:.0f}F", "GREEN" if 0 <= state.temps.exhaust_temp_f <= 1500 else ("YELLOW" if state.temps.exhaust_temp_f <= 1650 else "RED"))
-        add("Battery", f"{state.temps.battery_voltage:.2f}V", "GREEN" if 13.0 <= state.temps.battery_voltage <= 14.8 else ("YELLOW" if 11.8 <= state.temps.battery_voltage <= 15.2 else "RED"))
-        add("Wheel speed", f"{state.engine.speed_mph:.1f} mph", "GREEN" if state.engine.speed_mph >= 0 and not state.traction.sensor_fault else "RED")
-        add("Gear", state.engine.gear, "GREEN" if state.engine.gear in {"N", "1", "2", "3", "4", "5", "6"} else "YELLOW")
-        add("WMI tank", f"{state.wmi.tank_level_pct:.0f}%", "GREEN" if state.wmi.tank_level_pct >= 20 else ("YELLOW" if state.wmi.tank_level_pct >= 3 else "RED"))
-        wmi_status = "GREEN"
+        add("CAN freshness", f"{can_age_s:.1f}s", "OK" if can_age_s <= 0.5 else ("WARN" if can_age_s <= 1.5 else "ERR"))
+        add("RPM", f"{state.engine.rpm}", "OK" if 0 <= state.engine.rpm <= 16000 else "ERR")
+        add("TPS", f"{state.engine.throttle_pct:.0f}%", "OK" if 0 <= state.engine.throttle_pct <= 100 else "ERR")
+        add("Boost/MAP", f"{state.engine.boost_psi:.1f} psi", "OK" if -2.0 <= state.engine.boost_psi <= 45.0 else "ERR")
+        add("Fuel level", f"{state.environment.fuel_level_pct:.0f}%", "OK" if state.environment.fuel_level_pct >= 10 else ("WARN" if state.environment.fuel_level_pct >= 5 else "ERR"))
+        add("Flex fuel", f"E{state.environment.ethanol_content_pct:.0f}", "OK" if 0 <= state.environment.ethanol_content_pct <= 100 else "WARN")
+        add("Oil pressure", f"{state.temps.oil_pressure_psi:.1f} psi", "OK" if state.temps.oil_pressure_psi >= (12 if state.engine.rpm > 1800 else 3) else ("WARN" if state.temps.oil_pressure_psi >= 5 else "ERR"))
+        add("Oil temp", f"{state.temps.oil_temp_f:.0f}F", "OK" if 50 <= state.temps.oil_temp_f <= 280 else ("WARN" if state.temps.oil_temp_f >= 0 else "ERR"))
+        add("Coolant", f"{state.temps.coolant_temp_f:.0f}F", "OK" if 50 <= state.temps.coolant_temp_f <= 225 else ("WARN" if state.temps.coolant_temp_f <= 235 and state.temps.coolant_temp_f >= 0 else "ERR"))
+        add("IAT", f"{state.temps.intake_temp_f:.0f}F", "OK" if 20 <= state.temps.intake_temp_f <= 130 else ("WARN" if state.temps.intake_temp_f <= 150 else "ERR"))
+        add("EGT", f"{state.temps.exhaust_temp_f:.0f}F", "OK" if 0 <= state.temps.exhaust_temp_f <= 1500 else ("WARN" if state.temps.exhaust_temp_f <= 1650 else "ERR"))
+        add("Battery", f"{state.temps.battery_voltage:.2f}V", "OK" if 13.0 <= state.temps.battery_voltage <= 14.8 else ("WARN" if 11.8 <= state.temps.battery_voltage <= 15.2 else "ERR"))
+        add("Wheel speed", f"{state.engine.speed_mph:.1f} mph", "OK" if state.engine.speed_mph >= 0 and not state.traction.sensor_fault else "ERR")
+        add("Gear", state.engine.gear, "OK" if state.engine.gear in {"N", "1", "2", "3", "4", "5", "6"} else "WARN")
+        add("WMI tank", f"{state.wmi.tank_level_pct:.0f}%", "OK" if state.wmi.tank_level_pct >= 20 else ("WARN" if state.wmi.tank_level_pct >= 3 else "ERR"))
+        wmi_status = "OK"
         if state.wmi.fault_active:
-            wmi_status = "RED"
+            wmi_status = "ERR"
         elif state.wmi.commanded_flow_cc_min > 0 and state.wmi.actual_flow_cc_min < state.wmi.commanded_flow_cc_min * 0.75:
-            wmi_status = "YELLOW"
+            wmi_status = "WARN"
         add("WMI flow", f"{state.wmi.actual_flow_cc_min:.0f}/{state.wmi.commanded_flow_cc_min:.0f}", wmi_status)
 
         return rows
@@ -1680,7 +1740,7 @@ class HUDRenderer:
         green = (80, 255, 155)
         yellow = (255, 214, 80)
         red = fault
-        colors = {"GREEN": green, "YELLOW": yellow, "RED": red}
+        colors = {"OK": green, "WARN": yellow, "ERR": red}
         sw, sh = self.screen.get_size()
         panel = pygame.Rect(0, 0, min(920, sw - 64), min(560, sh - 52))
         panel.center = (sw // 2, sh // 2)

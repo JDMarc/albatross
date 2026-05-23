@@ -4,7 +4,7 @@ from __future__ import annotations
 import struct
 
 from .calibration import fuel_profile_for_code, spark_table_for_mode
-from .ids import PiToArduinoID, PiToEcuID
+from .ids import LIMP_REASON_CODES, PiToArduinoID, PiToEcuID
 
 
 def build_boost_target_frame(target_psi: float) -> tuple[int, bytes]:
@@ -32,9 +32,15 @@ def build_flame_mode_frame(enabled: bool) -> tuple[int, bytes]:
     return int(PiToArduinoID.FLAME_MODE), payload
 
 
-def build_limp_mode_frame(enabled: bool) -> tuple[int, bytes]:
-    """Return the frame commanding limp mode."""
-    payload = bytes((0x01 if enabled else 0x00,))
+def build_limp_mode_frame(enabled: bool, reason: str = "") -> tuple[int, bytes]:
+    """Return the frame commanding limp mode.
+
+    Payload byte 0: 0/1 active request.
+    Payload byte 1: reason code, using LIMP_REASON_NAMES in ids.py.
+    Older Arduino firmware that only reads byte 0 will safely ignore byte 1.
+    """
+    reason_code = 0x00 if not enabled else LIMP_REASON_CODES.get(reason.upper(), LIMP_REASON_CODES["SAFETY SUPERVISOR"])
+    payload = bytes((0x01 if enabled else 0x00, reason_code & 0xFF))
     return int(PiToArduinoID.LIMP_MODE), payload
 
 

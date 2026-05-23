@@ -32,11 +32,12 @@ from albatross_pi.canbus.encode import (
     build_media_control_frame,
     build_phone_link_frame,
 )
+from albatross_pi.canbus.ids import LIMP_REASON_CODES
 from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.state.simulator import StateSimulator
-from albatross_pi.state.snapshot import CANFrameRecord, ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, WMIState
+from albatross_pi.state.snapshot import CANFrameRecord, ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, SystemStatus, WMIState
 from albatross_pi.updater import install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
 
 
@@ -82,6 +83,9 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
     gear = str(obj.get("gear", "N"))
     mode = str(obj.get("mode", "NORMAL"))
     fuel_type = str(obj.get("fuel_type", "93"))
+    limp_active = bool(obj.get("limp_mode", False))
+    limp_reason = str(obj.get("limp_reason", "PI REQUEST" if limp_active else "NONE")).upper()
+    limp_reason_code = LIMP_REASON_CODES.get(limp_reason, LIMP_REASON_CODES["PI REQUEST"] if limp_active else 0)
     speed_mps100 = _clamp_int(float(obj.get("speed", 0.0)) / 2.236936 * 100, 0, 65535)
     light_flags = 0
     light_flags |= 0x01 if bool(obj.get("left_indicator", False)) else 0
@@ -128,6 +132,7 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
         (ArduinoToHudID.WASTEGATE_STATUS, bytes((_clamp_int(obj.get("wg1", 0), 0, 100), _clamp_int(obj.get("wg2", 0), 0, 100))), "RX"),
         (ArduinoToHudID.SERVICE_SENSOR_VOLTAGES, struct.pack(">HHHH", _clamp_int(float(obj.get("oil_sensor_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("wmi_tank_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("arduino_5v", 5.0)) * 1000, 0, 65535), 0), "RX"),
         (ArduinoToHudID.SERVICE_DIGITAL_STATES, bytes((light_flags | (0x40 if bool(obj.get("wmi_pressure_ok", True)) else 0), output_bits, command_bits, fault_bits)), "RX"),
+        (ArduinoToHudID.LIMP_STATUS, bytes((1 if limp_active else 0, limp_reason_code & 0xFF)), "RX"),
         (PiToArduinoID.MODE_SELECTION, bytes((mode_map.get(mode, 2),)), "TX"),
         (PiToArduinoID.FUEL_TYPE_SELECT, bytes((fuel_type_map.get(fuel_type, 2),)), "TX"),
         (PiToArduinoID.FLAME_MODE, bytes((1 if bool(obj.get("flame_mode", False)) else 0,)), "TX"),
@@ -329,6 +334,30 @@ def main() -> None:
             wg_stuck_start: float | None = None
             last_requested_boost: float | None = None
             last_requested_boost_ts = 0.0
+
+            def limp_reason_for(faults_now: list[str], shutdown_requested: bool = False, run_switch_cut: bool = False) -> str:
+                if shutdown_requested:
+                    return "LOW OIL PRESS"
+                if run_switch_cut:
+                    return "ENGINE RUN OFF"
+                if "ECU STALE" in faults_now:
+                    return "ECU CAN STALE"
+                if "LOW OIL PRESS" in faults_now or "CRITICAL OIL PRESS" in faults_now:
+                    return "LOW OIL PRESS"
+                if "COOLANT HOT" in faults_now or "EGT HIGH" in faults_now or "INTAKE AIR HOT" in faults_now:
+                    return "THERMAL"
+                if "BATTERY LOW" in faults_now or "BATTERY HIGH" in faults_now:
+                    return "BATTERY VOLTAGE"
+                if "KNOCK" in faults_now or "KNOCK ESCALATE" in faults_now:
+                    return "KNOCK"
+                if "OVERBOOST" in faults_now or "BOOST CONTROL ERROR" in faults_now:
+                    return "OVERBOOST"
+                if "WMI FLOW LOW" in faults_now or "WMI PRESSURE LOW" in faults_now or "WMI PUMP FAULT" in faults_now:
+                    return "WMI FAULT"
+                if "CLUTCH SLIP" in faults_now:
+                    return "CLUTCH SLIP"
+                return "SAFETY SUPERVISOR"
+
             while True:
                 snap = aggregator.current_snapshot()
                 faults: list[str] = []
@@ -461,9 +490,10 @@ def main() -> None:
                 )
                 if severe and not last_fault_state:
                     # Fail-safe action set: cut boost command, enable limp, disable flame, max traction.
+                    limp_reason = limp_reason_for(faults)
                     for frame in (
                         build_boost_target_frame(0.0),
-                        build_limp_mode_frame(True),
+                        build_limp_mode_frame(True, limp_reason),
                         build_flame_mode_frame(False),
                         build_ecu_rev_limiter_strategy_frame(False),
                         build_traction_level_frame(3),
@@ -480,9 +510,10 @@ def main() -> None:
 
                 if should_shutdown_engine:
                     # Engine shutdown request includes torque-reduction stack + run-switch OFF.
+                    limp_reason = limp_reason_for(faults, shutdown_requested=True)
                     for frame in (
                         build_boost_target_frame(0.0),
-                        build_limp_mode_frame(True),
+                        build_limp_mode_frame(True, limp_reason),
                         build_flame_mode_frame(False),
                         build_ecu_rev_limiter_strategy_frame(False),
                         build_traction_level_frame(3),
@@ -510,7 +541,18 @@ def main() -> None:
                     logging.info("Safety supervisor restored engine run switch to ON.")
 
                 if faults:
-                    renderer.update_state(replace(snap, faults=tuple(sorted(set(faults)))))
+                    active_limp = severe or should_shutdown_engine or should_cut_run_switch
+                    renderer.update_state(
+                        replace(
+                            snap,
+                            faults=tuple(sorted(set(faults))),
+                            system=replace(
+                                snap.system,
+                                limp_mode_active=active_limp,
+                                limp_mode_reason=limp_reason_for(faults, should_shutdown_engine, should_cut_run_switch) if active_limp else "",
+                            ),
+                        )
+                    )
                 last_fault_state = severe
                 time.sleep(0.2)
 
@@ -661,6 +703,8 @@ def main() -> None:
                         ServiceReading("Arduino controller", str(obj.get("arduino_fw", "demo"))),
                     ),
                 )
+                limp_active = bool(obj.get("limp_mode", snap.system.limp_mode_active))
+                limp_reason = str(obj.get("limp_reason", snap.system.limp_mode_reason or ("PI REQUEST" if limp_active else ""))).upper()
                 updated = replace(
                     snap,
                     engine=eng,
@@ -673,6 +717,7 @@ def main() -> None:
                     air_shot=air,
                     wmi=wmi,
                     service=service,
+                    system=SystemStatus(limp_mode_active=limp_active, limp_mode_reason=limp_reason if limp_active else ""),
                 )
                 renderer.update_state(
                     replace(

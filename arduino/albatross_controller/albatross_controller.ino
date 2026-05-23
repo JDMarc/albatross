@@ -63,6 +63,7 @@ namespace CanId {
   constexpr uint16_t ARD_SERVICE_SENSOR_VOLTAGES = 0x13F;
   constexpr uint16_t ARD_SERVICE_DIGITAL_STATES = 0x145;
   constexpr uint16_t ARD_SERVICE_FIRMWARE_VERSION = 0x146;
+  constexpr uint16_t ARD_LIMP_STATUS = 0x147;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -108,6 +109,7 @@ struct Commands {
   bool nfc_ok = false;
   bool flame_mode = false;
   bool limp_mode = false;
+  uint8_t limp_reason = 0x00;
   bool engine_run_enabled = true;
   uint16_t wmi_trigger_pct_x10 = 0;
   bool wmi_arm = false;
@@ -141,6 +143,26 @@ Commands g_commands;
 Outputs g_outputs;
 static uint32_t g_last_ecu_frame_ms = 0;
 static uint32_t g_last_pi_command_ms = 0;
+static bool g_limp_active = false;
+static uint8_t g_limp_reason = 0x00;
+
+enum LimpReason : uint8_t {
+  LIMP_NONE = 0x00,
+  LIMP_PI_REQUEST = 0x01,
+  LIMP_ENGINE_RUN_OFF = 0x02,
+  LIMP_ECU_CAN_STALE = 0x03,
+  LIMP_PI_COMMAND_STALE = 0x04,
+  LIMP_THERMAL = 0x05,
+  LIMP_LOW_OIL_PRESS = 0x06,
+  LIMP_BATTERY_VOLTAGE = 0x07,
+  LIMP_KNOCK = 0x08,
+  LIMP_ECU_SENSOR = 0x09,
+  LIMP_NFC_AUTH = 0x0A,
+  LIMP_SAFETY_SUPERVISOR = 0x0B,
+  LIMP_OVERBOOST = 0x0C,
+  LIMP_WMI_FAULT = 0x0D,
+  LIMP_CLUTCH_SLIP = 0x0E
+};
 
 // --- Hardware pins ---
 // Arduino is the boost controller. These pins command the wastegate actuator
@@ -327,6 +349,7 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       break;
     case CanId::PI_LIMP_MODE:
       if (len >= 1) g_commands.limp_mode = data[0] != 0;
+      if (len >= 2) g_commands.limp_reason = data[1];
       break;
     case CanId::PI_TRACTION_LEVEL:
       if (len >= 1) g_commands.traction_level = static_cast<TractionLevel>(data[0]);
@@ -590,7 +613,20 @@ void updateControllers() {
   const bool voltage_fault = (g_inputs.battery_mv > 0) && (g_inputs.battery_mv < 10500 || g_inputs.battery_mv > 15500);
   const bool low_auth = !g_commands.nfc_ok;
   const bool ecu_sensor_fault = (g_inputs.rpm == 0 && g_inputs.tps_pct > 20);
-  const bool limp = !g_commands.engine_run_enabled || g_commands.limp_mode || control_link_stale || hot || low_oil_pressure || voltage_fault || (knock && g_inputs.boost_psi_x10 > target) || ecu_sensor_fault || low_auth;
+  uint8_t limp_reason = LIMP_NONE;
+  if (!g_commands.engine_run_enabled) limp_reason = LIMP_ENGINE_RUN_OFF;
+  else if (g_commands.limp_mode) limp_reason = g_commands.limp_reason != LIMP_NONE ? g_commands.limp_reason : LIMP_PI_REQUEST;
+  else if (ecu_can_stale) limp_reason = LIMP_ECU_CAN_STALE;
+  else if (pi_can_stale) limp_reason = LIMP_PI_COMMAND_STALE;
+  else if (hot) limp_reason = LIMP_THERMAL;
+  else if (low_oil_pressure) limp_reason = LIMP_LOW_OIL_PRESS;
+  else if (voltage_fault) limp_reason = LIMP_BATTERY_VOLTAGE;
+  else if (knock && g_inputs.boost_psi_x10 > target) limp_reason = LIMP_KNOCK;
+  else if (ecu_sensor_fault) limp_reason = LIMP_ECU_SENSOR;
+  else if (low_auth) limp_reason = LIMP_NFC_AUTH;
+  const bool limp = limp_reason != LIMP_NONE;
+  g_limp_active = limp;
+  g_limp_reason = limp_reason;
 
   if (limp) {
     target = 0;
@@ -783,6 +819,9 @@ void publishStatusFrames() {
     static_cast<uint8_t>((g_outputs.traction_active ? 0x01 : 0x00) | (g_outputs.traction_sensor_fault ? 0x02 : 0x00))
   };
   publishFrame(CanId::ARD_TRACTION_STATUS, traction_status, 4);
+
+  uint8_t limp_status[2] = {static_cast<uint8_t>(g_limp_active ? 1 : 0), g_limp_reason};
+  publishFrame(CanId::ARD_LIMP_STATUS, limp_status, 2);
 
   uint16_t front_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_front_wheel_mps * 100.0f), 0, 65535));
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));

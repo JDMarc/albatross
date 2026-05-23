@@ -84,6 +84,23 @@ When limp is asserted by Pi (and enforced by Arduino), ensure MS3Pro is configur
 - disabled flame strategy
 - continued drivability for return-home conditions
 
+Current Albatross CAN behavior:
+
+- Pi-to-Arduino limp command `0x123`: byte 0 = 0/1 active, byte 1 = reason code.
+- Arduino-to-HUD limp status `0x147`: byte 0 = 0/1 active, byte 1 = reason code.
+- Reason codes: `0x00 NONE`, `0x01 PI REQUEST`, `0x02 ENGINE RUN OFF`, `0x03 ECU CAN STALE`, `0x04 PI COMMAND STALE`, `0x05 THERMAL`, `0x06 LOW OIL PRESS`, `0x07 BATTERY VOLTAGE`, `0x08 KNOCK`, `0x09 ECU SENSOR`, `0x0A NFC AUTH`, `0x0B SAFETY SUPERVISOR`, `0x0C OVERBOOST`, `0x0D WMI FAULT`, `0x0E CLUTCH SLIP`.
+
+MS3-side limp actions to configure and validate:
+
+1. Boost: map limp to the lowest boost target / wastegate-safe behavior available in the tune. Arduino already drives wastegates to no-boost, but MS3 should also have a conservative boost ceiling so either controller alone fails safer.
+2. Spark: switch to the conservative ignition map when limp is active. SPORT+ performance timing should be disabled.
+3. Fuel: keep the correct fuel table/stoich profile for the selected fuel, but use richer high-load/thermal protection where appropriate. Limp should not accidentally switch E85/C16 lambda assumptions back to pump-gas assumptions.
+4. Rev limit: force normal fuel-cut rev limiting while limp is active; ignition-cut/flame behavior should be disabled.
+5. Torque reduction: accept Arduino torque-cut/slip request frames (`0x12A`/`0x12B`) or the equivalent mapped inputs so traction, wheel-speed faults, and limp can reduce engine torque without relying only on boost.
+6. Knock/thermal protection: enable MS3 engine-protection/fault-mode strategies for knock, CLT/IAT/oil/EGT-related limits where your firmware exposes them.
+7. Engine run cut: map the Albatross engine-run switch strategy to a deterministic ECU-side kill path for true shutdown requests. This should be reserved for critical/stationary-safe cases, not ordinary return-home limp.
+8. Datalogging: log limp input/status, table-switch state, boost target, rev limiter strategy, torque cut, knock, oil pressure, CLT/IAT, EGT, and battery voltage for every validation run.
+
 ## 8) Validation checklist
 
 1. Engine idles and free-revs with no sync loss.

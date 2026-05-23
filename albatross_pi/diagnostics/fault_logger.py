@@ -170,6 +170,8 @@ def engine_status(snapshot: StateSnapshot) -> dict[str, Any]:
         "air_shot_pressure_psi": _safe_float(snapshot.air_shot.pressure_psi),
         "air_shot_charges_remaining": int(snapshot.air_shot.charges_remaining),
         "air_shot_firing": bool(snapshot.air_shot.is_firing),
+        "limp_mode_active": bool(snapshot.system.limp_mode_active),
+        "limp_mode_reason": snapshot.system.limp_mode_reason,
     }
 
 

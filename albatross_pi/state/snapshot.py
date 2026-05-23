@@ -135,6 +135,12 @@ class ServiceStatus:
 
 
 @dataclass(frozen=True)
+class SystemStatus:
+    limp_mode_active: bool = False
+    limp_mode_reason: str = ""
+
+
+@dataclass(frozen=True)
 class StateSnapshot:
     engine: EngineState = field(default_factory=EngineState)
     temps: TemperaturesState = field(default_factory=TemperaturesState)
@@ -146,6 +152,7 @@ class StateSnapshot:
     environment: EnvironmentState = field(default_factory=EnvironmentState)
     economy: EconomyState = field(default_factory=EconomyState)
     service: ServiceStatus = field(default_factory=ServiceStatus)
+    system: SystemStatus = field(default_factory=SystemStatus)
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)
     advisories: Tuple[str, ...] = field(default_factory=tuple)

@@ -45,6 +45,7 @@ class ArduinoToHudID(IntEnum):
     SERVICE_SENSOR_VOLTAGES = 0x13F
     SERVICE_DIGITAL_STATES = 0x145
     SERVICE_FIRMWARE_VERSION = 0x146
+    LIMP_STATUS = 0x147
 
 
 class ArduinoToEcuID(IntEnum):
@@ -102,6 +103,28 @@ FUEL_NAMES = {
     0x04: "E85",
     0x05: "C16",
 }
+
+
+LIMP_REASON_NAMES = {
+    0x00: "NONE",
+    0x01: "PI REQUEST",
+    0x02: "ENGINE RUN OFF",
+    0x03: "ECU CAN STALE",
+    0x04: "PI COMMAND STALE",
+    0x05: "THERMAL",
+    0x06: "LOW OIL PRESS",
+    0x07: "BATTERY VOLTAGE",
+    0x08: "KNOCK",
+    0x09: "ECU SENSOR",
+    0x0A: "NFC AUTH",
+    0x0B: "SAFETY SUPERVISOR",
+    0x0C: "OVERBOOST",
+    0x0D: "WMI FAULT",
+    0x0E: "CLUTCH SLIP",
+}
+
+
+LIMP_REASON_CODES = {name: code for code, name in LIMP_REASON_NAMES.items()}
 
 
 FAULT_CODE_MAP = {

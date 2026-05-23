@@ -31,7 +31,7 @@ from albatross_pi.canbus.encode import (
     build_traction_level_frame,
     build_wmi_enable_frame,
 )
-from albatross_pi.canbus.ids import ArduinoToEcuID, ArduinoToHudID, ECUToHudID
+from albatross_pi.canbus.ids import ArduinoToEcuID, ArduinoToHudID, ECUToHudID, LIMP_REASON_CODES
 from albatross_pi.canbus.iface import SocketCANInterface
 
 
@@ -104,6 +104,7 @@ class App:
             "wmi_arm": tk.BooleanVar(value=True),
             "flame_mode": tk.BooleanVar(value=False),
             "limp_mode": tk.BooleanVar(value=False),
+            "limp_reason": tk.StringVar(value="PI REQUEST"),
             "engine_run": tk.BooleanVar(value=True),
             "left_indicator": tk.BooleanVar(value=False),
             "right_indicator": tk.BooleanVar(value=False),
@@ -210,6 +211,7 @@ class App:
         ttk.Checkbutton(cmds, text="Flame", variable=self.vars["flame_mode"]).grid(row=6, column=1, sticky="w")
         ttk.Checkbutton(cmds, text="Limp", variable=self.vars["limp_mode"]).grid(row=6, column=2, sticky="w")
         ttk.Checkbutton(cmds, text="Run Switch", variable=self.vars["engine_run"]).grid(row=6, column=3, sticky="w")
+        ttk.Combobox(cmds, textvariable=self.vars["limp_reason"], values=[name for name in LIMP_REASON_CODES if name != "NONE"], width=18, state="readonly").grid(row=6, column=4, columnspan=2, sticky="w")
 
         ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=7, column=0, sticky="w", pady=(6, 0))
         ttk.Button(cmds, text="Quit", command=self.close).grid(row=7, column=1, sticky="w", pady=(6, 0))
@@ -358,7 +360,7 @@ class App:
             self._send(*build_wmi_enable_frame(bool(self.vars["wmi_arm"].get())))
             self._send(*build_flame_mode_frame(bool(self.vars["flame_mode"].get())))
             self._send(*build_ecu_rev_limiter_strategy_frame(bool(self.vars["flame_mode"].get())))
-            self._send(*build_limp_mode_frame(bool(self.vars["limp_mode"].get())))
+            self._send(*build_limp_mode_frame(bool(self.vars["limp_mode"].get()), str(self.vars["limp_reason"].get())))
             self._send(*build_engine_run_switch_frame(bool(self.vars["engine_run"].get())))
             self._send(*build_ecu_fuel_profile_frame(fuel_code))
             self._send(*build_ecu_spark_table_frame(mode_code))
@@ -399,6 +401,9 @@ class App:
         fault_bits |= 0x04 if bool(self.vars["wmi_fault"].get()) else 0
         fault_bits |= 0x08 if bool(self.vars["traction_fault"].get()) else 0
         self._send(int(ArduinoToHudID.SERVICE_DIGITAL_STATES), bytes((input_bits, output_bits, command_bits, fault_bits)))
+        limp_active = bool(self.vars["limp_mode"].get())
+        limp_reason_code = LIMP_REASON_CODES.get(str(self.vars["limp_reason"].get()).upper(), LIMP_REASON_CODES["PI REQUEST"])
+        self._send(int(ArduinoToHudID.LIMP_STATUS), bytes((1 if limp_active else 0, limp_reason_code if limp_active else 0)))
         fw = str(self.vars["arduino_fw"].get()).replace("+", ".").split(".")
         major, minor, patch, build = (fw + ["0", "0", "0", "0"])[:4]
         build_no = self._version_part(build, 65535)
@@ -418,7 +423,7 @@ class App:
 
         payload = {k: (v.get() if hasattr(v, "get") else v) for k, v in self.vars.items()}
         if not bool(self.vars["send_hud_commands"].get()):
-            for key in ("mode", "fuel_type", "traction", "boost_target", "wmi_arm", "flame_mode", "limp_mode", "engine_run", "nfc_ok"):
+            for key in ("mode", "fuel_type", "traction", "boost_target", "wmi_arm", "flame_mode", "engine_run", "nfc_ok"):
                 payload.pop(key, None)
         payload["msg"] = self.vars["msg"].get()
         packet = json.dumps(payload).encode("utf-8")

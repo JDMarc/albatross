@@ -44,8 +44,12 @@ class MessageLine(Widget):
                 f"CAN {'OK' if has_can else 'FAULT'}",
             ]
         )
-        text = state.environment.message_line or " | ".join(state.faults) or comm_line
-        color = FAULT_AMBER if (state.faults or "FAULT" in text) else AMBER_BRIGHT
+        if state.system.limp_mode_active:
+            reason = state.system.limp_mode_reason or "REQUESTED"
+            text = f"LIMP MODE ACTIVE: {reason}"
+        else:
+            text = state.environment.message_line or " | ".join(state.faults) or comm_line
+        color = FAULT_AMBER if (state.system.limp_mode_active or state.faults or "FAULT" in text) else AMBER_BRIGHT
         font_size = fit_font_size(text, self.rect.width - 16, self.rect.height - 4, start_size=max(14, int(self.rect.height * 0.6)))
         text_surface = font(font_size).render(text, True, color)
         surface.blit(

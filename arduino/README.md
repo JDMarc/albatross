@@ -78,6 +78,7 @@ The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut
 - Arduino accepts Pi fuel type selection on `0x129` using the same shared fuel code map.
 - Arduino reports WMI status in `0x139`: byte 0 tank level %, bytes 1-2 commanded cc/min, bytes 3-4 sensed cc/min, byte 5 aggregate fault.
 - Arduino reports service-mode diagnostics for the HUD: `0x13F` sensor voltages (oil sender mV, WMI tank mV, 5V rail mV, spare mV), `0x145` digital input/output/command/fault bitfields, and `0x146` firmware version (device, major, minor, patch, build).
+- Arduino reports limp status in `0x147`: byte 0 active flag, byte 1 reason code. Reason codes are shared with the Pi ID table (`0x00` none, `0x01` Pi request, `0x02` engine run off, `0x03` ECU CAN stale, `0x04` Pi command stale, `0x05` thermal, `0x06` low oil pressure, `0x07` battery voltage, `0x08` knock, `0x09` ECU sensor, `0x0A` NFC auth, `0x0B` safety supervisor, `0x0C` overboost, `0x0D` WMI fault, `0x0E` clutch slip).
 - Pi sends ECU fuel profile selection on `0x150`: fuel code, fuel table index, and stoich AFR x100. Current table indexes are 0=pump gas, 1=100 octane, 2=E85, 3=C16. Pi sends ECU spark table selection on `0x151`: 0 initial map, 1 SPORT+ performance map.
 - Pi sends MS3 rev-limiter strategy selection on `0x152`: 0 fuel cut, 1 ignition/spark cut. HUD flame mode requests ignition cut, and RACE/ALBATROSS auto-enable flame mode.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).

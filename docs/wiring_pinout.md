@@ -154,7 +154,8 @@ The Arduino sketch targets a Mega 2560 Rev3 plus an MCP2515 CAN module at
 | 0x110-0x112 | MS3/ECU to Arduino | Flame, WMI trigger, engine status |
 | 0x120-0x129 | Pi to Arduino | Boost target, mode, limp, traction, WMI, fuel type |
 | 0x12A-0x12B | Arduino to MS3/ECU | Torque cut and traction slip requests |
-| 0x130-0x13E | Arduino to HUD | Air Shot, wheel speed, WMI, lights, traction, fallback statuses |
+| 0x130-0x13F | Arduino to HUD | Air Shot, wheel speed, WMI, lights, traction, fallback statuses, service sensor voltages |
 | 0x140 | Pi to Arduino | NFC authorization |
-| 0x150-0x151 | Pi to MS3/ECU | Fuel profile select and spark table select |
+| 0x145-0x147 | Arduino to HUD | Service pin/relay states, firmware version, limp status |
+| 0x150-0x152 | Pi to MS3/ECU | Fuel profile select, spark table select, rev limiter strategy |
 | 0x1F0-0x1F1 | System | POST request/response |

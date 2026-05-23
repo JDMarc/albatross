@@ -11,6 +11,7 @@ from .ids import (
     ArduinoToHudID,
     ECUToHudID,
     FUEL_NAMES,
+    LIMP_REASON_NAMES,
     MODE_NAMES,
     PiToArduinoID,
     PiToEcuID,
@@ -28,6 +29,7 @@ from ..state.snapshot import (
     ServiceReading,
     ServiceStatus,
     StateSnapshot,
+    SystemStatus,
     TemperaturesState,
     TractionState,
     WMIState,
@@ -98,6 +100,7 @@ class CANStateAggregator:
         self._service = ServiceStatus(
             firmware_versions=(ServiceReading("Pi HUD", "local/dev"),)
         )
+        self._system = SystemStatus()
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_snapshot = StateSnapshot(
@@ -138,6 +141,7 @@ class CANStateAggregator:
                 environment=self._environment,
                 economy=self._economy,
                 service=self._service,
+                system=self._system,
                 shift_light=self._shift_light,
                 faults=tuple(sorted(self._faults.values())),
             )
@@ -416,6 +420,14 @@ class CANStateAggregator:
             firmware_versions=tuple(ServiceReading(label, value) for label, value in sorted(versions.items())),
         )
 
+    def _update_limp_status(self, data: bytes) -> None:
+        if not data:
+            return
+        active = bool(data[0])
+        reason_code = data[1] if len(data) > 1 else (0x01 if active else 0x00)
+        reason = LIMP_REASON_NAMES.get(reason_code, f"CODE 0x{reason_code:02X}") if active else ""
+        self._system = replace(self._system, limp_mode_active=active, limp_mode_reason=reason)
+
     def _update_tank_pressure(self, data: bytes) -> None:
         if len(data) < 2:
             return
@@ -582,9 +594,11 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.SERVICE_SENSOR_VOLTAGES): CANStateAggregator._update_service_sensor_voltages,
     int(ArduinoToHudID.SERVICE_DIGITAL_STATES): CANStateAggregator._update_service_digital_states,
     int(ArduinoToHudID.SERVICE_FIRMWARE_VERSION): CANStateAggregator._update_service_firmware_version,
+    int(ArduinoToHudID.LIMP_STATUS): CANStateAggregator._update_limp_status,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.FLAME_MODE): CANStateAggregator._update_flame_mode,
+    int(PiToArduinoID.LIMP_MODE): CANStateAggregator._update_limp_status,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,
     int(PiToArduinoID.FUEL_TYPE_SELECT): CANStateAggregator._update_fuel_type,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,
