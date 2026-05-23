@@ -978,7 +978,10 @@ class HUDRenderer:
         return self.screen.copy()
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
+        previous_focus_target = self._home_focus_target() if self._active_menu == "home" else ""
+        previous_had_faults = bool(self._visible_faults)
         self._visible_faults = tuple(state.faults)
+        self._normalize_home_focus(previous_focus_target, previous_had_faults)
         apply_theme(self._themes[self._theme_index])
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
@@ -1531,6 +1534,29 @@ class HUDRenderer:
         if self._visible_faults:
             return ["FAULTS", "SETTINGS", "MEDIA"]
         return list(self._focus_targets)
+
+    def _set_home_focus_target(self, target: str) -> None:
+        targets = self._home_focus_targets()
+        if target in targets:
+            self._focus_index = targets.index(target)
+            return
+        if target.startswith("MODE:"):
+            try:
+                mode_idx = int(target.split(":", 1)[1])
+            except ValueError:
+                mode_idx = 0
+            mode_idx = max(0, min(len(self._modes) - 1, mode_idx))
+            self._focus_index = len(targets) + mode_idx
+            return
+        self._focus_index %= max(1, len(targets) + len(self._modes))
+
+    def _normalize_home_focus(self, previous_target: str, previous_had_faults: bool) -> None:
+        if self._active_menu != "home":
+            return
+        if self._visible_faults and not previous_had_faults:
+            self._set_home_focus_target("FAULTS")
+            return
+        self._set_home_focus_target(previous_target)
 
     def _render_home_fault_focus_outline(self, state: StateSnapshot) -> None:
         if self._active_menu != "home" or self._home_focus_target() != "FAULTS":
