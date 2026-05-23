@@ -1279,17 +1279,16 @@ class HUDRenderer:
 
     def _render_mode_picker(self, panel: pygame.Rect, y: int) -> None:
         _bg, bright, glow, _fault = self._theme_colors()
-        orange = (255, 140, 0)
         x = panel.x + 16
         for idx, mode in enumerate(self._modes):
             selected = idx == self._mode_selection_index
             applied = idx == self._mode_index
-            color = bright if selected else (glow if not applied else orange)
+            color = bright if selected or applied else glow
             label = font(13, bold=selected).render(mode, True, color)
             self.screen.blit(label, (x, y))
             if selected:
                 uy = y + label.get_height() + 1
-                pygame.draw.line(self.screen, orange, (x, uy), (x + label.get_width(), uy), 2)
+                pygame.draw.line(self.screen, bright, (x, uy), (x + label.get_width(), uy), 2)
             x += label.get_width() + 16
 
     def _render_global_hints(self) -> None:
@@ -1305,6 +1304,7 @@ class HUDRenderer:
         return f"MODE:{mode_idx}"
 
     def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
+        _bg, bright, _glow, _fault = self._theme_colors()
         if self._active_menu != "home":
             return
         target = self._home_focus_target()
@@ -1325,7 +1325,7 @@ class HUDRenderer:
             if idx == hover_idx:
                 uy = my + (0 if active else 3) + mode_surface.get_height() + 1
                 if header_rect.y <= uy <= header_rect.bottom + 2:
-                    pygame.draw.line(self.screen, (255, 140, 0), (mx, uy), (mx + mode_surface.get_width(), uy), 2)
+                    pygame.draw.line(self.screen, bright, (mx, uy), (mx + mode_surface.get_width(), uy), 2)
                 return
             mx += mode_surface.get_width() + 8
 
