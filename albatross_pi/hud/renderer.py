@@ -220,7 +220,20 @@ class HUDRenderer:
         self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
         self._mode_index = 0
         self._mode_selection_index = 0
-        self._mode_layout_state = {"boost": 0.32, "afr": 0.22, "stats": 0.18, "temps": 0.62}
+        self._mode_layout_state = {
+            "left": 0.18,
+            "center": 0.34,
+            "right": 0.48,
+            "rpm": 0.07,
+            "boost": 0.32,
+            "afr": 0.22,
+            "stats": 0.18,
+            "fuel": 0.12,
+            "temps": 0.62,
+            "traction": 0.14,
+            "airshot": 0.14,
+            "alert": 0.32,
+        }
         self._mode_layout_anim_until = 0.0
         self._traction_levels = ["LOW", "MED", "HIGH", "OFF"]
         self._traction_index = 1
@@ -534,16 +547,82 @@ class HUDRenderer:
 
     def _mode_ratios(self, mode: str) -> dict[str, float]:
         profiles = {
-            "ECO": {"boost": 0.23, "afr": 0.18, "stats": 0.36, "temps": 0.64},
-            "NORMAL": {"boost": 0.27, "afr": 0.19, "stats": 0.32, "temps": 0.60},
-            "SPORT": {"boost": 0.36, "afr": 0.20, "stats": 0.23, "temps": 0.55},
-            "RACE": {"boost": 0.41, "afr": 0.19, "stats": 0.22, "temps": 0.53},
-            "ALBATROSS": {"boost": 0.43, "afr": 0.17, "stats": 0.23, "temps": 0.50},
+            "ECO": {
+                "left": 0.24,
+                "center": 0.30,
+                "right": 0.46,
+                "rpm": 0.060,
+                "boost": 0.19,
+                "afr": 0.16,
+                "stats": 0.42,
+                "fuel": 0.16,
+                "temps": 0.68,
+                "traction": 0.10,
+                "airshot": 0.08,
+                "alert": 0.24,
+            },
+            "NORMAL": {
+                "left": 0.21,
+                "center": 0.32,
+                "right": 0.47,
+                "rpm": 0.068,
+                "boost": 0.25,
+                "afr": 0.18,
+                "stats": 0.34,
+                "fuel": 0.14,
+                "temps": 0.62,
+                "traction": 0.12,
+                "airshot": 0.10,
+                "alert": 0.30,
+            },
+            "SPORT": {
+                "left": 0.18,
+                "center": 0.38,
+                "right": 0.44,
+                "rpm": 0.078,
+                "boost": 0.38,
+                "afr": 0.18,
+                "stats": 0.24,
+                "fuel": 0.10,
+                "temps": 0.55,
+                "traction": 0.17,
+                "airshot": 0.10,
+                "alert": 0.34,
+            },
+            "RACE": {
+                "left": 0.16,
+                "center": 0.42,
+                "right": 0.42,
+                "rpm": 0.088,
+                "boost": 0.43,
+                "afr": 0.16,
+                "stats": 0.23,
+                "fuel": 0.08,
+                "temps": 0.48,
+                "traction": 0.20,
+                "airshot": 0.16,
+                "alert": 0.38,
+            },
+            "ALBATROSS": {
+                "left": 0.15,
+                "center": 0.43,
+                "right": 0.42,
+                "rpm": 0.092,
+                "boost": 0.46,
+                "afr": 0.14,
+                "stats": 0.25,
+                "fuel": 0.07,
+                "temps": 0.44,
+                "traction": 0.17,
+                "airshot": 0.22,
+                "alert": 0.42,
+            },
         }
         target = profiles.get(mode, profiles["NORMAL"])
         # Soft animation toward target ratios so gauges move smoothly.
-        for key in self._mode_layout_state:
-            self._mode_layout_state[key] += (target[key] - self._mode_layout_state[key]) * 0.25
+        for key, value in target.items():
+            current = self._mode_layout_state.setdefault(key, value)
+            self._mode_layout_state[key] = current + (value - current) * 0.25
         return dict(self._mode_layout_state)
 
     def _create_widgets(self) -> None:
@@ -555,15 +634,31 @@ class HUDRenderer:
         if not hasattr(self, "_mode_selection_index"):
             self._mode_selection_index = self._mode_index
         if not hasattr(self, "_mode_layout_state"):
-            self._mode_layout_state = {"boost": 0.32, "afr": 0.22, "stats": 0.18, "temps": 0.62}
-        self._mode_layout_state.setdefault("stats", 0.18)
+            self._mode_layout_state = {}
+        for key, value in {
+            "left": 0.18,
+            "center": 0.34,
+            "right": 0.48,
+            "rpm": 0.07,
+            "boost": 0.32,
+            "afr": 0.22,
+            "stats": 0.18,
+            "fuel": 0.12,
+            "temps": 0.62,
+            "traction": 0.14,
+            "airshot": 0.14,
+            "alert": 0.32,
+        }.items():
+            self._mode_layout_state.setdefault(key, value)
 
         width, height = self.screen.get_size()
         padding = max(int(width * 0.02), 24)
         gutter = max(int(height * 0.02), 18)
         top_bar_height = max(int(height * 0.12), 80)
         message_height = max(int(height * 0.06), 40)
-        rpm_height = max(int(height * 0.07), 50)
+        mode = self._modes[self._mode_index]
+        ratios = self._mode_ratios(mode)
+        rpm_height = max(int(height * ratios["rpm"]), 44)
 
         top_bar_rect = pygame.Rect(0, 0, width, top_bar_height)
         message_rect = pygame.Rect(0, height - message_height, width, message_height)
@@ -576,9 +671,9 @@ class HUDRenderer:
         column_gutter = max(int(width * 0.015), 16)
         usable_width = max(available_width - 2 * column_gutter, 300)
 
-        min_left = max(int(width * 0.16), 200)
+        min_left = max(int(width * 0.14), 180)
         min_center = max(int(width * 0.22), 230)
-        min_right = max(int(width * 0.3), 320)
+        min_right = max(int(width * 0.28), 300)
         if usable_width <= min_left + min_center + min_right:
             scale = usable_width / float(min_left + min_center + min_right)
             left_width = max(int(min_left * scale), 160)
@@ -586,15 +681,16 @@ class HUDRenderer:
             right_width = max(usable_width - left_width - center_width, 160)
         else:
             leftover = usable_width - (min_left + min_center + min_right)
-            left_width = min_left + leftover // 6
-            center_width = min_center + leftover // 3
+            width_weight = max(ratios["left"] + ratios["center"] + ratios["right"], 1e-6)
+            left_width = min_left + int(leftover * ratios["left"] / width_weight)
+            center_width = min_center + int(leftover * ratios["center"] / width_weight)
             right_width = usable_width - left_width - center_width
 
         left_x = padding
         center_x = left_x + left_width + column_gutter
         right_x = center_x + center_width + column_gutter
 
-        alert_height = max(int(content_height * 0.32), int(height * 0.18))
+        alert_height = max(int(content_height * ratios["alert"]), int(height * 0.14))
         speed_height = max(content_height - alert_height - gutter, int(height * 0.22))
         if speed_height + alert_height + gutter > content_height:
             alert_height = max(content_height - speed_height - gutter, 80)
@@ -621,12 +717,10 @@ class HUDRenderer:
             gear_rect = pygame.Rect(speed_rect.right + inner_gap, speed_area.y, gear_size, gear_size)
 
         panel_gap = max(int(height * 0.02), 18)
-        mode = self._modes[self._mode_index]
-        ratios = self._mode_ratios(mode)
         boost_ratio = ratios["boost"]
         afr_ratio = ratios["afr"]
         stats_ratio = ratios["stats"]
-        fuel_height = max(int(content_height * 0.12), int(height * 0.085))
+        fuel_height = max(int(content_height * ratios["fuel"]), int(height * 0.055))
         center_budget = max(content_height - fuel_height - 3 * panel_gap, 120)
         center_weight = max(boost_ratio + afr_ratio + stats_ratio, 1e-6)
         boost_height = max(int(center_budget * boost_ratio / center_weight), int(height * 0.16))
@@ -644,8 +738,8 @@ class HUDRenderer:
 
         temps_ratio = ratios["temps"]
         temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
-        traction_height = max(int(content_height * 0.14), int(height * 0.1))
-        airshot_height = max(int(content_height * 0.14), int(height * 0.09))
+        traction_height = max(int(content_height * ratios["traction"]), int(height * 0.08))
+        airshot_height = max(int(content_height * ratios["airshot"]), int(height * 0.06))
         # WMI panel removed; WMI readouts are merged into TempsGrid.
         extra_right = max(content_height - temps_height - traction_height - airshot_height - 2 * panel_gap, 0)
         temps_height += extra_right

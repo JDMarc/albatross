@@ -11,6 +11,13 @@ from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_GLOW, FAULT_AMBER, fit_font_
 from ...state.snapshot import StateSnapshot
 
 KNOWN_MODES = {"ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"}
+MODE_TITLES = {
+    "ECO": "ECO RANGE",
+    "NORMAL": "NORMAL ROAD",
+    "SPORT": "SPORT BOOST",
+    "RACE": "RACE ATTACK",
+    "ALBATROSS": "ALBATROSS FULL",
+}
 
 
 def _fmt(value: float | None, suffix: str = "", precision: int = 0) -> str:
@@ -30,7 +37,7 @@ class ModeStatsPanel(Widget):
         padding = max(6, int(min(self.rect.width, self.rect.height) * 0.07))
         mode = state.environment.mode if state.environment.mode in KNOWN_MODES else "NORMAL"
         rows = self._rows_for_mode(mode, state)
-        title = f"{mode} DATA"
+        title = MODE_TITLES.get(mode, f"{mode} DATA")
         title_font = fit_font_size(title, self.rect.width - 2 * padding, max(12, int(self.rect.height * 0.18)), start_size=max(12, int(self.rect.height * 0.16)), bold=True)
         title_surface = font(title_font, bold=True).render(title, True, AMBER_BRIGHT)
         surface.blit(title_surface, (self.rect.x + padding, self.rect.y + max(3, padding // 2)))
@@ -65,27 +72,32 @@ class ModeStatsPanel(Widget):
                 (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 24),
                 ("MILES LEFT", _fmt(mte, " mi"), fuel_low),
                 ("FUEL LEFT", _fmt(state.environment.fuel_level_pct, "%") if state.environment.fuel_level_pct >= 0 else "--", fuel_low),
+                ("BOOST LOCK", "ZERO PSI", state.engine.target_boost_psi > 0.5),
             ]
         if mode == "NORMAL":
             return [
                 (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 20),
                 ("MILES LEFT", _fmt(mte, " mi"), fuel_low),
                 ("FUEL FLOW", _fmt(state.economy.fuel_flow_cc_min, "ccm") if state.economy.source == "INJECTOR" else "--", False),
+                ("BOOST LOCK", "ZERO PSI", state.engine.target_boost_psi > 0.5),
             ]
         if mode == "SPORT":
             return [
                 ("REQ BOOST", f"{state.engine.target_boost_psi:.1f} psi", boost_error),
                 ("WG DUTY", f"{state.engine.wastegate_duty_pct:.0f}%", state.engine.wastegate_duty_pct > 85),
                 ("TC SLIP", f"{state.traction.slip_pct:.1f}%", state.traction.sensor_fault),
+                ("KNOCK", f"{state.engine.knock_events:.0f}", state.engine.knock_events > 0),
             ]
         if mode == "RACE":
             return [
                 ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}", boost_error),
                 ("EGT", f"{state.temps.exhaust_temp_f:.0f}F", state.temps.exhaust_temp_f > 1600),
                 ("WMI FLOW", wmi_flow, state.wmi.fault_active or state.wmi.actual_flow_cc_min < state.wmi.commanded_flow_cc_min * 0.6),
+                ("TC CUT", f"{state.traction.torque_cut_pct:.0f}%", state.traction.sensor_fault),
             ]
         return [
             ("AIR SHOT", f"{state.air_shot.pressure_psi:.0f} psi", state.air_shot.pressure_psi < 35 and state.engine.target_boost_psi > 6),
             ("WMI FLOW", wmi_flow, state.wmi.fault_active),
             ("IAT/EGT", f"{state.temps.intake_temp_f:.0f}/{state.temps.exhaust_temp_f:.0f}F", state.temps.intake_temp_f > 155 or state.temps.exhaust_temp_f > 1600),
+            ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}", boost_error),
         ]
