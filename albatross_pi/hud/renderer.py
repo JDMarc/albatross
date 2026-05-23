@@ -231,10 +231,15 @@ class HUDRenderer:
         self._fault_log_callback: Callable[[tuple[str, ...], StateSnapshot], None] | None = None
         self._log_export_callback: Callable[[], str] | None = None
         self._update_install_callback: Callable[[StateSnapshot], str] | None = None
+        self._online_update_callback: Callable[[StateSnapshot, Callable[[str, int, int], None]], str] | None = None
         self._last_logged_faults: set[str] = set()
         self._fault_log_lock = threading.Lock()
         self._log_export_status = "READY"
         self._update_install_status = "READY"
+        self._online_update_status = "READY"
+        self._online_update_progress = 0.0
+        self._online_update_busy = False
+        self._online_update_lock = threading.Lock()
         self._focus_targets = ["SETTINGS", "MEDIA"]
         self._focus_index = 0
         self._active_menu = "home"
@@ -243,7 +248,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
@@ -505,6 +510,9 @@ class HUDRenderer:
 
     def configure_update_install_callback(self, callback: Callable[[StateSnapshot], str]) -> None:
         self._update_install_callback = callback
+
+    def configure_online_update_callback(self, callback: Callable[[StateSnapshot, Callable[[str, int, int], None]], str]) -> None:
+        self._online_update_callback = callback
 
     def _log_new_faults(self, state: StateSnapshot, *, clear_missing: bool = True) -> None:
         current = set(state.faults)
@@ -959,6 +967,8 @@ class HUDRenderer:
                 self._export_logs()
             elif item == "INSTALL UPDATE":
                 self._install_update()
+            elif item == "ONLINE UPDATE":
+                self._start_online_update()
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -996,6 +1006,8 @@ class HUDRenderer:
                 self._export_logs()
             elif item == "INSTALL UPDATE":
                 self._install_update()
+            elif item == "ONLINE UPDATE":
+                self._start_online_update()
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1056,6 +1068,8 @@ class HUDRenderer:
                 self._export_logs()
             elif item == "INSTALL UPDATE":
                 self._install_update()
+            elif item == "ONLINE UPDATE":
+                self._start_online_update()
             return
 
     def _handle_back(self) -> None:
@@ -1103,6 +1117,40 @@ class HUDRenderer:
             LOGGER.exception("Update install failed")
             self._update_install_status = f"FAILED {exc.__class__.__name__}"
 
+    def _update_online_progress(self, stage: str, current: int, total: int) -> None:
+        pct = (current / total) if total > 0 else 0.0
+        if stage != "DOWNLOADING":
+            pct = 0.0
+        with self._online_update_lock:
+            self._online_update_progress = max(0.0, min(1.0, pct))
+            self._online_update_status = f"{stage} {int(pct * 100):02d}%" if stage == "DOWNLOADING" else stage
+
+    def _start_online_update(self) -> None:
+        if self._online_update_callback is None:
+            self._online_update_status = "UNAVAILABLE"
+            return
+        with self._online_update_lock:
+            if self._online_update_busy:
+                return
+            self._online_update_busy = True
+            self._online_update_progress = 0.0
+            self._online_update_status = "CHECKING"
+        with self.state_lock:
+            snapshot = self.state
+
+        def worker() -> None:
+            try:
+                result = self._online_update_callback(snapshot, self._update_online_progress)
+            except Exception as exc:
+                LOGGER.exception("Online update failed")
+                result = f"FAILED {exc.__class__.__name__}"
+            with self._online_update_lock:
+                self._online_update_status = result
+                self._online_update_progress = 1.0 if "OK" in result or "UP TO DATE" in result else 0.0
+                self._online_update_busy = False
+
+        threading.Thread(target=worker, name="online-update", daemon=True).start()
+
     def _render_settings_overlay(self) -> None:
         bg, bright, glow, _fault = self._theme_colors()
         sw, sh = self.screen.get_size()
@@ -1123,6 +1171,11 @@ class HUDRenderer:
             self.screen.blit(text, (panel.x + 16, row_y))
             if active:
                 pygame.draw.line(self.screen, bright, (panel.x + 14, row_y + 24), (panel.right - 14, row_y + 24), 1)
+            if item == "ONLINE UPDATE" and (self._online_update_busy or self._online_update_progress > 0):
+                bar = pygame.Rect(panel.x + 300, row_y + 21, panel.width - 330, 7)
+                pygame.draw.rect(self.screen, (45, 30, 0), bar, border_radius=3)
+                fill = pygame.Rect(bar.x, bar.y, int(bar.width * max(0.0, min(1.0, self._online_update_progress))), bar.height)
+                pygame.draw.rect(self.screen, bright, fill, border_radius=3)
             if item == "MODE" and active:
                 self._render_mode_picker(panel, row_y + 28)
         y = panel.bottom - 26
@@ -1205,6 +1258,8 @@ class HUDRenderer:
             return self._log_export_status
         if item == "INSTALL UPDATE":
             return self._update_install_status
+        if item == "ONLINE UPDATE":
+            return self._online_update_status
         return "ON" if self._auto_dim_enabled else "OFF"
 
     def _apply_fuel_type_selection(self, fuel_type_index: int, *, notify: bool = True) -> None:

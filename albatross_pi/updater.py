@@ -10,10 +10,12 @@ import tarfile
 import tempfile
 import zipfile
 import hashlib
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .diagnostics.fault_logger import find_usb_log_destination
 from .state.snapshot import StateSnapshot
@@ -25,6 +27,9 @@ UPDATE_STATE_DIR = REPO_ROOT / "updates"
 RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "settings", "updates"}
 DEFAULT_ARDUINO_FQBN = "arduino:avr:mega"
 DEFAULT_ARDUINO_BAUD = 115200
+DEFAULT_GITHUB_UPDATE_API = "https://api.github.com/repos/JDMarc/albatross/releases/latest"
+DOWNLOAD_CHUNK_SIZE = 1024 * 128
+ProgressCallback = Callable[[str, int, int], None]
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,37 @@ def _safe_name(value: str) -> str:
     allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
     cleaned = "".join(ch if ch in allowed else "_" for ch in value.strip())
     return cleaned or datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _progress(callback: ProgressCallback | None, stage: str, current: int = 0, total: int = 0) -> None:
+    if callback is not None:
+        callback(stage, current, total)
+
+
+def _current_git_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO_ROOT),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def _last_installed_version() -> str | None:
+    state_path = UPDATE_STATE_DIR / "last_update.json"
+    if not state_path.exists():
+        return None
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    version = state.get("version")
+    return str(version) if version else None
 
 
 def _copytree_overlay(source: Path, destination: Path) -> None:
@@ -145,6 +181,81 @@ def find_update_bundle() -> Path | None:
         return None
     candidates = sorted(_bundle_candidates(usb_root), key=lambda path: path.stat().st_mtime, reverse=True)
     return candidates[0] if candidates else None
+
+
+def _github_api_url() -> str:
+    return os.environ.get("ALBATROSS_GITHUB_UPDATE_API", DEFAULT_GITHUB_UPDATE_API)
+
+
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "albatross-hud-updater",
+    }
+    token = os.environ.get("ALBATROSS_GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _fetch_latest_github_release() -> dict[str, Any]:
+    request = urllib.request.Request(_github_api_url(), headers=_github_headers())
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _select_release_bundle_asset(release: dict[str, Any]) -> dict[str, Any] | None:
+    assets = release.get("assets")
+    if not isinstance(assets, list):
+        return None
+    candidates: list[dict[str, Any]] = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name", ""))
+        lower = name.lower()
+        if lower.endswith(".zip") and lower.startswith(("albatross_update", "albatross-update")):
+            candidates.append(asset)
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: str(item.get("updated_at", "")), reverse=True)[0]
+
+
+def _release_matches_current_install(release: dict[str, Any]) -> bool:
+    tag = str(release.get("tag_name") or release.get("name") or "").strip()
+    if not tag:
+        return False
+    installed = _last_installed_version()
+    if installed and installed == tag:
+        return True
+    commit = _current_git_commit()
+    target = str(release.get("target_commitish") or "").strip()
+    return bool(commit and target and (commit == target or commit.startswith(target) or target.startswith(commit[:12])))
+
+
+def _download_asset(asset: dict[str, Any], progress: ProgressCallback | None = None) -> Path:
+    url = str(asset.get("browser_download_url") or "")
+    if not url:
+        raise ValueError("GitHub release asset has no download URL")
+    name = _safe_name(str(asset.get("name") or "albatross_update.zip"))
+    download_dir = UPDATE_STATE_DIR / "downloads"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    destination = download_dir / name
+    partial = destination.with_suffix(destination.suffix + ".part")
+    request = urllib.request.Request(url, headers=_github_headers())
+    _progress(progress, "DOWNLOADING", 0, int(asset.get("size") or 0))
+    with urllib.request.urlopen(request, timeout=30) as response, partial.open("wb") as fh:
+        total = int(response.headers.get("Content-Length") or asset.get("size") or 0)
+        current = 0
+        while True:
+            chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+            if not chunk:
+                break
+            fh.write(chunk)
+            current += len(chunk)
+            _progress(progress, "DOWNLOADING", current, total)
+    partial.replace(destination)
+    return destination
 
 
 def _manifest_pi_archive(manifest: dict[str, Any]) -> str | None:
@@ -266,12 +377,16 @@ def _preflight(manifest: dict[str, Any], snapshot: StateSnapshot) -> str | None:
     return None
 
 
-def install_update_from_usb(snapshot: StateSnapshot) -> UpdateResult:
-    bundle = find_update_bundle()
-    if bundle is None:
-        return UpdateResult("NO UPDATE")
+def install_update_bundle(
+    bundle: Path,
+    snapshot: StateSnapshot,
+    *,
+    source: str | None = None,
+    progress: ProgressCallback | None = None,
+) -> UpdateResult:
     temp: tempfile.TemporaryDirectory[str] | None = None
     try:
+        _progress(progress, "VERIFYING")
         bundle_root, manifest, temp = _load_bundle(bundle)
         _verify_hashes(bundle_root, manifest)
         blocked = _preflight(manifest, snapshot)
@@ -281,13 +396,16 @@ def install_update_from_usb(snapshot: StateSnapshot) -> UpdateResult:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         UPDATE_STATE_DIR.mkdir(parents=True, exist_ok=True)
         backup_root = UPDATE_STATE_DIR / "backups" / f"{timestamp}_{version}"
+        _progress(progress, "BACKUP")
         _backup_runtime_dirs(backup_root)
+        _progress(progress, "INSTALLING")
         pi_updated = _install_pi_app(bundle_root, manifest, backup_root)
         arduino_updated = _install_arduino(bundle_root, manifest)
         state = {
             "version": version,
             "installed_at": datetime.now().isoformat(timespec="seconds"),
             "bundle": str(bundle),
+            "source": source or str(bundle),
             "pi_updated": pi_updated,
             "arduino_updated": arduino_updated,
             "backup": str(backup_root),
@@ -309,3 +427,54 @@ def install_update_from_usb(snapshot: StateSnapshot) -> UpdateResult:
     finally:
         if temp is not None:
             temp.cleanup()
+
+
+def install_update_from_usb(snapshot: StateSnapshot) -> UpdateResult:
+    bundle = find_update_bundle()
+    if bundle is None:
+        return UpdateResult("NO UPDATE")
+    return install_update_bundle(bundle, snapshot, source="usb")
+
+
+def install_update_from_github(snapshot: StateSnapshot, progress: ProgressCallback | None = None) -> UpdateResult:
+    try:
+        _progress(progress, "CHECKING")
+        release = _fetch_latest_github_release()
+        if release.get("draft") or release.get("prerelease"):
+            return UpdateResult("NO STABLE RELEASE")
+        asset = _select_release_bundle_asset(release)
+        if asset is None:
+            return UpdateResult("NO BUNDLE")
+        if _release_matches_current_install(release):
+            return UpdateResult("UP TO DATE")
+        bundle = _download_asset(asset, progress)
+        _progress(progress, "INSTALLING")
+        tag = str(release.get("tag_name") or "")
+        source = f"github:{tag}" if tag else "github"
+        return install_update_bundle(bundle, snapshot, source=source, progress=progress)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return UpdateResult("NO RELEASE")
+        LOGGER.exception("GitHub update check failed")
+        return UpdateResult("NET FAIL", f"HTTP {exc.code}")
+    except urllib.error.URLError as exc:
+        LOGGER.exception("GitHub update check failed")
+        return UpdateResult("NET FAIL", exc.__class__.__name__)
+    except Exception as exc:
+        LOGGER.exception("GitHub update failed")
+        return UpdateResult("UPDATE FAIL", exc.__class__.__name__)
+
+
+def request_reboot_if_raspberry_pi() -> bool:
+    if os.environ.get("ALBATROSS_SKIP_REBOOT"):
+        return False
+    model_path = Path("/proc/device-tree/model")
+    try:
+        model = model_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        model = ""
+    if "raspberry pi" not in model.lower():
+        return False
+    command = ["systemctl", "reboot"] if shutil.which("systemctl") else ["sudo", "reboot"]
+    subprocess.Popen(command, cwd=str(REPO_ROOT))
+    return True

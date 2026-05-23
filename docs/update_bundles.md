@@ -1,12 +1,33 @@
 # Albatross Update Bundles
 
-Updates are installed from a USB drive through the HUD Settings menu item `INSTALL UPDATE`, or from a terminal:
+Updates are installed from a USB drive through the HUD Settings menu item `INSTALL UPDATE`, from GitHub Releases through `ONLINE UPDATE`, or from a terminal:
 
 ```powershell
 py -3.12 tools\install_update.py --bundle C:\path\to\albatross_update_2026_05_19.zip
 ```
 
 The updater searches the connected USB drive for the newest `albatross_update*.zip` or unpacked `albatross_update*/manifest.json` bundle. You can force a bundle with `ALBATROSS_UPDATE_BUNDLE`.
+
+## Online Updates From GitHub
+
+The HUD Settings item `ONLINE UPDATE` checks the latest GitHub Release for
+`JDMarc/albatross`, downloads the newest attached `albatross_update*.zip` bundle
+with a progress bar, verifies the bundle manifest/hashes, installs through the
+same updater path as USB, then reboots automatically when running on a Raspberry
+Pi and the update includes a Pi app payload.
+
+Recommended release flow:
+
+1. Run `py -3.12 tools\make_update_bundle.py`.
+2. Create a GitHub Release with a tag matching the bundle version.
+3. Attach `dist/albatross_update_VERSION.zip` to the release.
+4. On the bike HUD, open Settings and select `ONLINE UPDATE`.
+
+Environment overrides:
+
+- `ALBATROSS_GITHUB_UPDATE_API`: alternate GitHub latest-release API URL.
+- `ALBATROSS_GITHUB_TOKEN`: optional token for private repos or higher rate limits.
+- `ALBATROSS_SKIP_REBOOT`: set to any value to block automatic Pi reboot.
 
 ## Build A Pi Update Bundle
 

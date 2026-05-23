@@ -34,7 +34,7 @@ from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import ClutchState, LightingState, StateSnapshot, WMIState
-from albatross_pi.updater import install_update_from_usb
+from albatross_pi.updater import install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
 
 
 def _iter_can_snapshots(
@@ -105,6 +105,15 @@ def main() -> None:
     renderer.configure_fault_log_callback(_record_faults)
     renderer.configure_log_export_callback(fault_logger.export_to_usb)
     renderer.configure_update_install_callback(lambda snapshot: install_update_from_usb(snapshot).display())
+
+    def _online_update(snapshot: StateSnapshot, progress_callback) -> str:
+        result = install_update_from_github(snapshot, progress_callback)
+        display = result.display()
+        if "RESTART" in display:
+            display = f"{display} REBOOTING" if request_reboot_if_raspberry_pi() else f"{display} REBOOT MANUAL"
+        return display
+
+    renderer.configure_online_update_callback(_online_update)
     phone_bridge: PhoneBridge | None = None
 
     def _apply_phone_status(status: PhoneStatus) -> None:
