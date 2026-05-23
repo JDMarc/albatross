@@ -264,7 +264,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE"]
         self._phone_link_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
@@ -939,6 +939,7 @@ class HUDRenderer:
                     lighting=state.lighting,
                     environment=state.environment,
                     economy=state.economy,
+                    service=state.service,
                     shift_light=state.shift_light,
                     faults=state.faults,
                 )
@@ -998,6 +999,9 @@ class HUDRenderer:
         elif self._active_menu == "fault_detail":
             self._render_modal_dimmer()
             self._render_fault_detail_overlay(state)
+        elif self._active_menu == "service":
+            self._render_modal_dimmer()
+            self._render_service_overlay(state)
         self._render_global_hints()
         self._apply_brightness_overlay(state)
         if (not self._post_complete) or self._post_fault_active:
@@ -1086,6 +1090,8 @@ class HUDRenderer:
                 self._install_update()
             elif item == "ONLINE UPDATE":
                 self._start_online_update()
+            elif item == "SERVICE MODE":
+                self._active_menu = "service"
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1128,6 +1134,8 @@ class HUDRenderer:
                 self._install_update()
             elif item == "ONLINE UPDATE":
                 self._start_online_update()
+            elif item == "SERVICE MODE":
+                self._active_menu = "service"
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1202,6 +1210,8 @@ class HUDRenderer:
                 self._install_update()
             elif item == "ONLINE UPDATE":
                 self._start_online_update()
+            elif item == "SERVICE MODE":
+                self._active_menu = "service"
             return
 
     def _handle_back(self) -> None:
@@ -1388,12 +1398,29 @@ class HUDRenderer:
         pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
         title = font(20, bold=True).render("SETTINGS", True, bright)
         self.screen.blit(title, (panel.x + 16, panel.y + 10))
-        for idx, item in enumerate(self._setting_items):
+        row_h = 34
+        first_row_y = panel.y + 52
+        footer_h = 42
+        visible_rows = max(1, (panel.bottom - footer_h - first_row_y) // row_h)
+        if len(self._setting_items) <= visible_rows:
+            first_idx = 0
+        else:
+            first_idx = min(
+                max(0, self._settings_cursor - visible_rows // 2),
+                len(self._setting_items) - visible_rows,
+            )
+        visible_items = self._setting_items[first_idx:first_idx + visible_rows]
+        if first_idx > 0:
+            self.screen.blit(font(11, bold=True).render("MORE", True, glow), (panel.right - 54, first_row_y - 20))
+        if first_idx + visible_rows < len(self._setting_items):
+            self.screen.blit(font(11, bold=True).render("MORE", True, glow), (panel.right - 54, panel.bottom - footer_h + 4))
+        for row, item in enumerate(visible_items):
+            idx = first_idx + row
             active = idx == self._settings_cursor
             color = bright if active else glow
             value = self._settings_value(item)
             text = font(17, bold=active).render(f"{item:<12} {value}", True, color)
-            row_y = panel.y + 52 + idx * 34
+            row_y = first_row_y + row * row_h
             self.screen.blit(text, (panel.x + 16, row_y))
             if active:
                 pygame.draw.line(self.screen, bright, (panel.x + 14, row_y + 24), (panel.right - 14, row_y + 24), 1)
@@ -1410,6 +1437,109 @@ class HUDRenderer:
         if self._available_devices:
             devs = ", ".join(self._available_devices[:3])
             self.screen.blit(font(12).render(devs[:44], True, bright), (panel.x + 100, y))
+
+    def _draw_service_group(self, title: str, rows: list[tuple[str, str, bool | None]], rect: pygame.Rect) -> None:
+        _bg, bright, glow, fault = self._theme_colors()
+
+        def fitted_surface(text: str, max_w: int, max_h: int, *, start_size: int, color: tuple[int, int, int], bold: bool = False) -> pygame.Surface:
+            size = fit_font_size(text, max_w, max_h, start_size=start_size, bold=bold)
+            clipped = text
+            while font(size, bold=bold).size(clipped)[0] > max_w and len(clipped) > 4:
+                clipped = f"{clipped[:-4]}..."
+            return font(size, bold=bold).render(clipped, True, color)
+
+        pygame.draw.rect(self.screen, (28, 18, 0), rect, width=1, border_radius=5)
+        self.screen.blit(font(13, bold=True).render(title, True, bright), (rect.x + 10, rect.y + 8))
+        if not rows:
+            self.screen.blit(font(12).render("NO DATA", True, glow), (rect.x + 10, rect.y + 34))
+            return
+        y = rect.y + 30
+        row_h = 16
+        max_rows = max(1, (rect.bottom - y - 6) // row_h)
+        for label, value, active in rows[:max_rows]:
+            color = fault if active is False else (bright if active else glow)
+            value_w = max(34, min(rect.width // 2, font(12, bold=bool(active)).size(value)[0]))
+            value_surface = fitted_surface(value, value_w, row_h, start_size=12, color=color, bold=bool(active))
+            value_x = rect.right - value_surface.get_width() - 10
+            label_max_w = max(48, value_x - rect.x - 18)
+            label_surface = fitted_surface(label, label_max_w, row_h, start_size=12, color=glow, bold=bool(active))
+            self.screen.blit(label_surface, (rect.x + 10, y))
+            self.screen.blit(value_surface, (value_x, y))
+            y += row_h
+
+    def _render_service_overlay(self, state: StateSnapshot) -> None:
+        bg, bright, glow, fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(1120, sw - 56), min(610, sh - 48))
+        panel.center = (sw // 2, sh // 2)
+        overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        overlay.fill((8, 6, 0, 238))
+        self.screen.blit(overlay, panel.topleft)
+        pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
+        self.screen.blit(font(20, bold=True).render("SERVICE MODE", True, bright), (panel.x + 16, panel.y + 10))
+        subtitle = "LIVE CAN / SENSORS / PINS / RELAYS / FIRMWARE"
+        self.screen.blit(font(12, bold=True).render(subtitle, True, glow), (panel.x + 210, panel.y + 16))
+
+        content_top = panel.y + 44
+        content_bottom = panel.bottom - 32
+        gap = 10
+        left_w = max(300, int(panel.width * 0.47))
+        left = pygame.Rect(panel.x + 14, content_top, left_w, content_bottom - content_top)
+        right_x = left.right + gap
+        right_w = panel.right - right_x - 14
+
+        frame_rows: list[tuple[str, str, bool | None]] = []
+        now = state.environment.time
+        for frame in state.service.recent_can_frames[:18]:
+            age_ms = max(0, int((now - frame.timestamp).total_seconds() * 1000))
+            label = f"{frame.direction} {frame.arbitration_id:03X}"
+            value = f"{frame.name.rsplit('.', 1)[-1]} {frame.data_hex} {age_ms}ms"
+            frame_rows.append((label, value, None))
+        self._draw_service_group("RAW CAN FRAMES", frame_rows, left)
+
+        sensor_rows = [(reading.label, reading.value, None) for reading in state.service.sensor_voltages]
+        sensor_rows.extend([
+            ("Battery", f"{state.temps.battery_voltage:.2f} V", state.temps.battery_voltage >= 11.8 if state.temps.battery_voltage >= 0 else None),
+            ("Oil pressure", f"{state.temps.oil_pressure_psi:.1f} psi", state.temps.oil_pressure_psi >= 12.0 if state.engine.rpm > 1800 else None),
+            ("Coolant", f"{state.temps.coolant_temp_f:.1f} F", state.temps.coolant_temp_f < 230 if state.temps.coolant_temp_f >= 0 else None),
+            ("IAT", f"{state.temps.intake_temp_f:.1f} F", state.temps.intake_temp_f < 180 if state.temps.intake_temp_f > 0 else None),
+            ("EGT", f"{state.temps.exhaust_temp_f:.1f} F", state.temps.exhaust_temp_f < 1700 if state.temps.exhaust_temp_f > 0 else None),
+            ("Flex fuel", f"{state.environment.ethanol_content_pct:.0f}%", state.environment.ethanol_content_pct >= 0 if state.environment.ethanol_content_pct >= 0 else None),
+        ])
+
+        pin_rows = [(flag.label, "HIGH" if flag.active else "LOW", True if flag.active else None) for flag in state.service.pin_states]
+        relay_rows = [(flag.label, "ON" if flag.active else "OFF", True if flag.active else None) for flag in state.service.relay_states]
+        firmware_rows = [(reading.label, reading.value, None) for reading in state.service.firmware_versions]
+        firmware_rows.extend(
+            [
+                ("Mode", state.environment.mode, None),
+                (
+                    "Fuel",
+                    f"{state.environment.fuel_type} E{state.environment.ethanol_content_pct:.0f}"
+                    if state.environment.ethanol_content_pct >= 0
+                    else state.environment.fuel_type,
+                    None,
+                ),
+                ("Traction", state.traction.intervention_level or "UNKNOWN", None),
+            ]
+        )
+
+        group_h = max(96, (content_bottom - content_top - gap * 2) // 3)
+        top_right = pygame.Rect(right_x, content_top, right_w, group_h)
+        mid_right = pygame.Rect(right_x, top_right.bottom + gap, right_w, group_h)
+        bottom_right = pygame.Rect(right_x, mid_right.bottom + gap, right_w, content_bottom - mid_right.bottom - gap)
+        split = max(150, (mid_right.width - gap) // 2)
+        pin_rect = pygame.Rect(mid_right.x, mid_right.y, split, mid_right.height)
+        relay_rect = pygame.Rect(pin_rect.right + gap, mid_right.y, mid_right.right - pin_rect.right - gap, mid_right.height)
+
+        self._draw_service_group("SENSOR VALUES", sensor_rows, top_right)
+        self._draw_service_group("PIN STATES", pin_rows, pin_rect)
+        self._draw_service_group("RELAY STATES", relay_rows, relay_rect)
+        self._draw_service_group("FIRMWARE / CONTROL", firmware_rows, bottom_right)
+
+        hint = "ESC: BACK"
+        hint_surface = font(12, bold=True).render(hint, True, glow)
+        self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 16, panel.bottom - 22))
 
     def _render_media_overlay(self) -> None:
         _bg, bright, glow, _fault = self._theme_colors()
@@ -1486,6 +1616,8 @@ class HUDRenderer:
             return self._update_install_status
         if item == "ONLINE UPDATE":
             return self._online_update_status
+        if item == "SERVICE MODE":
+            return "OPEN"
         return "ON" if self._auto_dim_enabled else "OFF"
 
     def _apply_fuel_type_selection(self, fuel_type_index: int, *, notify: bool = True) -> None:

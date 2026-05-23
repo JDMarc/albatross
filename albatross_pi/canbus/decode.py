@@ -18,11 +18,15 @@ from .ids import (
 )
 from ..state.snapshot import (
     AirShotState,
+    CANFrameRecord,
     ClutchState,
     EngineState,
     EnvironmentState,
     EconomyState,
     LightingState,
+    ServiceFlag,
+    ServiceReading,
+    ServiceStatus,
     StateSnapshot,
     TemperaturesState,
     TractionState,
@@ -35,6 +39,18 @@ TRACTION_LEVEL_NAMES = {
     0x02: "MED",
     0x03: "HIGH",
     0x04: "OFF",
+}
+
+
+_FRAME_NAMES: dict[int, str] = {}
+for _enum in (ECUToHudID, ArduinoToHudID, PiToArduinoID, PiToEcuID, SystemCommandID):
+    for _member in _enum:
+        _FRAME_NAMES[int(_member)] = f"{_enum.__name__}.{_member.name}"
+
+_FIRMWARE_DEVICE_NAMES = {
+    0x01: "Arduino controller",
+    0x02: "Pi HUD",
+    0x03: "MS3 ECU",
 }
 
 
@@ -79,22 +95,26 @@ class CANStateAggregator:
         self._lighting = LightingState()
         self._environment = replace(EnvironmentState(), fuel_level_pct=-1.0)
         self._economy = EconomyState()
+        self._service = ServiceStatus(
+            firmware_versions=(ServiceReading("Pi HUD", "local/dev"),)
+        )
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_snapshot = StateSnapshot(
             engine=replace(EngineState(), rpm_redline=rpm_redline),
+            service=self._service,
         )
         self._dirty = False
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def apply_frame(self, arbitration_id: int, data: bytes) -> None:
+    def apply_frame(self, arbitration_id: int, data: bytes, direction: str = "RX") -> None:
         """Decode the provided frame and update internal state."""
         handler = _FRAME_DISPATCH.get(arbitration_id)
-        if handler is None:
-            return
         with self._condition:
-            handler(self, data)
+            self._record_can_frame(arbitration_id, data, direction)
+            if handler is not None:
+                handler(self, data)
             env_dict = self._environment.__dict__.copy()
             env_dict["time"] = datetime.now()
             self._environment = EnvironmentState(**env_dict)
@@ -117,6 +137,7 @@ class CANStateAggregator:
                 lighting=self._lighting,
                 environment=self._environment,
                 economy=self._economy,
+                service=self._service,
                 shift_light=self._shift_light,
                 faults=tuple(sorted(self._faults.values())),
             )
@@ -125,7 +146,7 @@ class CANStateAggregator:
 
     def mark_sent_frame(self, arbitration_id: int, data: bytes) -> None:
         """Apply locally transmitted frames to keep state in sync."""
-        self.apply_frame(arbitration_id, data)
+        self.apply_frame(arbitration_id, data, direction="TX")
 
     def wait_for_snapshot(self, timeout: Optional[float] = None) -> StateSnapshot:
         with self._condition:
@@ -140,6 +161,17 @@ class CANStateAggregator:
     # ------------------------------------------------------------------
     # Frame handlers
     # ------------------------------------------------------------------
+    def _record_can_frame(self, arbitration_id: int, data: bytes, direction: str) -> None:
+        record = CANFrameRecord(
+            arbitration_id=arbitration_id,
+            name=_FRAME_NAMES.get(arbitration_id, "UNKNOWN"),
+            data_hex=data.hex(" ").upper(),
+            direction=direction,
+            timestamp=datetime.now(),
+        )
+        frames = (record,) + self._service.recent_can_frames
+        self._service = replace(self._service, recent_can_frames=frames[:18])
+
     def _update_engine_rpm(self, data: bytes) -> None:
         if len(data) < 2:
             return
@@ -312,6 +344,78 @@ class CANStateAggregator:
             sensor_fault=bool(flags & 0x02),
         )
 
+    def _update_service_sensor_voltages(self, data: bytes) -> None:
+        if len(data) < 4:
+            return
+        oil_mv, wmi_mv = struct.unpack_from(">HH", data[:4])
+        readings = [
+            ServiceReading("Oil pressure sensor", f"{oil_mv / 1000.0:.2f} V"),
+            ServiceReading("WMI tank sender", f"{wmi_mv / 1000.0:.2f} V"),
+        ]
+        if len(data) >= 6:
+            (supply_mv,) = struct.unpack_from(">H", data, 4)
+            readings.append(ServiceReading("Arduino 5V rail", f"{supply_mv / 1000.0:.2f} V"))
+        if len(data) >= 8:
+            (spare_mv,) = struct.unpack_from(">H", data, 6)
+            readings.append(ServiceReading("Service spare", f"{spare_mv / 1000.0:.2f} V"))
+        self._service = replace(self._service, sensor_voltages=tuple(readings))
+
+    def _update_service_digital_states(self, data: bytes) -> None:
+        if len(data) < 4:
+            return
+        input_bits, output_bits, command_bits, fault_bits = data[:4]
+        pin_labels = (
+            ("Left indicator", 0x01),
+            ("Right indicator", 0x02),
+            ("High beam", 0x04),
+            ("Neutral switch", 0x08),
+            ("Brake light", 0x10),
+            ("Oil warning lamp", 0x20),
+            ("WMI pressure OK", 0x40),
+            ("CAN INT low", 0x80),
+        )
+        relay_labels = (
+            ("WG1 enable", 0x01),
+            ("WG2 enable", 0x02),
+            ("WMI pump", 0x04),
+            ("Flame enable", 0x08),
+            ("Air shot solenoid", 0x10),
+            ("Air compressor", 0x20),
+            ("WG1 direction", 0x40),
+            ("WG2 direction", 0x80),
+        )
+        command_labels = (
+            ("NFC OK", 0x01),
+            ("Flame requested", 0x02),
+            ("Limp requested", 0x04),
+            ("Run switch", 0x08),
+            ("WMI armed", 0x10),
+        )
+        fault_labels = (
+            ("ECU CAN stale", 0x01),
+            ("Pi command stale", 0x02),
+            ("WMI fault", 0x04),
+            ("Traction sensor fault", 0x08),
+        )
+        pins = [ServiceFlag(label, bool(input_bits & bit)) for label, bit in pin_labels]
+        pins.extend(ServiceFlag(label, bool(command_bits & bit)) for label, bit in command_labels)
+        pins.extend(ServiceFlag(label, bool(fault_bits & bit)) for label, bit in fault_labels)
+        relays = tuple(ServiceFlag(label, bool(output_bits & bit)) for label, bit in relay_labels)
+        self._service = replace(self._service, pin_states=tuple(pins), relay_states=relays)
+
+    def _update_service_firmware_version(self, data: bytes) -> None:
+        if len(data) < 6:
+            return
+        device = _FIRMWARE_DEVICE_NAMES.get(data[0], f"Device 0x{data[0]:02X}")
+        build = (int(data[4]) << 8) | int(data[5])
+        version = f"{data[1]}.{data[2]}.{data[3]}+{build}"
+        versions = {reading.label: reading.value for reading in self._service.firmware_versions}
+        versions[device] = version
+        self._service = replace(
+            self._service,
+            firmware_versions=tuple(ServiceReading(label, value) for label, value in sorted(versions.items())),
+        )
+
     def _update_tank_pressure(self, data: bytes) -> None:
         if len(data) < 2:
             return
@@ -459,6 +563,9 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ArduinoToHudID.OIL_PRESSURE_STATUS): CANStateAggregator._update_arduino_oil_pressure,
     int(ArduinoToHudID.FUEL_TYPE_STATUS): CANStateAggregator._update_fuel_type,
     int(ArduinoToHudID.TRACTION_STATUS): CANStateAggregator._update_traction_status,
+    int(ArduinoToHudID.SERVICE_SENSOR_VOLTAGES): CANStateAggregator._update_service_sensor_voltages,
+    int(ArduinoToHudID.SERVICE_DIGITAL_STATES): CANStateAggregator._update_service_digital_states,
+    int(ArduinoToHudID.SERVICE_FIRMWARE_VERSION): CANStateAggregator._update_service_firmware_version,
     int(PiToArduinoID.BOOST_TARGET_COMMAND): CANStateAggregator._update_boost_command,
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,

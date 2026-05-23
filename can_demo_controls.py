@@ -110,6 +110,12 @@ class App:
             "neutral_light": tk.BooleanVar(value=True),
             "brake_light": tk.BooleanVar(value=False),
             "oil_warning": tk.BooleanVar(value=False),
+            "wmi_pressure_ok": tk.BooleanVar(value=True),
+            "oil_sensor_v": tk.DoubleVar(value=2.75),
+            "wmi_tank_v": tk.DoubleVar(value=3.25),
+            "arduino_5v": tk.DoubleVar(value=5.00),
+            "air_compressor": tk.BooleanVar(value=False),
+            "arduino_fw": tk.StringVar(value="0.1.0+1"),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
         }
         self._build()
@@ -215,6 +221,16 @@ class App:
         ttk.Checkbutton(lighting, text="Neutral", variable=self.vars["neutral_light"]).grid(row=1, column=0, sticky="w")
         ttk.Checkbutton(lighting, text="Brake", variable=self.vars["brake_light"]).grid(row=1, column=1, sticky="w")
         ttk.Checkbutton(lighting, text="Oil Warning", variable=self.vars["oil_warning"]).grid(row=1, column=2, sticky="w")
+        ttk.Checkbutton(lighting, text="WMI Pressure OK", variable=self.vars["wmi_pressure_ok"]).grid(row=1, column=3, sticky="w")
+
+        service = ttk.LabelFrame(rootf, text="Service Mode Data", padding=8)
+        service.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        self._slider(service, "Oil Sensor V", "oil_sensor_v", 0.0, 5.0, 0)
+        self._slider(service, "WMI Tank V", "wmi_tank_v", 0.0, 5.0, 1)
+        self._slider(service, "Arduino 5V", "arduino_5v", 4.5, 5.3, 2)
+        ttk.Checkbutton(service, text="Air Compressor Relay", variable=self.vars["air_compressor"]).grid(row=3, column=0, sticky="w")
+        ttk.Label(service, text="Arduino FW").grid(row=3, column=1, sticky="e")
+        ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=3, column=2, sticky="w")
 
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
@@ -232,6 +248,13 @@ class App:
     @staticmethod
     def _f_to_cx10(temp_f: float) -> int:
         return int(max(0.0, (temp_f - 32.0) * 5.0 / 9.0) * 10)
+
+    @staticmethod
+    def _version_part(value: str, limit: int) -> int:
+        try:
+            return max(0, min(limit, int(value or 0)))
+        except ValueError:
+            return 0
 
     def send_all(self) -> None:
         gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
@@ -345,6 +368,51 @@ class App:
         light_flags |= 0x10 if bool(self.vars["brake_light"].get()) else 0
         light_flags |= 0x20 if bool(self.vars["oil_warning"].get()) else 0
         self._send(int(ArduinoToHudID.LIGHT_STATUS), bytes((light_flags,)))
+
+        sensor_mv = (
+            max(0, min(65535, int(float(self.vars["oil_sensor_v"].get()) * 1000))),
+            max(0, min(65535, int(float(self.vars["wmi_tank_v"].get()) * 1000))),
+            max(0, min(65535, int(float(self.vars["arduino_5v"].get()) * 1000))),
+            0,
+        )
+        self._send(int(ArduinoToHudID.SERVICE_SENSOR_VOLTAGES), struct.pack(">HHHH", *sensor_mv))
+        input_bits = light_flags
+        input_bits |= 0x40 if bool(self.vars["wmi_pressure_ok"].get()) else 0
+        output_bits = 0
+        output_bits |= 0x01 if int(self.vars["wg1"].get()) > 0 else 0
+        output_bits |= 0x02 if int(self.vars["wg2"].get()) > 0 else 0
+        output_bits |= 0x04 if bool(self.vars["wmi_arm"].get()) else 0
+        output_bits |= 0x08 if bool(self.vars["flame_mode"].get()) else 0
+        output_bits |= 0x10 if bool(self.vars["airshot_firing"].get()) else 0
+        output_bits |= 0x20 if bool(self.vars["air_compressor"].get()) else 0
+        output_bits |= 0x40 if int(self.vars["wg1"].get()) > 0 else 0
+        output_bits |= 0x80 if int(self.vars["wg2"].get()) > 0 else 0
+        command_bits = 0
+        command_bits |= 0x01 if bool(self.vars["nfc_ok"].get()) else 0
+        command_bits |= 0x02 if bool(self.vars["flame_mode"].get()) else 0
+        command_bits |= 0x04 if bool(self.vars["limp_mode"].get()) else 0
+        command_bits |= 0x08 if bool(self.vars["engine_run"].get()) else 0
+        command_bits |= 0x10 if bool(self.vars["wmi_arm"].get()) else 0
+        fault_bits = 0
+        fault_bits |= 0x04 if bool(self.vars["wmi_fault"].get()) else 0
+        fault_bits |= 0x08 if bool(self.vars["traction_fault"].get()) else 0
+        self._send(int(ArduinoToHudID.SERVICE_DIGITAL_STATES), bytes((input_bits, output_bits, command_bits, fault_bits)))
+        fw = str(self.vars["arduino_fw"].get()).replace("+", ".").split(".")
+        major, minor, patch, build = (fw + ["0", "0", "0", "0"])[:4]
+        build_no = self._version_part(build, 65535)
+        self._send(
+            int(ArduinoToHudID.SERVICE_FIRMWARE_VERSION),
+            bytes(
+                (
+                    0x01,
+                    self._version_part(major, 255),
+                    self._version_part(minor, 255),
+                    self._version_part(patch, 255),
+                    (build_no >> 8) & 0xFF,
+                    build_no & 0xFF,
+                )
+            ),
+        )
 
         payload = {k: (v.get() if hasattr(v, "get") else v) for k, v in self.vars.items()}
         if not bool(self.vars["send_hud_commands"].get()):

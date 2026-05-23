@@ -103,6 +103,36 @@ class EconomyState:
 
 
 @dataclass(frozen=True)
+class CANFrameRecord:
+    arbitration_id: int = 0
+    name: str = "UNKNOWN"
+    data_hex: str = ""
+    direction: str = "RX"
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass(frozen=True)
+class ServiceReading:
+    label: str = ""
+    value: str = ""
+
+
+@dataclass(frozen=True)
+class ServiceFlag:
+    label: str = ""
+    active: bool = False
+
+
+@dataclass(frozen=True)
+class ServiceStatus:
+    recent_can_frames: Tuple[CANFrameRecord, ...] = field(default_factory=tuple)
+    sensor_voltages: Tuple[ServiceReading, ...] = field(default_factory=tuple)
+    pin_states: Tuple[ServiceFlag, ...] = field(default_factory=tuple)
+    relay_states: Tuple[ServiceFlag, ...] = field(default_factory=tuple)
+    firmware_versions: Tuple[ServiceReading, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class StateSnapshot:
     engine: EngineState = field(default_factory=EngineState)
     temps: TemperaturesState = field(default_factory=TemperaturesState)
@@ -113,5 +143,6 @@ class StateSnapshot:
     lighting: LightingState = field(default_factory=LightingState)
     environment: EnvironmentState = field(default_factory=EnvironmentState)
     economy: EconomyState = field(default_factory=EconomyState)
+    service: ServiceStatus = field(default_factory=ServiceStatus)
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)

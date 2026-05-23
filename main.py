@@ -33,7 +33,7 @@ from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.state.simulator import StateSimulator
-from albatross_pi.state.snapshot import ClutchState, LightingState, StateSnapshot, WMIState
+from albatross_pi.state.snapshot import ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, WMIState
 from albatross_pi.updater import install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
 
 
@@ -531,6 +531,35 @@ def main() -> None:
                     brake=bool(obj.get("brake_light", obj.get("brake", snap.lighting.brake))),
                     oil_warning=bool(obj.get("oil_warning", snap.lighting.oil_warning)),
                 )
+                service = ServiceStatus(
+                    recent_can_frames=snap.service.recent_can_frames,
+                    sensor_voltages=(
+                        ServiceReading("Oil pressure sensor", f"{float(obj.get('oil_sensor_v', 2.75)):.2f} V"),
+                        ServiceReading("WMI tank sender", f"{float(obj.get('wmi_tank_v', 3.25)):.2f} V"),
+                        ServiceReading("Arduino 5V rail", f"{float(obj.get('arduino_5v', 5.00)):.2f} V"),
+                    ),
+                    pin_states=(
+                        ServiceFlag("Left indicator", lighting.left_indicator),
+                        ServiceFlag("Right indicator", lighting.right_indicator),
+                        ServiceFlag("High beam", lighting.high_beam),
+                        ServiceFlag("Neutral switch", lighting.neutral),
+                        ServiceFlag("Brake light", lighting.brake),
+                        ServiceFlag("Oil warning lamp", lighting.oil_warning),
+                        ServiceFlag("WMI pressure OK", bool(obj.get("wmi_pressure_ok", True))),
+                    ),
+                    relay_states=(
+                        ServiceFlag("WMI pump", bool(obj.get("wmi_pump_relay", obj.get("wmi_arm", False)))),
+                        ServiceFlag("Flame enable", bool(obj.get("flame_mode", False))),
+                        ServiceFlag("Air shot solenoid", air.is_firing),
+                        ServiceFlag("Air compressor", bool(obj.get("air_compressor", air.pressure_psi < 68.0))),
+                        ServiceFlag("WG1 enable", int(obj.get("wg1", 0)) > 0),
+                        ServiceFlag("WG2 enable", int(obj.get("wg2", 0)) > 0),
+                    ),
+                    firmware_versions=(
+                        ServiceReading("Pi HUD", "local/dev"),
+                        ServiceReading("Arduino controller", str(obj.get("arduino_fw", "demo"))),
+                    ),
+                )
                 updated = replace(
                     snap,
                     engine=eng,
@@ -542,6 +571,7 @@ def main() -> None:
                     lighting=lighting,
                     air_shot=air,
                     wmi=wmi,
+                    service=service,
                 )
                 renderer.update_state(
                     replace(

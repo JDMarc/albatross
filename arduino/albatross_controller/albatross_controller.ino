@@ -60,6 +60,9 @@ namespace CanId {
   constexpr uint16_t ARD_OIL_PRESSURE_STATUS = 0x13C;
   constexpr uint16_t ARD_FUEL_TYPE_STATUS = 0x13D;
   constexpr uint16_t ARD_TRACTION_STATUS = 0x13E;
+  constexpr uint16_t ARD_SERVICE_SENSOR_VOLTAGES = 0x13F;
+  constexpr uint16_t ARD_SERVICE_DIGITAL_STATES = 0x145;
+  constexpr uint16_t ARD_SERVICE_FIRMWARE_VERSION = 0x146;
 
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
@@ -178,6 +181,10 @@ static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pul
 static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
 static constexpr uint32_t ECU_CAN_TIMEOUT_MS = 300;
 static constexpr uint32_t PI_CAN_TIMEOUT_MS = 1500;
+constexpr uint8_t FIRMWARE_VERSION_MAJOR = 0;
+constexpr uint8_t FIRMWARE_VERSION_MINOR = 1;
+constexpr uint8_t FIRMWARE_VERSION_PATCH = 0;
+constexpr uint16_t FIRMWARE_BUILD = 1;
 
 // Hard safety caps by mode (psi*10); Pi sends the fuel/WMI-aware target.
 uint16_t modeBoostCap(uint8_t mode) {
@@ -404,6 +411,10 @@ uint16_t readOilPressurePsiX10() {
       0,
       OIL_PRESSURE_SENSOR_MAX_PSI_X10);
   return static_cast<uint16_t>(constrain(scaled, 0, OIL_PRESSURE_SENSOR_MAX_PSI_X10));
+}
+
+uint16_t adcRawToMillivolts(int raw) {
+  return static_cast<uint16_t>(constrain(map(constrain(raw, 0, 1023), 0, 1023, 0, 5000), 0, 5000));
 }
 
 uint8_t classifyClutchSlipSeverity(float slip_pct) {
@@ -777,6 +788,65 @@ void publishStatusFrames() {
   uint16_t rear_mps_x100 = static_cast<uint16_t>(constrain(static_cast<int>(g_rear_wheel_mps * 100.0f), 0, 65535));
   uint8_t wheel[4] = {uint8_t(front_mps_x100 >> 8), uint8_t(front_mps_x100 & 0xFF), uint8_t(rear_mps_x100 >> 8), uint8_t(rear_mps_x100 & 0xFF)};
   publishFrame(CanId::ARD_WHEEL_SPEED, wheel, 4);
+
+  static uint32_t last_service_ms = 0;
+  static uint32_t last_firmware_ms = 0;
+  const uint32_t now = millis();
+  if (now - last_service_ms >= 250) {
+    last_service_ms = now;
+    const uint16_t oil_sensor_mv = adcRawToMillivolts(analogRead(OIL_PRESSURE_SENSOR_PIN));
+    const uint16_t wmi_tank_mv = adcRawToMillivolts(analogRead(WMI_TANK_LEVEL_PIN));
+    uint8_t sensor_voltage[8] = {
+      uint8_t(oil_sensor_mv >> 8), uint8_t(oil_sensor_mv & 0xFF),
+      uint8_t(wmi_tank_mv >> 8), uint8_t(wmi_tank_mv & 0xFF),
+      uint8_t(5000 >> 8), uint8_t(5000 & 0xFF),
+      0, 0
+    };
+    publishFrame(CanId::ARD_SERVICE_SENSOR_VOLTAGES, sensor_voltage, 8);
+
+    uint8_t input_bits = readLightingStatus();
+    if (readWmiPressureOk()) input_bits |= 0x40;
+    if (digitalRead(CAN_INT_PIN) == LOW) input_bits |= 0x80;
+
+    uint8_t output_bits = 0;
+    if (digitalRead(WG1_EN_PIN) == HIGH) output_bits |= 0x01;
+    if (digitalRead(WG2_EN_PIN) == HIGH) output_bits |= 0x02;
+    if (digitalRead(WMI_PUMP_PIN) == HIGH) output_bits |= 0x04;
+    if (digitalRead(FLAME_EN_PIN) == HIGH) output_bits |= 0x08;
+    if (digitalRead(AIRSHOT_SOL_PIN) == HIGH) output_bits |= 0x10;
+    if (digitalRead(AIR_COMPRESSOR_RELAY_PIN) == HIGH) output_bits |= 0x20;
+    if (digitalRead(WG1_DIR_PIN) == HIGH) output_bits |= 0x40;
+    if (digitalRead(WG2_DIR_PIN) == HIGH) output_bits |= 0x80;
+
+    uint8_t command_bits = 0;
+    if (g_commands.nfc_ok) command_bits |= 0x01;
+    if (g_commands.flame_mode) command_bits |= 0x02;
+    if (g_commands.limp_mode) command_bits |= 0x04;
+    if (g_commands.engine_run_enabled) command_bits |= 0x08;
+    if (g_commands.wmi_arm) command_bits |= 0x10;
+
+    uint8_t fault_bits = 0;
+    if (elapsedSince(g_last_ecu_frame_ms, ECU_CAN_TIMEOUT_MS, now)) fault_bits |= 0x01;
+    if (elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now)) fault_bits |= 0x02;
+    if (g_outputs.wmi_fault) fault_bits |= 0x04;
+    if (g_outputs.traction_sensor_fault) fault_bits |= 0x08;
+
+    uint8_t digital_states[4] = {input_bits, output_bits, command_bits, fault_bits};
+    publishFrame(CanId::ARD_SERVICE_DIGITAL_STATES, digital_states, 4);
+  }
+
+  if (now - last_firmware_ms >= 2000) {
+    last_firmware_ms = now;
+    uint8_t firmware[6] = {
+      0x01,
+      FIRMWARE_VERSION_MAJOR,
+      FIRMWARE_VERSION_MINOR,
+      FIRMWARE_VERSION_PATCH,
+      uint8_t(FIRMWARE_BUILD >> 8),
+      uint8_t(FIRMWARE_BUILD & 0xFF)
+    };
+    publishFrame(CanId::ARD_SERVICE_FIRMWARE_VERSION, firmware, 6);
+  }
 }
 
 void setup() {
