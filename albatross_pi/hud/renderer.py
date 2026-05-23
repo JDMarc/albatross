@@ -1281,18 +1281,24 @@ class HUDRenderer:
         threading.Thread(target=worker, name="online-update", daemon=True).start()
 
     @staticmethod
-    def _wrap_words(text: str, max_chars: int) -> list[str]:
+    def _wrap_words(text: str, max_width: int, font_size: int) -> list[str]:
         words = text.split()
         lines: list[str] = []
         current = ""
         for word in words:
             candidate = f"{current} {word}".strip()
-            if len(candidate) <= max_chars:
+            if font(font_size).size(candidate)[0] <= max_width:
                 current = candidate
                 continue
             if current:
                 lines.append(current)
             current = word
+            while font(font_size).size(current)[0] > max_width and len(current) > 1:
+                split_at = max(1, len(current) - 1)
+                while split_at > 1 and font(font_size).size(current[:split_at])[0] > max_width:
+                    split_at -= 1
+                lines.append(current[:split_at])
+                current = current[split_at:]
         if current:
             lines.append(current)
         return lines or [""]
@@ -1322,15 +1328,20 @@ class HUDRenderer:
         self.screen.blit(font(22, bold=True).render(title, True, bright), (panel.x + 18, panel.y + 12))
         self.screen.blit(font(24, bold=True).render(name, True, fault_color), (panel.x + 18, panel.y + 48))
 
+        text_x = panel.x + 18
+        grid_x = panel.x + int(panel.width * 0.62)
+        text_max_w = max(220, grid_x - text_x - 26)
         y = panel.y + 88
         for heading, body in (
             ("WHY", fault_reason(name, state)),
             ("ACTION", fault_action(name, state)),
         ):
-            self.screen.blit(font(15, bold=True).render(heading, True, bright), (panel.x + 18, y))
+            self.screen.blit(font(15, bold=True).render(heading, True, bright), (text_x, y))
             y += 18
-            for line in self._wrap_words(body, max(36, panel.width // 14)):
-                self.screen.blit(font(14).render(line, True, glow), (panel.x + 28, y))
+            for line in self._wrap_words(body, text_max_w - 10, 14):
+                if y > panel.bottom - 42:
+                    break
+                self.screen.blit(font(14).render(line, True, glow), (text_x + 10, y))
                 y += 17
             y += 6
 
@@ -1348,15 +1359,16 @@ class HUDRenderer:
             ("WMI", f"{status['wmi_actual_flow_cc_min']}/{status['wmi_commanded_flow_cc_min']} ccm {status['wmi_tank_level_pct']}%"),
             ("TRAC", f"{status['traction_slip_pct']}% slip / {status['traction_torque_cut_pct']}% cut"),
         ]
-        grid_x = panel.x + panel.width // 2 + 18
         grid_y = panel.y + 88
-        label_w = max(70, int(panel.width * 0.13))
+        label_w = max(70, int(panel.width * 0.12))
+        value_max_w = max(90, panel.right - grid_x - label_w - 24)
         row_h = max(18, min(25, (panel.bottom - grid_y - 42) // len(rows)))
         self.screen.blit(font(15, bold=True).render("CURRENT VALUES", True, bright), (grid_x, panel.y + 64))
         for idx, (label, value) in enumerate(rows):
             row_y = grid_y + idx * row_h
             self.screen.blit(font(13, bold=True).render(label, True, glow), (grid_x, row_y))
-            self.screen.blit(font(14, bold=True).render(value, True, bright), (grid_x + label_w, row_y))
+            value_size = fit_font_size(value, value_max_w, row_h, start_size=14, bold=True)
+            self.screen.blit(font(value_size, bold=True).render(value, True, bright), (grid_x + label_w, row_y))
 
         hint = "ARROWS: NEXT FAULT  |  ENTER: NEXT  |  ESC: BACK"
         hint_surface = font(12, bold=True).render(hint, True, glow)
