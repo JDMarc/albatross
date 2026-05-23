@@ -265,14 +265,14 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE", "SENSOR CONF"]
         self._phone_link_enabled = False
         self._flame_mode_manual_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
         self._brightness_index = 3
         self._fuel_types = ["87", "91", "93", "100", "E85", "C16"]
         self._fuel_type_index = self._fuel_types.index(self.state.environment.fuel_type) if self.state.environment.fuel_type in self._fuel_types else 2
-        self._themes = ["AMBER", "NIGHT", "HIGH-CON"]
+        self._themes = ["AMBER", "NIGHT", "NIGHT OPS", "HIGH-CON"]
         self._theme_index = 0
         self._auto_dim_enabled = True
         self._preferences = HUDPreferences(preferences_path)
@@ -287,6 +287,8 @@ class HUDRenderer:
         self._last_snapshot_time = self.state.environment.time
         self._last_can_fresh_monotonic = time.monotonic()
         self._fault_condition_since: dict[str, float] = {}
+        self._advisory_latch_until: dict[str, float] = {}
+        self._last_iat_sample: tuple[float, float] | None = None
         self._display_time_anchor = self.state.environment.time
         self._display_time_anchor_monotonic = self._last_can_fresh_monotonic
         self._economy_tracker = EconomyTracker()
@@ -427,6 +429,45 @@ class HUDRenderer:
 
         # Return only currently active faults; AlertPanel handles post-clear hold timing.
         return tuple(sorted(active))
+
+    def _predictive_advisories(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
+        active: set[str] = set()
+        faults = set(state.faults)
+        temps = state.temps
+        engine = state.engine
+        fuel_level = state.environment.fuel_level_pct
+
+        previous_iat = self._last_iat_sample
+        if math.isfinite(float(temps.intake_temp_f)):
+            if previous_iat is not None:
+                prev_t, prev_iat = previous_iat
+                dt = max(0.001, now_s - prev_t)
+                rate_f_per_min = (temps.intake_temp_f - prev_iat) / dt * 60.0
+                if (
+                    "INTAKE AIR HOT" not in faults
+                    and temps.intake_temp_f < 150.0
+                    and temps.intake_temp_f > 110.0
+                    and (rate_f_per_min > 8.0 or temps.intake_temp_f > 135.0)
+                ):
+                    active.add("IAT RISING")
+            self._last_iat_sample = (now_s, temps.intake_temp_f)
+
+        if "LOW FUEL" not in faults:
+            range_critical = 0.0 <= state.economy.miles_to_empty <= 15.0
+            level_near_reserve = 5.0 < fuel_level <= 10.0
+            if range_critical or level_near_reserve:
+                active.add("FUEL RANGE CRITICAL")
+
+        if "BATTERY LOW" not in faults and "BATTERY HIGH" not in faults:
+            if engine.rpm > 1600 and 12.0 <= temps.battery_voltage < 13.0:
+                active.add("BATTERY NOT CHARGING")
+
+        for advisory in active:
+            self._advisory_latch_until[advisory] = now_s + 3.5
+        self._advisory_latch_until = {
+            advisory: until for advisory, until in self._advisory_latch_until.items() if until > now_s
+        }
+        return tuple(sorted(self._advisory_latch_until))
 
     def configure_traction_callback(self, callback) -> None:
         self._traction_callback = callback
@@ -933,6 +974,7 @@ class HUDRenderer:
                 self._display_time_anchor_monotonic = now_s
             state = replace(state, faults=self._runtime_faults(state, now_s))
             state = self._economy_tracker.update(state, now_s)
+            state = replace(state, advisories=self._predictive_advisories(state, now_s))
             previous_mode_index = self._mode_index
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
@@ -973,6 +1015,7 @@ class HUDRenderer:
                     service=state.service,
                     shift_light=state.shift_light,
                     faults=state.faults,
+                    advisories=state.advisories,
                 )
 
             if not self._post_complete:
@@ -1006,6 +1049,7 @@ class HUDRenderer:
             with self.state_lock:
                 self.state = state
         state = self._economy_tracker.update(state)
+        state = replace(state, advisories=self._predictive_advisories(state, time.monotonic()))
         self._render_frame(state, present=False)
         return self.screen.copy()
 
@@ -1033,6 +1077,9 @@ class HUDRenderer:
         elif self._active_menu == "service":
             self._render_modal_dimmer()
             self._render_service_overlay(state)
+        elif self._active_menu == "sensor_confidence":
+            self._render_modal_dimmer()
+            self._render_sensor_confidence_overlay(state)
         self._render_global_hints()
         self._apply_brightness_overlay(state)
         if (not self._post_complete) or self._post_fault_active:
@@ -1127,6 +1174,8 @@ class HUDRenderer:
                 self._start_online_update()
             elif item == "SERVICE MODE":
                 self._active_menu = "service"
+            elif item == "SENSOR CONF":
+                self._active_menu = "sensor_confidence"
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1175,6 +1224,8 @@ class HUDRenderer:
                 self._start_online_update()
             elif item == "SERVICE MODE":
                 self._active_menu = "service"
+            elif item == "SENSOR CONF":
+                self._active_menu = "sensor_confidence"
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1255,6 +1306,8 @@ class HUDRenderer:
                 self._start_online_update()
             elif item == "SERVICE MODE":
                 self._active_menu = "service"
+            elif item == "SENSOR CONF":
+                self._active_menu = "sensor_confidence"
             return
 
     def _handle_back(self) -> None:
@@ -1586,6 +1639,78 @@ class HUDRenderer:
         hint_surface = font(12, bold=True).render(hint, True, glow)
         self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 16, panel.bottom - 22))
 
+    def _sensor_confidence_rows(self, state: StateSnapshot) -> list[tuple[str, str, str]]:
+        now_s = time.monotonic()
+        can_age_s = max(0.0, now_s - self._last_can_fresh_monotonic)
+
+        rows: list[tuple[str, str, str]] = []
+
+        def add(name: str, value: str, status: str) -> None:
+            rows.append((name, value, status))
+
+        add("CAN freshness", f"{can_age_s:.1f}s", "GREEN" if can_age_s <= 0.5 else ("YELLOW" if can_age_s <= 1.5 else "RED"))
+        add("RPM", f"{state.engine.rpm}", "GREEN" if 0 <= state.engine.rpm <= 16000 else "RED")
+        add("TPS", f"{state.engine.throttle_pct:.0f}%", "GREEN" if 0 <= state.engine.throttle_pct <= 100 else "RED")
+        add("Boost/MAP", f"{state.engine.boost_psi:.1f} psi", "GREEN" if -2.0 <= state.engine.boost_psi <= 45.0 else "RED")
+        add("Fuel level", f"{state.environment.fuel_level_pct:.0f}%", "GREEN" if state.environment.fuel_level_pct >= 10 else ("YELLOW" if state.environment.fuel_level_pct >= 5 else "RED"))
+        add("Flex fuel", f"E{state.environment.ethanol_content_pct:.0f}", "GREEN" if 0 <= state.environment.ethanol_content_pct <= 100 else "YELLOW")
+        add("Oil pressure", f"{state.temps.oil_pressure_psi:.1f} psi", "GREEN" if state.temps.oil_pressure_psi >= (12 if state.engine.rpm > 1800 else 3) else ("YELLOW" if state.temps.oil_pressure_psi >= 5 else "RED"))
+        add("Oil temp", f"{state.temps.oil_temp_f:.0f}F", "GREEN" if 50 <= state.temps.oil_temp_f <= 280 else ("YELLOW" if state.temps.oil_temp_f >= 0 else "RED"))
+        add("Coolant", f"{state.temps.coolant_temp_f:.0f}F", "GREEN" if 50 <= state.temps.coolant_temp_f <= 225 else ("YELLOW" if state.temps.coolant_temp_f <= 235 and state.temps.coolant_temp_f >= 0 else "RED"))
+        add("IAT", f"{state.temps.intake_temp_f:.0f}F", "GREEN" if 20 <= state.temps.intake_temp_f <= 130 else ("YELLOW" if state.temps.intake_temp_f <= 150 else "RED"))
+        add("EGT", f"{state.temps.exhaust_temp_f:.0f}F", "GREEN" if 0 <= state.temps.exhaust_temp_f <= 1500 else ("YELLOW" if state.temps.exhaust_temp_f <= 1650 else "RED"))
+        add("Battery", f"{state.temps.battery_voltage:.2f}V", "GREEN" if 13.0 <= state.temps.battery_voltage <= 14.8 else ("YELLOW" if 11.8 <= state.temps.battery_voltage <= 15.2 else "RED"))
+        add("Wheel speed", f"{state.engine.speed_mph:.1f} mph", "GREEN" if state.engine.speed_mph >= 0 and not state.traction.sensor_fault else "RED")
+        add("Gear", state.engine.gear, "GREEN" if state.engine.gear in {"N", "1", "2", "3", "4", "5", "6"} else "YELLOW")
+        add("WMI tank", f"{state.wmi.tank_level_pct:.0f}%", "GREEN" if state.wmi.tank_level_pct >= 20 else ("YELLOW" if state.wmi.tank_level_pct >= 3 else "RED"))
+        wmi_status = "GREEN"
+        if state.wmi.fault_active:
+            wmi_status = "RED"
+        elif state.wmi.commanded_flow_cc_min > 0 and state.wmi.actual_flow_cc_min < state.wmi.commanded_flow_cc_min * 0.75:
+            wmi_status = "YELLOW"
+        add("WMI flow", f"{state.wmi.actual_flow_cc_min:.0f}/{state.wmi.commanded_flow_cc_min:.0f}", wmi_status)
+
+        return rows
+
+    def _render_sensor_confidence_overlay(self, state: StateSnapshot) -> None:
+        _bg, bright, glow, fault = self._theme_colors()
+        green = (80, 255, 155)
+        yellow = (255, 214, 80)
+        red = fault
+        colors = {"GREEN": green, "YELLOW": yellow, "RED": red}
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(920, sw - 64), min(560, sh - 52))
+        panel.center = (sw // 2, sh // 2)
+        overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        overlay.fill((8, 10, 8, 238))
+        self.screen.blit(overlay, panel.topleft)
+        pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
+        self.screen.blit(font(20, bold=True).render("SENSOR CONFIDENCE", True, bright), (panel.x + 16, panel.y + 12))
+
+        rows = self._sensor_confidence_rows(state)
+        cols = 2 if panel.width >= 620 else 1
+        col_gap = 16
+        col_w = (panel.width - 32 - col_gap * (cols - 1)) // cols
+        row_h = 28
+        start_y = panel.y + 52
+        rows_per_col = max(1, (panel.bottom - start_y - 34) // row_h)
+        for idx, (name, value, status) in enumerate(rows[: rows_per_col * cols]):
+            col = idx // rows_per_col
+            row = idx % rows_per_col
+            x = panel.x + 16 + col * (col_w + col_gap)
+            y = start_y + row * row_h
+            color = colors.get(status, glow)
+            pygame.draw.circle(self.screen, color, (x + 8, y + 9), 5)
+            self.screen.blit(font(12, bold=True).render(status, True, color), (x + 20, y))
+            self.screen.blit(font(13).render(name, True, glow), (x + 98, y))
+            value_surface = font(13, bold=True).render(value, True, bright)
+            self.screen.blit(value_surface, (x + col_w - value_surface.get_width() - 4, y))
+            pygame.draw.line(self.screen, (28, 42, 34), (x, y + row_h - 5), (x + col_w, y + row_h - 5), 1)
+
+        hint = "ESC: BACK"
+        hint_surface = font(12, bold=True).render(hint, True, glow)
+        self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 16, panel.bottom - 22))
+
     def _render_media_overlay(self) -> None:
         _bg, bright, glow, _fault = self._theme_colors()
         panel = pygame.Rect(self.screen.get_width() - 520, 90, 460, 210)
@@ -1666,6 +1791,8 @@ class HUDRenderer:
         if item == "ONLINE UPDATE":
             return self._online_update_status
         if item == "SERVICE MODE":
+            return "OPEN"
+        if item == "SENSOR CONF":
             return "OPEN"
         return "ON" if self._auto_dim_enabled else "OFF"
 
@@ -1834,6 +1961,8 @@ class HUDRenderer:
 
     def _theme_colors(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
         theme = self._themes[self._theme_index]
+        if theme == "NIGHT OPS":
+            return (1, 7, 10), (132, 245, 214), (58, 134, 130), (255, 92, 72)
         if theme == "NIGHT":
             return (14, 18, 28), (130, 190, 255), (88, 135, 190), (255, 90, 90)
         if theme == "HIGH-CON":
@@ -1845,6 +1974,10 @@ class HUDRenderer:
         if theme == "NIGHT":
             tint = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
             tint.fill((22, 26, 40, 70))
+            self.screen.blit(tint, (0, 0))
+        elif theme == "NIGHT OPS":
+            tint = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            tint.fill((0, 20, 18, 105))
             self.screen.blit(tint, (0, 0))
         elif theme == "HIGH-CON":
             tint = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)

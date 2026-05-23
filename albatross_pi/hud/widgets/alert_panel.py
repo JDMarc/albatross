@@ -13,6 +13,7 @@ class AlertPanel(Widget):
     def __init__(self, rect: pygame.Rect) -> None:
         self.rect = rect
         self._fault_latch_until: dict[str, float] = {}
+        self._advisory_latch_until: dict[str, float] = {}
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)
@@ -23,12 +24,21 @@ class AlertPanel(Widget):
         for fault in active_faults:
             self._fault_latch_until[fault] = now + 3.5
         self._fault_latch_until = {f: until for f, until in self._fault_latch_until.items() if until > now}
+        active_advisories = list(state.advisories)
+        for advisory in active_advisories:
+            self._advisory_latch_until[advisory] = now + 3.5
+        self._advisory_latch_until = {a: until for a, until in self._advisory_latch_until.items() if until > now}
 
         if active_faults:
             lines = sorted(set(active_faults) | set(self._fault_latch_until.keys()))
-        else:
+        elif active_advisories:
+            lines = sorted(set(active_advisories) | set(self._advisory_latch_until.keys()))
+        elif self._fault_latch_until:
             lines = sorted(self._fault_latch_until.keys())
-        highlight = bool(lines)
+        else:
+            lines = sorted(self._advisory_latch_until.keys())
+        highlight = bool(lines) and bool(active_faults or self._fault_latch_until)
+        advisory_display = bool(lines) and not highlight
         is_active_fault_display = bool(active_faults)
         if not lines:
             fallback = state.environment.message_line or "NO ACTIVE ALERT"
@@ -53,7 +63,7 @@ class AlertPanel(Widget):
             line_height = available_height
         # Flash only while faults are actively present; latched post-clear faults remain steady.
         flash_on = (int(now * 4) % 2) == 0
-        color = FAULT_AMBER if highlight else AMBER_GLOW
+        color = FAULT_AMBER if highlight else (AMBER_BRIGHT if advisory_display else AMBER_GLOW)
 
         for index, line in enumerate(lines):
             size = fit_font_size(line, self.rect.width - 10, line_height - 2, start_size=max(12, int(line_height * 0.65)), bold=highlight)

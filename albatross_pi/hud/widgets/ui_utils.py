@@ -50,7 +50,9 @@ def fit_font_size(text: str, max_w: int, max_h: int, *, start_size: int, bold: b
 
 
 def apply_theme(theme: str) -> None:
-    if theme == "NIGHT":
+    if theme == "NIGHT OPS":
+        bg, dark, mid, bright, glow, fault = [1, 7, 10], [5, 26, 29], [22, 74, 72], [132, 245, 214], [58, 134, 130], [255, 92, 72]
+    elif theme == "NIGHT":
         bg, dark, mid, bright, glow, fault = [14, 18, 28], [32, 45, 65], [58, 85, 120], [130, 190, 255], [88, 135, 190], [255, 90, 90]
     elif theme == "HIGH-CON":
         bg, dark, mid, bright, glow, fault = [0, 0, 0], [90, 90, 90], [150, 150, 150], [255, 255, 255], [220, 220, 220], [255, 80, 80]

@@ -148,3 +148,4 @@ class StateSnapshot:
     service: ServiceStatus = field(default_factory=ServiceStatus)
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)
+    advisories: Tuple[str, ...] = field(default_factory=tuple)
