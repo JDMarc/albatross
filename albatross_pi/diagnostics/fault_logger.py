@@ -23,14 +23,27 @@ def _safe_float(value: float) -> float:
     return round(float(value), 3)
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if is_dataclass(value):
+        return _json_safe(asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, set):
+        return sorted(_json_safe(item) for item in value)
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
 def _snapshot_dict(snapshot: StateSnapshot) -> dict[str, Any]:
     if is_dataclass(snapshot):
-        data = asdict(snapshot)
+        data = _json_safe(asdict(snapshot))
     else:
         data = {}
-    env = data.get("environment", {})
-    if isinstance(env.get("time"), datetime):
-        env["time"] = env["time"].isoformat()
     return data
 
 

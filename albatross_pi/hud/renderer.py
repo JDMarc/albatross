@@ -611,7 +611,10 @@ class HUDRenderer:
             else:
                 self._last_logged_faults.update(current)
         if new_faults and self._fault_log_callback:
-            self._fault_log_callback(new_faults, state)
+            try:
+                self._fault_log_callback(new_faults, state)
+            except Exception:
+                LOGGER.exception("Fault logging failed")
 
     def update_phone_status(self, *, artist: str, track: str, position_s: float, length_s: float, devices: tuple[tuple[str, str], ...]) -> None:
         self._phone_artist = artist
