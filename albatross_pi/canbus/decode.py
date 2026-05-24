@@ -394,6 +394,7 @@ class CANStateAggregator:
             ("Limp requested", 0x04),
             ("Run switch", 0x08),
             ("WMI armed", 0x10),
+            ("Air Shot request", 0x20),
         )
         fault_labels = (
             ("ECU CAN stale", 0x01),
@@ -599,6 +600,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(PiToArduinoID.MODE_SELECTION): CANStateAggregator._update_mode_selection,
     int(PiToArduinoID.FLAME_MODE): CANStateAggregator._update_flame_mode,
     int(PiToArduinoID.LIMP_MODE): CANStateAggregator._update_limp_status,
+    int(PiToArduinoID.AIR_SHOT_REQUEST): lambda self, data: None,
     int(PiToArduinoID.TRACTION_LEVEL): CANStateAggregator._update_traction_level,
     int(PiToArduinoID.FUEL_TYPE_SELECT): CANStateAggregator._update_fuel_type,
     int(PiToArduinoID.NFC_AUTH): CANStateAggregator._update_nfc_auth,

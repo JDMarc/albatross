@@ -67,9 +67,9 @@
 - **Performance**: pre-render static grids/labels; cache text by value buckets; use integer scaling and dirty rectangles where applicable.
 
 ## 5. Input Handling
-- Physical buttons (mode, confirm, back, optional joystick); NFC for rider presets; touch with large targets; Bluetooth for weather/GPS/time sync and lap triggers.
-- Debounced inputs at 200 Hz with long-press requirements (≥1 s above 3 mph) for mode changes.
-- Air Shot firing requires two-step confirmation and safety conditions.
+- Physical controls are currently modeled as a D-pad plus three buttons: Select, Back, and momentary Air Shot request. Keyboard defaults are arrows, Enter/Space, Esc/Backspace, and `F` for Air Shot; joystick defaults are hat/D-pad, button 0 Select, button 1 Back, button 2 Air Shot.
+- Inputs are handled through Pygame keyboard/joystick events; physical controls should either debounce in hardware/USB encoder firmware or present clean HID button events to the Pi.
+- Air Shot firing is a momentary Pi request over CAN; Arduino owns the actual latch, mode/rpm/tps/gear/tank/boost safety gates, and shutoff when requested boost is reached.
 
 ## 6. Pi-Side Calculations
 - **Boost target**: derived from selected fuel strategy, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp. Flex content verifies/derates E85 requests; it does not raise 87/91/93 selections above their own caps.

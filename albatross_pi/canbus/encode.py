@@ -50,6 +50,14 @@ def build_traction_level_frame(level_code: int) -> tuple[int, bytes]:
     return int(PiToArduinoID.TRACTION_LEVEL), payload
 
 
+def build_air_shot_request_frame() -> tuple[int, bytes]:
+    """Return a momentary rider request to fire Air Shot.
+
+    Arduino still owns all Air Shot safety gates and latching.
+    """
+    return int(PiToArduinoID.AIR_SHOT_REQUEST), bytes((0x01,))
+
+
 def build_media_control_frame(command_code: int, value: int) -> tuple[int, bytes]:
     """Return a frame for phone/media navigation control events."""
     payload = bytes((command_code & 0xFF, value & 0xFF))

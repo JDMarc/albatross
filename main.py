@@ -21,6 +21,7 @@ import pygame
 from albatross_pi.boost_strategy import calculate_boost_target
 from albatross_pi.canbus import ArduinoToHudID, CANStateAggregator, ECUToHudID, PiToArduinoID, PiToEcuID, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
 from albatross_pi.canbus.encode import (
+    build_air_shot_request_frame,
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
     build_ecu_rev_limiter_strategy_frame,
@@ -114,6 +115,7 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
     command_bits |= 0x04 if bool(obj.get("limp_mode", False)) else 0
     command_bits |= 0x08 if bool(obj.get("engine_run", True)) else 0
     command_bits |= 0x10 if bool(obj.get("wmi_arm", False)) else 0
+    command_bits |= 0x20 if bool(obj.get("airshot_request", False)) else 0
     fault_bits = 0
     fault_bits |= 0x04 if bool(obj.get("wmi_fault", False)) else 0
     fault_bits |= 0x08 if bool(obj.get("traction_fault", False)) else 0
@@ -133,6 +135,7 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
         (ArduinoToHudID.SERVICE_SENSOR_VOLTAGES, struct.pack(">HHHH", _clamp_int(float(obj.get("oil_sensor_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("wmi_tank_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("arduino_5v", 5.0)) * 1000, 0, 65535), 0), "RX"),
         (ArduinoToHudID.SERVICE_DIGITAL_STATES, bytes((light_flags | (0x40 if bool(obj.get("wmi_pressure_ok", True)) else 0), output_bits, command_bits, fault_bits)), "RX"),
         (ArduinoToHudID.LIMP_STATUS, bytes((1 if limp_active else 0, limp_reason_code & 0xFF)), "RX"),
+        (PiToArduinoID.AIR_SHOT_REQUEST, bytes((1,)), "TX") if bool(obj.get("airshot_request", False)) else None,
         (PiToArduinoID.MODE_SELECTION, bytes((mode_map.get(mode, 2),)), "TX"),
         (PiToArduinoID.FUEL_TYPE_SELECT, bytes((fuel_type_map.get(fuel_type, 2),)), "TX"),
         (PiToArduinoID.FLAME_MODE, bytes((1 if bool(obj.get("flame_mode", False)) else 0,)), "TX"),
@@ -141,7 +144,7 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
     ]
     return tuple(
         _demo_frame_record(int(frame_id), f"{frame_id.__class__.__name__}.{frame_id.name}", payload, now, direction)
-        for frame_id, payload, direction in reversed(records)
+        for frame_id, payload, direction in reversed([record for record in records if record is not None])
     )
 
 
@@ -184,12 +187,18 @@ def main() -> None:
         raise
     if args.bind_inputs and not args.snapshot:
         ack_name = input("POST acknowledge key (default: return): ").strip().lower() or "return"
+        airshot_name = input("Air Shot key (default: f): ").strip().lower() or "f"
         try:
             ack_key = pygame.key.key_code(ack_name)
         except ValueError:
             logging.warning("Unknown key binding '%s'; using RETURN", ack_name)
             ack_key = pygame.K_RETURN
-        renderer.configure_input_bindings(ack_key)
+        try:
+            airshot_key = pygame.key.key_code(airshot_name)
+        except ValueError:
+            logging.warning("Unknown key binding '%s'; using F", airshot_name)
+            airshot_key = pygame.K_f
+        renderer.configure_input_bindings(ack_key, airshot_key)
     def _record_faults(faults: tuple[str, ...], snapshot: StateSnapshot) -> None:
         for fault in faults:
             fault_logger.log_fault(fault, snapshot)
@@ -297,6 +306,12 @@ def main() -> None:
                 aggregator.mark_sent_frame(*frame)
             _send_boost_request()
 
+        def _send_air_shot_request() -> None:
+            assert can_interface is not None and aggregator is not None
+            frame = build_air_shot_request_frame()
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+
         def _send_media_control(command: str, value: int) -> None:
             assert can_interface is not None
             if command == "phone_link":
@@ -319,6 +334,7 @@ def main() -> None:
         renderer.configure_media_callback(_send_media_control)
         renderer.configure_fuel_type_callback(_send_fuel_type)
         renderer.configure_flame_callback(_send_flame_mode)
+        renderer.configure_air_shot_callback(_send_air_shot_request)
         renderer.sync_persisted_controls()
 
         def _safety_supervisor() -> None:

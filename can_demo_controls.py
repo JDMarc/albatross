@@ -18,6 +18,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from albatross_pi.canbus.encode import (
+    build_air_shot_request_frame,
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
     build_ecu_rev_limiter_strategy_frame,
@@ -212,6 +213,7 @@ class App:
         ttk.Checkbutton(cmds, text="Limp", variable=self.vars["limp_mode"]).grid(row=6, column=2, sticky="w")
         ttk.Checkbutton(cmds, text="Run Switch", variable=self.vars["engine_run"]).grid(row=6, column=3, sticky="w")
         ttk.Combobox(cmds, textvariable=self.vars["limp_reason"], values=[name for name in LIMP_REASON_CODES if name != "NONE"], width=18, state="readonly").grid(row=6, column=4, columnspan=2, sticky="w")
+        ttk.Button(cmds, text="Fire Air Shot", command=self._fire_air_shot).grid(row=6, column=6, sticky="w")
 
         ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=7, column=0, sticky="w", pady=(6, 0))
         ttk.Button(cmds, text="Quit", command=self.close).grid(row=7, column=1, sticky="w", pady=(6, 0))
@@ -247,6 +249,12 @@ class App:
             self.iface.send(arb_id, payload)
         else:
             print(f"TX 0x{arb_id:03X} {payload.hex()}")
+
+    def _fire_air_shot(self) -> None:
+        self._send(*build_air_shot_request_frame())
+        packet = json.dumps({"airshot_request": True}).encode("utf-8")
+        for p in self.udp_ports:
+            self.sock.sendto(packet, (self.udp_host, p))
 
     @staticmethod
     def _f_to_cx10(temp_f: float) -> int:

@@ -4,6 +4,7 @@ from .decode import CANStateAggregator
 from .iface import SocketCANInterface
 from .encode import (
     build_boost_target_frame,
+    build_air_shot_request_frame,
     build_ecu_fuel_profile_frame,
     build_ecu_rev_limiter_strategy_frame,
     build_ecu_spark_table_frame,
@@ -27,6 +28,7 @@ __all__ = [
     "CANStateAggregator",
     "SocketCANInterface",
     "build_boost_target_frame",
+    "build_air_shot_request_frame",
     "build_ecu_fuel_profile_frame",
     "build_ecu_rev_limiter_strategy_frame",
     "build_ecu_spark_table_frame",

@@ -37,10 +37,11 @@ frames so the HUD can report the fault.
   - tank pressure is below threshold,
   - engine speed is under 1500 RPM,
   - TPS is below 5%.
-- Shots trigger only in RACE or ALBATROSS and only if:
+- Automatic shots trigger only in RACE or ALBATROSS and only if:
   - TPS > 90%
   - gear >= 2
   - RPM > 5500
+- Manual Air Shot requests arrive from the Pi on `0x125` and may latch a shot in RACE/ALBATROSS when boost is still below request, gear >= 2, RPM > 3000, TPS > 35%, tank pressure has available charge, and the system is not already latched.
 - Shot remains latched until intake pressure reaches mode-specific limit.
 - Shot output drops as soon as intake pressure reaches the Pi-requested boost target, capped by the mode safety limit.
 - Re-fire is blocked until throttle is lifted (rearm logic).
@@ -82,6 +83,7 @@ The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut
 - Pi sends ECU fuel profile selection on `0x150`: fuel code, fuel table index, and stoich AFR x100. Current table indexes are 0=pump gas, 1=100 octane, 2=E85, 3=C16. Pi sends ECU spark table selection on `0x151`: 0 initial map, 1 SPORT+ performance map.
 - Pi sends MS3 rev-limiter strategy selection on `0x152`: 0 fuel cut, 1 ignition/spark cut. HUD flame mode requests ignition cut, and RACE/ALBATROSS auto-enable flame mode.
 - Pi is source of truth for flame mode (`0x122`) and limp command (`0x123`).
+- Pi sends dedicated rider Air Shot requests on `0x125`; Arduino treats the frame as a short-lived request and still applies all Air Shot safety gates before latching the solenoid.
 - Pi engine run switch (`0x127`) is enforced by Arduino as limp/no-boost plus 100% torque-cut request while OFF.
 - Arduino enters no-boost limp if ECU telemetry is stale for `ECU_CAN_TIMEOUT_MS`
   or Pi command traffic is stale for `PI_CAN_TIMEOUT_MS`.

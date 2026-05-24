@@ -40,6 +40,7 @@ namespace CanId {
   constexpr uint16_t PI_FLAME_MODE = 0x122;
   constexpr uint16_t PI_LIMP_MODE = 0x123;
   constexpr uint16_t PI_TRACTION_LEVEL = 0x124;
+  constexpr uint16_t PI_AIR_SHOT_REQUEST = 0x125;
   constexpr uint16_t PI_ENGINE_RUN_SWITCH = 0x127;
   constexpr uint16_t PI_WMI_ENABLE = 0x128;
   constexpr uint16_t PI_FUEL_TYPE_SELECT = 0x129;
@@ -143,6 +144,7 @@ Commands g_commands;
 Outputs g_outputs;
 static uint32_t g_last_ecu_frame_ms = 0;
 static uint32_t g_last_pi_command_ms = 0;
+static uint32_t g_airshot_request_until_ms = 0;
 static bool g_limp_active = false;
 static uint8_t g_limp_reason = 0x00;
 
@@ -353,6 +355,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       break;
     case CanId::PI_TRACTION_LEVEL:
       if (len >= 1) g_commands.traction_level = static_cast<TractionLevel>(data[0]);
+      break;
+    case CanId::PI_AIR_SHOT_REQUEST:
+      if (len >= 1 && data[0] != 0) g_airshot_request_until_ms = now + 350;
       break;
     case CanId::PI_ENGINE_RUN_SWITCH:
       if (len >= 1) g_commands.engine_run_enabled = data[0] != 0;
@@ -587,11 +592,19 @@ uint8_t calculateShotsRemaining(uint16_t tank_psi_x10) {
   return static_cast<uint8_t>(constrain(static_cast<int>(roundf(curved * 5.0f)), 0, 5));
 }
 
-bool shouldTriggerAirShot() {
+bool shouldTriggerAirShot(bool manual_request) {
   const bool mode_ok = (g_commands.mode == MODE_RACE) || (g_commands.mode == MODE_ALBATROSS);
   const uint16_t requested_limit = requestedBoostLimitForAirShot();
   const bool boost_needed = requested_limit > 0 && (g_inputs.boost_psi_x10 + 5 < requested_limit);
-  return mode_ok && boost_needed && g_airshot_rearm_ready && !g_airshot_latched && g_inputs.tps_pct > 90 && g_inputs.gear >= 2 && g_inputs.rpm > 5500 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0;
+  const bool base_ok = mode_ok && boost_needed && g_airshot_rearm_ready && !g_airshot_latched &&
+      g_inputs.gear >= 2 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0;
+  const bool auto_ok = g_inputs.tps_pct > 90 && g_inputs.rpm > 5500;
+  const bool manual_ok = manual_request && g_inputs.tps_pct > 35 && g_inputs.rpm > 3000;
+  return base_ok && (auto_ok || manual_ok);
+}
+
+bool isAirShotRequestActive(uint32_t now) {
+  return g_airshot_request_until_ms != 0 && static_cast<int32_t>(g_airshot_request_until_ms - now) >= 0;
 }
 
 void updateControllers() {
@@ -688,9 +701,14 @@ void updateControllers() {
     g_airshot_rearm_ready = true;
   }
 
-  if (shouldTriggerAirShot()) {
+  const bool manual_airshot_request = isAirShotRequestActive(now);
+  if (!manual_airshot_request) {
+    g_airshot_request_until_ms = 0;
+  }
+  if (shouldTriggerAirShot(manual_airshot_request)) {
     g_airshot_latched = true;
     g_airshot_rearm_ready = false;
+    g_airshot_request_until_ms = 0;
   }
 
   const uint16_t airshot_limit = requestedBoostLimitForAirShot();
@@ -863,6 +881,7 @@ void publishStatusFrames() {
     if (g_commands.limp_mode) command_bits |= 0x04;
     if (g_commands.engine_run_enabled) command_bits |= 0x08;
     if (g_commands.wmi_arm) command_bits |= 0x10;
+    if (isAirShotRequestActive(now)) command_bits |= 0x20;
 
     uint8_t fault_bits = 0;
     if (elapsedSince(g_last_ecu_frame_ms, ECU_CAN_TIMEOUT_MS, now)) fault_bits |= 0x01;

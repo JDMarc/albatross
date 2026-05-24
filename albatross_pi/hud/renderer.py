@@ -218,6 +218,10 @@ class HUDRenderer:
         self._post_fault_active = False
         self._post_complete = False
         self._ack_key = pygame.K_RETURN
+        self._air_shot_key = pygame.K_f
+        self._joy_select_button = 0
+        self._joy_back_button = 1
+        self._joy_air_shot_button = 2
         self._modes = ["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"]
         self._mode_index = 0
         self._mode_selection_index = 0
@@ -243,6 +247,7 @@ class HUDRenderer:
         self._media_callback = None
         self._fuel_type_callback = None
         self._flame_callback = None
+        self._air_shot_callback = None
         self._fault_log_callback: Callable[[tuple[str, ...], StateSnapshot], None] | None = None
         self._log_export_callback: Callable[[], str] | None = None
         self._update_install_callback: Callable[[StateSnapshot], str] | None = None
@@ -617,6 +622,9 @@ class HUDRenderer:
     def configure_flame_callback(self, callback) -> None:
         self._flame_callback = callback
 
+    def configure_air_shot_callback(self, callback) -> None:
+        self._air_shot_callback = callback
+
     def configure_fault_log_callback(self, callback: Callable[[tuple[str, ...], StateSnapshot], None]) -> None:
         self._fault_log_callback = callback
 
@@ -886,8 +894,10 @@ class HUDRenderer:
                 widget._fault_latch_until = prior_fault_latch_until
                 break
 
-    def configure_input_bindings(self, ack_key: int) -> None:
+    def configure_input_bindings(self, ack_key: int, air_shot_key: int | None = None) -> None:
         self._ack_key = ack_key
+        if air_shot_key is not None:
+            self._air_shot_key = air_shot_key
 
     def _run_post(self, state: StateSnapshot) -> None:
         if self._post_started_at <= 0.0:
@@ -962,7 +972,9 @@ class HUDRenderer:
                 elif event.type == pygame.KEYDOWN:
                     if (not self._post_complete) or self._post_fault_active:
                         continue
-                    if event.key in (pygame.K_TAB, pygame.K_m):
+                    if event.key == self._air_shot_key:
+                        self._request_air_shot()
+                    elif event.key in (pygame.K_TAB, pygame.K_m):
                         self._apply_mode_selection((self._mode_index + 1) % len(self._modes))
                     elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                         self._handle_select()
@@ -986,6 +998,27 @@ class HUDRenderer:
                         if self._traction_callback:
                             self._traction_callback(self._traction_index + 1)
                         self._save_preferences()
+                elif event.type == pygame.JOYBUTTONDOWN:
+                    if (not self._post_complete) or self._post_fault_active:
+                        continue
+                    if event.button == self._joy_select_button:
+                        self._handle_select()
+                    elif event.button == self._joy_back_button:
+                        self._handle_back()
+                    elif event.button == self._joy_air_shot_button:
+                        self._request_air_shot()
+                elif event.type == pygame.JOYHATMOTION:
+                    if (not self._post_complete) or self._post_fault_active:
+                        continue
+                    x, y = event.value
+                    if y > 0:
+                        self._handle_up()
+                    elif y < 0:
+                        self._handle_down()
+                    if x > 0:
+                        self._handle_dpad_right()
+                    elif x < 0:
+                        self._handle_dpad_left()
 
             if state_iter is not None:
                 try:
@@ -1340,6 +1373,13 @@ class HUDRenderer:
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
             return
+
+    def _request_air_shot(self) -> None:
+        if self._air_shot_callback:
+            try:
+                self._air_shot_callback()
+            except Exception:
+                LOGGER.exception("Air Shot request callback failed")
 
     def _handle_back(self) -> None:
         if self._active_menu != "home":
