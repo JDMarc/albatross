@@ -116,6 +116,7 @@ class App:
             "wmi_pressure_ok": tk.BooleanVar(value=True),
             "oil_sensor_v": tk.DoubleVar(value=2.75),
             "wmi_tank_v": tk.DoubleVar(value=3.25),
+            "air_tank_v": tk.DoubleVar(value=2.95),
             "arduino_5v": tk.DoubleVar(value=5.00),
             "air_compressor": tk.BooleanVar(value=False),
             "arduino_fw": tk.StringVar(value="0.1.0+1"),
@@ -179,7 +180,7 @@ class App:
 
         row = len(ard_sliders)
         ttk.Label(ard, text="Airshot Charges").grid(row=row, column=0, sticky="w")
-        ttk.Combobox(ard, textvariable=self.vars["airshot_charges"], values=[0, 1, 2, 3, 4, 5], width=8, state="readonly").grid(row=row, column=1, sticky="w")
+        ttk.Combobox(ard, textvariable=self.vars["airshot_charges"], values=[0, 1, 2, 3], width=8, state="readonly").grid(row=row, column=1, sticky="w")
         ttk.Checkbutton(ard, text="Airshot Firing", variable=self.vars["airshot_firing"]).grid(row=row, column=2, sticky="w")
 
         row += 1
@@ -233,9 +234,10 @@ class App:
         self._slider(service, "Oil Sensor V", "oil_sensor_v", 0.0, 5.0, 0)
         self._slider(service, "WMI Tank V", "wmi_tank_v", 0.0, 5.0, 1)
         self._slider(service, "Arduino 5V", "arduino_5v", 4.5, 5.3, 2)
-        ttk.Checkbutton(service, text="Air Compressor Relay", variable=self.vars["air_compressor"]).grid(row=3, column=0, sticky="w")
-        ttk.Label(service, text="Arduino FW").grid(row=3, column=1, sticky="e")
-        ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=3, column=2, sticky="w")
+        self._slider(service, "Air Tank V", "air_tank_v", 0.0, 5.0, 3)
+        ttk.Checkbutton(service, text="Air Compressor Relay", variable=self.vars["air_compressor"]).grid(row=4, column=0, sticky="w")
+        ttk.Label(service, text="Arduino FW").grid(row=4, column=1, sticky="e")
+        ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=4, column=2, sticky="w")
 
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
@@ -312,7 +314,7 @@ class App:
         self._send(int(ECUToHudID.EXHAUST_GAS_TEMP), struct.pack(">HH", egt1_c10, egt2_c10))
 
         airshot_flags = 0x01 if bool(self.vars["airshot_firing"].get()) else 0x00
-        self._send(int(ArduinoToHudID.AIR_SHOT_STATUS), bytes((max(0, min(255, int(self.vars["airshot_charges"].get()))), airshot_flags)))
+        self._send(int(ArduinoToHudID.AIR_SHOT_STATUS), bytes((max(0, min(3, int(self.vars["airshot_charges"].get()))), airshot_flags)))
         self._send(int(ArduinoToHudID.AWC_STATE), bytes((1 if bool(self.vars["awc_enabled"].get()) else 0, max(-127, min(127, int(lean_raw / 10))) & 0xFF)))
         self._send(int(ArduinoToHudID.TANK_PRESSURE), struct.pack(">H", int(max(0.0, float(self.vars["tank_psi"].get())) * 10)))
         self._send(int(ArduinoToHudID.TWIN_TURBO_STATUS), struct.pack(">HH", int(max(0.0, float(self.vars["turbo1"].get())) * 10), int(max(0.0, float(self.vars["turbo2"].get())) * 10)))
@@ -385,7 +387,7 @@ class App:
             max(0, min(65535, int(float(self.vars["oil_sensor_v"].get()) * 1000))),
             max(0, min(65535, int(float(self.vars["wmi_tank_v"].get()) * 1000))),
             max(0, min(65535, int(float(self.vars["arduino_5v"].get()) * 1000))),
-            0,
+            max(0, min(65535, int(float(self.vars["air_tank_v"].get()) * 1000))),
         )
         self._send(int(ArduinoToHudID.SERVICE_SENSOR_VOLTAGES), struct.pack(">HHHH", *sensor_mv))
         input_bits = light_flags

@@ -129,6 +129,7 @@ The Arduino sketch targets a Mega 2560 Rev3 plus an MCP2515 CAN module at
 | D19 | Input pullup | WMI flow sensor | Pulse input, interrupt-capable, 450 pulses/L default |
 | A0 | Analog input | Fallback oil pressure | 0.5-4.5 V, 0-100 psi fallback/bench path only |
 | A1 | Analog input | WMI tank level | 0-5 V analog sender, scaled 0-100% |
+| A2 | Analog input | Air Shot tank pressure | 0.5-4.5 V, 0-200 psi sender; compressor relay turns off below tank rating |
 
 ## Electrical Protection Notes
 

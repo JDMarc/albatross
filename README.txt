@@ -44,7 +44,7 @@ This is the short version of how this stuff works:
 - Arduino Mega 2560 controller (arduino/albatross_controller)
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).
   - Manages Air Shot compressor + shot latch/rearm logic.
-  - Computes wheel speed + slip, accepts Pi traction level command (0x124), and publishes torque-reduction request (0x125) for ECU cooperation.
+  - Computes wheel speed + slip, accepts Pi traction level command (0x124), and publishes torque-reduction requests (0x12A/0x12B) for ECU cooperation.
   - Enforces WMI/flame interlocks and limp-aware behavior.
 
 Arduino firmware notes (important)

@@ -34,21 +34,27 @@ frames so the HUD can report the fault.
 ## Air Shot behavior
 
 - Compressor only runs when:
-  - tank pressure is below threshold,
-  - engine speed is under 1500 RPM,
-  - TPS is below 5%.
+  - bike speed is effectively zero (<~1 mph),
+  - TPS is below 5%,
+  - engine speed is under 1800 RPM,
+  - no Air Shot is currently latched,
+  - tank pressure is below 110 psi.
+- Compressor turns off at 145 psi, while moving, above low throttle, or during a shot.
 - Automatic shots trigger only in RACE or ALBATROSS and only if:
   - TPS > 90%
   - gear >= 2
   - RPM > 5500
-- Manual Air Shot requests arrive from the Pi on `0x125` and may latch a shot in RACE/ALBATROSS when boost is still below request, gear >= 2, RPM > 3000, TPS > 35%, tank pressure has available charge, and the system is not already latched.
+- Manual Air Shot requests arrive from the Pi on `0x125` and may latch a shot in RACE/ALBATROSS when boost is at least 4 psi below request, gear >= 2, RPM > 3000, TPS > 70%, tank pressure has available charge, tank pressure is at least 12 psi above manifold pressure, and the system is not already latched.
 - Shot remains latched until intake pressure reaches mode-specific limit.
 - Shot output drops as soon as intake pressure reaches the Pi-requested boost target, capped by the mode safety limit.
 - Shot output also drops after 10 seconds max latch time, or immediately if intake/manifold pressure is equal to or greater than Air Shot tank pressure.
 - Re-fire is blocked until throttle is lifted (rearm logic).
-- `shots_remaining` is computed from tank pressure using logarithmic scaling:
-  - <=18 psi => 0
-  - >=68 psi => 5
+- While a shot is active, and for a brief 350 ms decay window after it closes, the wastegate loop uses a clamped boost value so transient Air Shot pressure does not open the wastegates and kill turbo spool. The Air Shot solenoid still uses real manifold pressure for shutoff, and a >3 psi overshoot exits the clamp so the wastegate can protect the engine.
+- `shots_remaining` is conservative for a 0-150 psi tank:
+  - <35 psi => 0
+  - 35-74 psi => 1
+  - 75-114 psi => 2
+  - >=115 psi => 3
 
 ## Traction control
 
@@ -79,7 +85,7 @@ The controller includes a low-speed gate, slip filtering, hysteresis, torque-cut
 - Arduino reports fuel type in `0x13D` using the shared fuel code map: 0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
 - Arduino accepts Pi fuel type selection on `0x129` using the same shared fuel code map.
 - Arduino reports WMI status in `0x139`: byte 0 tank level %, bytes 1-2 commanded cc/min, bytes 3-4 sensed cc/min, byte 5 aggregate fault.
-- Arduino reports service-mode diagnostics for the HUD: `0x13F` sensor voltages (oil sender mV, WMI tank mV, 5V rail mV, spare mV), `0x145` digital input/output/command/fault bitfields, and `0x146` firmware version (device, major, minor, patch, build).
+- Arduino reports service-mode diagnostics for the HUD: `0x13F` sensor voltages (oil sender mV, WMI tank mV, 5V rail mV, Air Shot tank pressure sender mV), `0x145` digital input/output/command/fault bitfields, and `0x146` firmware version (device, major, minor, patch, build).
 - Arduino reports limp status in `0x147`: byte 0 active flag, byte 1 reason code. Reason codes are shared with the Pi ID table (`0x00` none, `0x01` Pi request, `0x02` engine run off, `0x03` ECU CAN stale, `0x04` Pi command stale, `0x05` thermal, `0x06` low oil pressure, `0x07` battery voltage, `0x08` knock, `0x09` ECU sensor, `0x0A` NFC auth, `0x0B` safety supervisor, `0x0C` overboost, `0x0D` WMI fault, `0x0E` clutch slip).
 - Pi sends ECU fuel profile selection on `0x150`: fuel code, fuel table index, and stoich AFR x100. Current table indexes are 0=pump gas, 1=100 octane, 2=E85, 3=C16. Pi sends ECU spark table selection on `0x151`: 0 initial map, 1 SPORT+ performance map.
 - Pi sends MS3 rev-limiter strategy selection on `0x152`: 0 fuel cut, 1 ignition/spark cut. HUD flame mode requests ignition cut, and RACE/ALBATROSS auto-enable flame mode.
@@ -111,4 +117,4 @@ Both channels currently mirror the same command request for synchronized twin-ac
 - Air compressor relay uses pin `27`; pin `10` is reserved for MCP2515 chip select.
 - Lamp feed inputs use pins `28`-`32`; condition bike voltage to 5V logic and provide external pulldowns.
 - Fallback oil pressure input uses `A0`, assuming a 0.5V-4.5V sender scaled to 0-100 psi.
-- WMI tank level uses `A1`, WMI flow input uses interrupt-capable pin `19`, and WMI pressure/status OK uses pin `33` with internal pullup. `WMI_PRESSURE_OK_ACTIVE_LOW` controls status polarity.
+- WMI tank level uses `A1`, Air Shot tank pressure uses `A2`, WMI flow input uses interrupt-capable pin `19`, and WMI pressure/status OK uses pin `33` with internal pullup. `WMI_PRESSURE_OK_ACTIVE_LOW` controls status polarity.

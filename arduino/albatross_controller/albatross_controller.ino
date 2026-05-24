@@ -193,12 +193,16 @@ static constexpr uint8_t BRAKE_LIGHT_PIN = 31;
 static constexpr uint8_t OIL_WARNING_PIN = 32;
 static constexpr uint8_t OIL_PRESSURE_SENSOR_PIN = A0;
 static constexpr uint8_t WMI_TANK_LEVEL_PIN = A1;
+static constexpr uint8_t AIR_TANK_PRESSURE_SENSOR_PIN = A2;
 static constexpr uint8_t WMI_FLOW_SENSOR_PIN = 19;
 static constexpr uint8_t WMI_PRESSURE_OK_PIN = 33;
 
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MIN_RAW = 102; // 0.5V on a 5V ADC
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_RAW = 921; // 4.5V on a 5V ADC
 static constexpr uint16_t OIL_PRESSURE_SENSOR_MAX_PSI_X10 = 1000; // 100.0 psi
+static constexpr uint16_t AIR_TANK_SENSOR_MIN_RAW = 102; // 0.5V on a 5V ADC
+static constexpr uint16_t AIR_TANK_SENSOR_MAX_RAW = 921; // 4.5V on a 5V ADC
+static constexpr uint16_t AIR_TANK_SENSOR_MAX_PSI_X10 = 2000; // 200.0 psi sender; tank relay caps below 150 psi
 static constexpr float WMI_FLOW_PULSES_PER_LITER = 450.0f;
 static constexpr bool WMI_PRESSURE_OK_ACTIVE_LOW = true;
 static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pulse quantization cuts.
@@ -206,6 +210,14 @@ static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
 static constexpr uint32_t ECU_CAN_TIMEOUT_MS = 300;
 static constexpr uint32_t PI_CAN_TIMEOUT_MS = 1500;
 static constexpr uint32_t AIRSHOT_MAX_LATCH_MS = 10000;
+static constexpr uint32_t AIRSHOT_WASTEGATE_DECOUPLE_MS = 350;
+static constexpr uint16_t AIRSHOT_MIN_TANK_PSI_X10 = 350; // below 35 psi is not a useful transient shot
+static constexpr uint16_t AIRSHOT_MIN_DELTA_PSI_X10 = 120; // tank must be at least 12 psi above manifold
+static constexpr uint16_t AIRSHOT_TRIGGER_GAP_PSI_X10 = 40; // only fire when requested boost is meaningfully above actual
+static constexpr uint16_t AIRSHOT_WASTEGATE_GUARD_PSI_X10 = 30;
+static constexpr uint16_t AIRSHOT_COMPRESSOR_ON_PSI_X10 = 1100;
+static constexpr uint16_t AIRSHOT_COMPRESSOR_OFF_PSI_X10 = 1450;
+static constexpr float AIRSHOT_COMPRESSOR_MAX_SPEED_MPS = 0.45f; // ~1 mph
 constexpr uint8_t FIRMWARE_VERSION_MAJOR = 0;
 constexpr uint8_t FIRMWARE_VERSION_MINOR = 1;
 constexpr uint8_t FIRMWARE_VERSION_PATCH = 0;
@@ -393,6 +405,7 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
 static bool g_airshot_latched = false;
 static bool g_airshot_rearm_ready = true;
 static uint32_t g_airshot_latched_since_ms = 0;
+static uint32_t g_airshot_wastegate_decouple_until_ms = 0;
 static volatile uint32_t g_front_pulses = 0;
 static volatile uint32_t g_rear_pulses = 0;
 static volatile uint32_t g_wmi_flow_pulses = 0;
@@ -441,6 +454,17 @@ uint16_t readOilPressurePsiX10() {
       0,
       OIL_PRESSURE_SENSOR_MAX_PSI_X10);
   return static_cast<uint16_t>(constrain(scaled, 0, OIL_PRESSURE_SENSOR_MAX_PSI_X10));
+}
+
+uint16_t readAirTankPressurePsiX10() {
+  const int raw = analogRead(AIR_TANK_PRESSURE_SENSOR_PIN);
+  const long scaled = map(
+      constrain(raw, AIR_TANK_SENSOR_MIN_RAW, AIR_TANK_SENSOR_MAX_RAW),
+      AIR_TANK_SENSOR_MIN_RAW,
+      AIR_TANK_SENSOR_MAX_RAW,
+      0,
+      AIR_TANK_SENSOR_MAX_PSI_X10);
+  return static_cast<uint16_t>(constrain(scaled, 0, AIR_TANK_SENSOR_MAX_PSI_X10));
 }
 
 uint16_t adcRawToMillivolts(int raw) {
@@ -586,22 +610,26 @@ uint16_t requestedBoostLimitForAirShot() {
 }
 
 uint8_t calculateShotsRemaining(uint16_t tank_psi_x10) {
-  const float psi = tank_psi_x10 / 10.0f;
-  if (psi <= 18.0f) return 0;
-  if (psi >= 68.0f) return 5;
-  const float normalized = (psi - 18.0f) / 50.0f;
-  const float curved = logf(1.0f + normalized * 9.0f) / logf(10.0f);
-  return static_cast<uint8_t>(constrain(static_cast<int>(roundf(curved * 5.0f)), 0, 5));
+  if (tank_psi_x10 < AIRSHOT_MIN_TANK_PSI_X10) return 0;
+  if (tank_psi_x10 < 750) return 1;
+  if (tank_psi_x10 < 1150) return 2;
+  return 3;
+}
+
+bool airShotPressureDeltaOk() {
+  const uint32_t required_tank_pressure = static_cast<uint32_t>(g_inputs.boost_psi_x10) + AIRSHOT_MIN_DELTA_PSI_X10;
+  return g_outputs.tank_psi_x10 >= AIRSHOT_MIN_TANK_PSI_X10 &&
+      static_cast<uint32_t>(g_outputs.tank_psi_x10) > required_tank_pressure;
 }
 
 bool shouldTriggerAirShot(bool manual_request) {
   const bool mode_ok = (g_commands.mode == MODE_RACE) || (g_commands.mode == MODE_ALBATROSS);
   const uint16_t requested_limit = requestedBoostLimitForAirShot();
-  const bool boost_needed = requested_limit > 0 && (g_inputs.boost_psi_x10 + 5 < requested_limit);
+  const bool boost_needed = requested_limit > 0 && (g_inputs.boost_psi_x10 + AIRSHOT_TRIGGER_GAP_PSI_X10 < requested_limit);
   const bool base_ok = mode_ok && boost_needed && g_airshot_rearm_ready && !g_airshot_latched &&
-      g_inputs.gear >= 2 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0;
+      g_inputs.gear >= 2 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0 && airShotPressureDeltaOk();
   const bool auto_ok = g_inputs.tps_pct > 90 && g_inputs.rpm > 5500;
-  const bool manual_ok = manual_request && g_inputs.tps_pct > 35 && g_inputs.rpm > 3000;
+  const bool manual_ok = manual_request && g_inputs.tps_pct > 70 && g_inputs.rpm > 3000;
   return base_ok && (auto_ok || manual_ok);
 }
 
@@ -611,6 +639,8 @@ bool isAirShotRequestActive(uint32_t now) {
 
 void updateControllers() {
   const uint32_t now = millis();
+  g_outputs.tank_psi_x10 = readAirTankPressurePsiX10();
+  updateWheelSpeeds();
   const bool ecu_can_stale = elapsedSince(g_last_ecu_frame_ms, ECU_CAN_TIMEOUT_MS, now);
   const bool pi_can_stale = elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now);
   const bool control_link_stale = ecu_can_stale || pi_can_stale;
@@ -648,12 +678,52 @@ void updateControllers() {
     g_commands.flame_mode = false;
     g_airshot_latched = false;
     g_airshot_latched_since_ms = 0;
+    g_airshot_wastegate_decouple_until_ms = 0;
   } else {
     if (hot) target = (target > 30) ? target - 30 : target;
     if (knock) target = (target > 20) ? target - 20 : target;
   }
 
-  g_outputs.wg1_duty = computeWastegatePosition(target, g_inputs.boost_psi_x10, g_inputs.tps_pct, knock);
+  if (g_inputs.tps_pct < 50) {
+    g_airshot_rearm_ready = true;
+  }
+
+  const bool manual_airshot_request = isAirShotRequestActive(now);
+  if (!manual_airshot_request) {
+    g_airshot_request_until_ms = 0;
+  }
+  if (shouldTriggerAirShot(manual_airshot_request)) {
+    g_airshot_latched = true;
+    g_airshot_rearm_ready = false;
+    g_airshot_latched_since_ms = now;
+    g_airshot_wastegate_decouple_until_ms = 0;
+    g_airshot_request_until_ms = 0;
+  }
+
+  const uint16_t airshot_limit = requestedBoostLimitForAirShot();
+  const bool airshot_timed_out = g_airshot_latched_since_ms != 0 && (now - g_airshot_latched_since_ms) >= AIRSHOT_MAX_LATCH_MS;
+  const bool intake_pressure_at_or_above_tank = g_inputs.boost_psi_x10 >= g_outputs.tank_psi_x10;
+  if (
+      g_airshot_latched &&
+      (g_inputs.boost_psi_x10 >= airshot_limit || intake_pressure_at_or_above_tank || airshot_timed_out || limp || airshot_limit == 0)
+  ) {
+    if (!limp && airshot_limit > 0 && (g_inputs.boost_psi_x10 >= airshot_limit || intake_pressure_at_or_above_tank)) {
+      g_airshot_wastegate_decouple_until_ms = now + AIRSHOT_WASTEGATE_DECOUPLE_MS;
+    }
+    g_airshot_latched = false;
+    g_airshot_latched_since_ms = 0;
+  }
+
+  digitalWrite(AIRSHOT_SOL_PIN, g_airshot_latched ? HIGH : LOW);
+  g_outputs.air_shot_remaining = calculateShotsRemaining(g_outputs.tank_psi_x10);
+
+  const bool airshot_decoupling_wastegate =
+      target > 0 &&
+      !limp &&
+      (g_airshot_latched || static_cast<int32_t>(g_airshot_wastegate_decouple_until_ms - now) >= 0) &&
+      static_cast<uint32_t>(g_inputs.boost_psi_x10) <= static_cast<uint32_t>(target) + AIRSHOT_WASTEGATE_GUARD_PSI_X10;
+  const uint16_t boost_for_wastegate = airshot_decoupling_wastegate ? min(g_inputs.boost_psi_x10, target) : g_inputs.boost_psi_x10;
+  g_outputs.wg1_duty = computeWastegatePosition(target, boost_for_wastegate, g_inputs.tps_pct, knock);
   g_outputs.wg2_duty = g_outputs.wg1_duty; // mirrored for twin control output frame.
 
   const uint8_t wg1_pwm = map(g_outputs.wg1_duty, 0, 100, 0, 255);
@@ -694,43 +764,19 @@ void updateControllers() {
   const bool flame_enable = g_commands.flame_mode && (g_inputs.rpm > 3000) && g_commands.nfc_ok && !limp && !control_link_stale;
   digitalWrite(FLAME_EN_PIN, flame_enable ? HIGH : LOW);
 
-  const bool compressor_on = (g_outputs.tank_psi_x10 < 680) && (g_inputs.rpm < 1500) && (g_inputs.tps_pct < 5);
+  const float vehicle_speed_mps = max(g_front_wheel_mps, g_rear_wheel_mps);
+  const bool bike_stationary = vehicle_speed_mps < AIRSHOT_COMPRESSOR_MAX_SPEED_MPS;
+  const bool low_throttle = g_inputs.tps_pct < 5;
+  const bool compressor_on =
+      bike_stationary &&
+      low_throttle &&
+      !g_airshot_latched &&
+      g_inputs.rpm < 1800 &&
+      g_outputs.tank_psi_x10 < AIRSHOT_COMPRESSOR_ON_PSI_X10;
   digitalWrite(AIR_COMPRESSOR_RELAY_PIN, compressor_on ? HIGH : LOW);
-  if (g_outputs.tank_psi_x10 >= 700) {
+  if (g_outputs.tank_psi_x10 >= AIRSHOT_COMPRESSOR_OFF_PSI_X10 || !bike_stationary || !low_throttle || g_airshot_latched) {
     digitalWrite(AIR_COMPRESSOR_RELAY_PIN, LOW);
   }
-
-  if (g_inputs.tps_pct < 50) {
-    g_airshot_rearm_ready = true;
-  }
-
-  const bool manual_airshot_request = isAirShotRequestActive(now);
-  if (!manual_airshot_request) {
-    g_airshot_request_until_ms = 0;
-  }
-  if (shouldTriggerAirShot(manual_airshot_request)) {
-    g_airshot_latched = true;
-    g_airshot_rearm_ready = false;
-    g_airshot_latched_since_ms = now;
-    g_airshot_request_until_ms = 0;
-  }
-
-  const uint16_t airshot_limit = requestedBoostLimitForAirShot();
-  const bool airshot_timed_out = g_airshot_latched_since_ms != 0 && (now - g_airshot_latched_since_ms) >= AIRSHOT_MAX_LATCH_MS;
-  const bool intake_pressure_at_or_above_tank = g_inputs.boost_psi_x10 >= g_outputs.tank_psi_x10;
-  if (
-      g_airshot_latched &&
-      (g_inputs.boost_psi_x10 >= airshot_limit || intake_pressure_at_or_above_tank || airshot_timed_out || limp || airshot_limit == 0)
-  ) {
-    g_airshot_latched = false;
-    g_airshot_latched_since_ms = 0;
-  }
-
-  digitalWrite(AIRSHOT_SOL_PIN, g_airshot_latched ? HIGH : LOW);
-
-  g_outputs.air_shot_remaining = calculateShotsRemaining(g_outputs.tank_psi_x10);
-
-  updateWheelSpeeds();
   static float filtered_slip_ratio = 0.0f;
   static bool tc_latched = false;
   const float front_speed = g_front_wheel_mps;
@@ -863,11 +909,12 @@ void publishStatusFrames() {
     last_service_ms = now;
     const uint16_t oil_sensor_mv = adcRawToMillivolts(analogRead(OIL_PRESSURE_SENSOR_PIN));
     const uint16_t wmi_tank_mv = adcRawToMillivolts(analogRead(WMI_TANK_LEVEL_PIN));
+    const uint16_t air_tank_mv = adcRawToMillivolts(analogRead(AIR_TANK_PRESSURE_SENSOR_PIN));
     uint8_t sensor_voltage[8] = {
       uint8_t(oil_sensor_mv >> 8), uint8_t(oil_sensor_mv & 0xFF),
       uint8_t(wmi_tank_mv >> 8), uint8_t(wmi_tank_mv & 0xFF),
       uint8_t(5000 >> 8), uint8_t(5000 & 0xFF),
-      0, 0
+      uint8_t(air_tank_mv >> 8), uint8_t(air_tank_mv & 0xFF)
     };
     publishFrame(CanId::ARD_SERVICE_SENSOR_VOLTAGES, sensor_voltage, 8);
 
@@ -941,6 +988,7 @@ void setup() {
   pinMode(OIL_WARNING_PIN, INPUT);
   pinMode(OIL_PRESSURE_SENSOR_PIN, INPUT);
   pinMode(WMI_TANK_LEVEL_PIN, INPUT);
+  pinMode(AIR_TANK_PRESSURE_SENSOR_PIN, INPUT);
   pinMode(WMI_FLOW_SENSOR_PIN, INPUT_PULLUP);
   pinMode(WMI_PRESSURE_OK_PIN, INPUT_PULLUP);
   const int front_irq = digitalPinToInterrupt(FRONT_WHEEL_HALL_PIN);

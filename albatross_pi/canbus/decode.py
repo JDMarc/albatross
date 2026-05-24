@@ -360,8 +360,8 @@ class CANStateAggregator:
             (supply_mv,) = struct.unpack_from(">H", data, 4)
             readings.append(ServiceReading("Arduino 5V rail", f"{supply_mv / 1000.0:.2f} V"))
         if len(data) >= 8:
-            (spare_mv,) = struct.unpack_from(">H", data, 6)
-            readings.append(ServiceReading("Service spare", f"{spare_mv / 1000.0:.2f} V"))
+            (air_tank_mv,) = struct.unpack_from(">H", data, 6)
+            readings.append(ServiceReading("Air tank pressure sender", f"{air_tank_mv / 1000.0:.2f} V"))
         self._service = replace(self._service, sensor_voltages=tuple(readings))
 
     def _update_service_digital_states(self, data: bytes) -> None:

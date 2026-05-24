@@ -9,23 +9,25 @@ from ...state.snapshot import StateSnapshot
 
 
 class AirShotPanel(Widget):
-    def __init__(self, rect: pygame.Rect, max_pressure: float = 2200.0) -> None:
+    def __init__(self, rect: pygame.Rect, max_pressure: float = 150.0, max_shots: int = 3) -> None:
         self.rect = rect
         self.max_pressure = max_pressure
+        self.max_shots = max(1, max_shots)
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         bg = FAULT_AMBER if state.air_shot.is_firing else AMBER_BG
         pygame.draw.rect(surface, bg, self.rect)
         padding = max(8, int(self.rect.height * 0.18))
         pressure = state.air_shot.pressure_psi
-        charges = max(0, min(5, state.air_shot.charges_remaining))
+        charges = max(0, min(self.max_shots, state.air_shot.charges_remaining))
         top = self.rect.y + padding
         label = font(fit_font_size("AIR SHOT", self.rect.width - 2 * padding, int(self.rect.height * 0.22), start_size=22, bold=True), bold=True).render("AIR SHOT", True, AMBER_GLOW)
         surface.blit(label, (self.rect.centerx - label.get_width() // 2, top))
         top += label.get_height() + 4
-        slot_w = max(12, (self.rect.width - 2 * padding - 4 * 6) // 5)
-        for i in range(5):
-            r = pygame.Rect(self.rect.x + padding + i * (slot_w + 6), top, slot_w, max(12, int(self.rect.height * 0.18)))
+        gap = 6
+        slot_w = max(12, (self.rect.width - 2 * padding - (self.max_shots - 1) * gap) // self.max_shots)
+        for i in range(self.max_shots):
+            r = pygame.Rect(self.rect.x + padding + i * (slot_w + gap), top, slot_w, max(12, int(self.rect.height * 0.18)))
             pygame.draw.rect(surface, AMBER_DARK, r, 2)
             if i < charges:
                 pygame.draw.rect(surface, AMBER_BRIGHT, r.inflate(-4, -4))
