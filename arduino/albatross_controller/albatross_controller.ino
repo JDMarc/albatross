@@ -205,6 +205,7 @@ static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pul
 static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
 static constexpr uint32_t ECU_CAN_TIMEOUT_MS = 300;
 static constexpr uint32_t PI_CAN_TIMEOUT_MS = 1500;
+static constexpr uint32_t AIRSHOT_MAX_LATCH_MS = 10000;
 constexpr uint8_t FIRMWARE_VERSION_MAJOR = 0;
 constexpr uint8_t FIRMWARE_VERSION_MINOR = 1;
 constexpr uint8_t FIRMWARE_VERSION_PATCH = 0;
@@ -391,6 +392,7 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
 
 static bool g_airshot_latched = false;
 static bool g_airshot_rearm_ready = true;
+static uint32_t g_airshot_latched_since_ms = 0;
 static volatile uint32_t g_front_pulses = 0;
 static volatile uint32_t g_rear_pulses = 0;
 static volatile uint32_t g_wmi_flow_pulses = 0;
@@ -645,6 +647,7 @@ void updateControllers() {
     target = 0;
     g_commands.flame_mode = false;
     g_airshot_latched = false;
+    g_airshot_latched_since_ms = 0;
   } else {
     if (hot) target = (target > 30) ? target - 30 : target;
     if (knock) target = (target > 20) ? target - 20 : target;
@@ -708,12 +711,19 @@ void updateControllers() {
   if (shouldTriggerAirShot(manual_airshot_request)) {
     g_airshot_latched = true;
     g_airshot_rearm_ready = false;
+    g_airshot_latched_since_ms = now;
     g_airshot_request_until_ms = 0;
   }
 
   const uint16_t airshot_limit = requestedBoostLimitForAirShot();
-  if (g_airshot_latched && (g_inputs.boost_psi_x10 >= airshot_limit || limp || airshot_limit == 0)) {
+  const bool airshot_timed_out = g_airshot_latched_since_ms != 0 && (now - g_airshot_latched_since_ms) >= AIRSHOT_MAX_LATCH_MS;
+  const bool intake_pressure_at_or_above_tank = g_inputs.boost_psi_x10 >= g_outputs.tank_psi_x10;
+  if (
+      g_airshot_latched &&
+      (g_inputs.boost_psi_x10 >= airshot_limit || intake_pressure_at_or_above_tank || airshot_timed_out || limp || airshot_limit == 0)
+  ) {
     g_airshot_latched = false;
+    g_airshot_latched_since_ms = 0;
   }
 
   digitalWrite(AIRSHOT_SOL_PIN, g_airshot_latched ? HIGH : LOW);

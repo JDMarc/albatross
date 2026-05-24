@@ -44,6 +44,7 @@ frames so the HUD can report the fault.
 - Manual Air Shot requests arrive from the Pi on `0x125` and may latch a shot in RACE/ALBATROSS when boost is still below request, gear >= 2, RPM > 3000, TPS > 35%, tank pressure has available charge, and the system is not already latched.
 - Shot remains latched until intake pressure reaches mode-specific limit.
 - Shot output drops as soon as intake pressure reaches the Pi-requested boost target, capped by the mode safety limit.
+- Shot output also drops after 10 seconds max latch time, or immediately if intake/manifold pressure is equal to or greater than Air Shot tank pressure.
 - Re-fire is blocked until throttle is lifted (rearm logic).
 - `shots_remaining` is computed from tank pressure using logarithmic scaling:
   - <=18 psi => 0
