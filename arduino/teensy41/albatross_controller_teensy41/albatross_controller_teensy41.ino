@@ -206,6 +206,8 @@ static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pul
 static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
 static constexpr uint32_t ECU_CAN_TIMEOUT_MS = 300;
 static constexpr uint32_t PI_CAN_TIMEOUT_MS = 1500;
+static constexpr uint32_t CONTROL_UPDATE_INTERVAL_MS = 5; // 200 Hz boost/wastegate control update
+static constexpr uint32_t STATUS_BROADCAST_INTERVAL_MS = 50; // 20 Hz status broadcast
 static constexpr uint32_t AIRSHOT_MAX_LATCH_MS = 10000;
 static constexpr uint32_t AIRSHOT_WASTEGATE_DECOUPLE_MS = 350;
 static constexpr uint16_t AIRSHOT_MIN_TANK_PSI_X10 = 350; // below 35 psi is not a useful transient shot
@@ -1060,12 +1062,12 @@ void loop() {
   static uint32_t lastPublishMs = 0;
   const uint32_t now = millis();
 
-  if (now - lastControlMs >= 10) { // 100 Hz control update
+  if (now - lastControlMs >= CONTROL_UPDATE_INTERVAL_MS) {
     lastControlMs = now;
     updateControllers();
   }
 
-  if (now - lastPublishMs >= 50) { // 20 Hz status broadcast
+  if (now - lastPublishMs >= STATUS_BROADCAST_INTERVAL_MS) {
     lastPublishMs = now;
     publishStatusFrames();
   }

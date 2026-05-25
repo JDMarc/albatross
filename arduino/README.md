@@ -71,6 +71,10 @@ wastegate actuator duty, and drives the wastegate actuator power stages
 directly. There is no separate boost controller between the Teensy and the
 wastegate actuator drivers.
 
+The Teensy production loop runs boost, wastegate, Air Shot, WMI, compressor,
+traction, and limp enforcement at 200 Hz. Status frames remain at 20 Hz to keep
+the CAN bus quiet while still giving the HUD fresh data.
+
 If ECU telemetry or Pi command traffic goes stale, Teensy forces a no-boost
 limp state, disables flame/WMI/Air Shot outputs, and keeps publishing status
 frames so the HUD can report the fault.
