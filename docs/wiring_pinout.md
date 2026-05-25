@@ -131,6 +131,12 @@ The Arduino sketch targets a Mega 2560 Rev3 plus an MCP2515 CAN module at
 | A1 | Analog input | WMI tank level | 0-5 V analog sender, scaled 0-100% |
 | A2 | Analog input | Air Shot tank pressure | 0.5-4.5 V, 0-200 psi sender; compressor relay turns off below tank rating |
 
+Air Shot compressor relay behavior is buffer-based in firmware: it starts only
+when the bike is stationary, throttle is low, the engine is not cranking,
+voltage is healthy, no undervoltage/limp report is active, tank pressure is at
+or below 95 psi, and its restart delay has expired. It stops at 145 psi or as
+soon as any inhibit appears.
+
 ## Electrical Protection Notes
 
 - Do not connect 12-14 V bike lamp feeds directly to Arduino pins. Use an

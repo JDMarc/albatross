@@ -215,9 +215,12 @@ static constexpr uint16_t AIRSHOT_MIN_TANK_PSI_X10 = 350; // below 35 psi is not
 static constexpr uint16_t AIRSHOT_MIN_DELTA_PSI_X10 = 120; // tank must be at least 12 psi above manifold
 static constexpr uint16_t AIRSHOT_TRIGGER_GAP_PSI_X10 = 40; // only fire when requested boost is meaningfully above actual
 static constexpr uint16_t AIRSHOT_WASTEGATE_GUARD_PSI_X10 = 30;
-static constexpr uint16_t AIRSHOT_COMPRESSOR_ON_PSI_X10 = 1100;
+static constexpr uint16_t AIRSHOT_COMPRESSOR_ON_PSI_X10 = 950;
 static constexpr uint16_t AIRSHOT_COMPRESSOR_OFF_PSI_X10 = 1450;
 static constexpr float AIRSHOT_COMPRESSOR_MAX_SPEED_MPS = 0.45f; // ~1 mph
+static constexpr uint16_t AIRSHOT_COMPRESSOR_MIN_BATTERY_MV = 12200;
+static constexpr uint16_t AIRSHOT_CRANKING_RPM_MAX = 650;
+static constexpr uint32_t AIRSHOT_COMPRESSOR_RESTART_DELAY_MS = 15000;
 constexpr uint8_t FIRMWARE_VERSION_MAJOR = 0;
 constexpr uint8_t FIRMWARE_VERSION_MINOR = 1;
 constexpr uint8_t FIRMWARE_VERSION_PATCH = 0;
@@ -406,6 +409,8 @@ static bool g_airshot_latched = false;
 static bool g_airshot_rearm_ready = true;
 static uint32_t g_airshot_latched_since_ms = 0;
 static uint32_t g_airshot_wastegate_decouple_until_ms = 0;
+static bool g_air_compressor_latched = false;
+static uint32_t g_air_compressor_restart_block_until_ms = 0;
 static volatile uint32_t g_front_pulses = 0;
 static volatile uint32_t g_rear_pulses = 0;
 static volatile uint32_t g_wmi_flow_pulses = 0;
@@ -637,6 +642,46 @@ bool isAirShotRequestActive(uint32_t now) {
   return g_airshot_request_until_ms != 0 && static_cast<int32_t>(g_airshot_request_until_ms - now) >= 0;
 }
 
+bool isCompressorRestartDelayActive(uint32_t now) {
+  return g_air_compressor_restart_block_until_ms != 0 &&
+      static_cast<int32_t>(g_air_compressor_restart_block_until_ms - now) >= 0;
+}
+
+bool isEngineCranking() {
+  return g_inputs.rpm > 0 && g_inputs.rpm < AIRSHOT_CRANKING_RPM_MAX;
+}
+
+bool isBatteryUndervoltageReported() {
+  const bool ecu_low_voltage = g_inputs.battery_mv > 0 && g_inputs.battery_mv < AIRSHOT_COMPRESSOR_MIN_BATTERY_MV;
+  const bool pi_low_voltage = g_commands.limp_mode && g_commands.limp_reason == LIMP_BATTERY_VOLTAGE;
+  const bool arduino_low_voltage_limp = g_limp_active && g_limp_reason == LIMP_BATTERY_VOLTAGE;
+  return ecu_low_voltage || pi_low_voltage || arduino_low_voltage_limp;
+}
+
+void updateAirCompressorRelay(uint32_t now, bool bike_stationary, bool low_throttle, bool limp) {
+  const bool restart_delay_active = isCompressorRestartDelayActive(now);
+  const bool inhibited =
+      limp ||
+      g_airshot_latched ||
+      isEngineCranking() ||
+      isBatteryUndervoltageReported() ||
+      !bike_stationary ||
+      !low_throttle;
+
+  const bool should_stop = inhibited || g_outputs.tank_psi_x10 >= AIRSHOT_COMPRESSOR_OFF_PSI_X10;
+  if (g_air_compressor_latched && should_stop) {
+    g_air_compressor_latched = false;
+    g_air_compressor_restart_block_until_ms = now + AIRSHOT_COMPRESSOR_RESTART_DELAY_MS;
+  }
+
+  const bool tank_low = g_outputs.tank_psi_x10 <= AIRSHOT_COMPRESSOR_ON_PSI_X10;
+  if (!g_air_compressor_latched && tank_low && !inhibited && !restart_delay_active) {
+    g_air_compressor_latched = true;
+  }
+
+  digitalWrite(AIR_COMPRESSOR_RELAY_PIN, g_air_compressor_latched ? HIGH : LOW);
+}
+
 void updateControllers() {
   const uint32_t now = millis();
   g_outputs.tank_psi_x10 = readAirTankPressurePsiX10();
@@ -767,16 +812,7 @@ void updateControllers() {
   const float vehicle_speed_mps = max(g_front_wheel_mps, g_rear_wheel_mps);
   const bool bike_stationary = vehicle_speed_mps < AIRSHOT_COMPRESSOR_MAX_SPEED_MPS;
   const bool low_throttle = g_inputs.tps_pct < 5;
-  const bool compressor_on =
-      bike_stationary &&
-      low_throttle &&
-      !g_airshot_latched &&
-      g_inputs.rpm < 1800 &&
-      g_outputs.tank_psi_x10 < AIRSHOT_COMPRESSOR_ON_PSI_X10;
-  digitalWrite(AIR_COMPRESSOR_RELAY_PIN, compressor_on ? HIGH : LOW);
-  if (g_outputs.tank_psi_x10 >= AIRSHOT_COMPRESSOR_OFF_PSI_X10 || !bike_stationary || !low_throttle || g_airshot_latched) {
-    digitalWrite(AIR_COMPRESSOR_RELAY_PIN, LOW);
-  }
+  updateAirCompressorRelay(now, bike_stationary, low_throttle, limp);
   static float filtered_slip_ratio = 0.0f;
   static bool tc_latched = false;
   const float front_speed = g_front_wheel_mps;

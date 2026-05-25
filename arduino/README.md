@@ -36,10 +36,15 @@ frames so the HUD can report the fault.
 - Compressor only runs when:
   - bike speed is effectively zero (<~1 mph),
   - TPS is below 5%,
-  - engine speed is under 1800 RPM,
+  - engine is not cranking,
+  - bus voltage is at least 12.2 V,
+  - neither ECU voltage nor Pi limp reason reports undervoltage,
+  - no limp condition is active,
   - no Air Shot is currently latched,
-  - tank pressure is below 110 psi.
-- Compressor turns off at 145 psi, while moving, above low throttle, or during a shot.
+  - tank pressure is at or below 95 psi,
+  - the 15 second restart delay after the last shutoff has expired.
+- Compressor turns off at 145 psi, while moving, above low throttle, during cranking, below 12.2 V, during limp/undervoltage, or during a shot.
+- The Air Shot tank is treated as a buffer: compressor refill is independent from shot demand and should not start just because the rider or auto logic requested a shot.
 - Automatic shots trigger only in RACE or ALBATROSS and only if:
   - TPS > 90%
   - gear >= 2
