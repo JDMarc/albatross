@@ -53,6 +53,7 @@ _FIRMWARE_DEVICE_NAMES = {
     0x01: "Arduino controller",
     0x02: "Pi HUD",
     0x03: "MS3 ECU",
+    0x04: "Teensy controller",
 }
 
 
@@ -358,7 +359,7 @@ class CANStateAggregator:
         ]
         if len(data) >= 6:
             (supply_mv,) = struct.unpack_from(">H", data, 4)
-            readings.append(ServiceReading("Arduino 5V rail", f"{supply_mv / 1000.0:.2f} V"))
+            readings.append(ServiceReading("Controller 3.3V rail", f"{supply_mv / 1000.0:.2f} V"))
         if len(data) >= 8:
             (air_tank_mv,) = struct.unpack_from(">H", data, 6)
             readings.append(ServiceReading("Air tank pressure sender", f"{air_tank_mv / 1000.0:.2f} V"))

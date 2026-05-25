@@ -1,8 +1,8 @@
 # Albatross Wiring And Pinout Checklist
 
 This is the current wiring map implied by the code. It is intended as a harness
-planning checklist, not as a substitute for the MS3Pro Mini manual, the Arduino
-Mega pinout, or the datasheets for the exact CAN, relay, driver, and sensor
+planning checklist, not as a substitute for the MS3Pro Mini manual, the Teensy
+4.1 pinout, or the datasheets for the exact CAN, relay, driver, and sensor
 modules installed on the bike.
 
 ## CAN Backbone
@@ -11,21 +11,21 @@ Use one 500 kbit/s CAN backbone shared by:
 
 - MS3Pro Mini
 - Raspberry Pi CAN interface
-- Arduino Mega MCP2515 CAN interface
+- Teensy 4.1 controller CAN transceiver
 - Any future CAN sensor modules
 
 Wire the bus as a trunk with short stubs, not as a star.
 
 | Signal | Hookup |
 | --- | --- |
-| CANH | CANH on MS3Pro Mini, Pi CAN HAT/interface, Arduino MCP2515 module |
-| CANL | CANL on MS3Pro Mini, Pi CAN HAT/interface, Arduino MCP2515 module |
+| CANH | CANH on MS3Pro Mini, Pi CAN HAT/interface, Teensy CAN transceiver |
+| CANL | CANL on MS3Pro Mini, Pi CAN HAT/interface, Teensy CAN transceiver |
 | Ground reference | Common chassis/sensor ground between non-isolated CAN nodes |
 | Termination | 120 ohm at exactly the two physical ends of the CAN trunk |
 
-Only two devices on the entire bus should have termination enabled. Many
-MCP2515 modules and CAN HATs include a 120 ohm resistor or jumper; remove/disable
-extras once the final physical bus ends are known.
+Only two devices on the entire bus should have termination enabled. Many CAN
+HATs and transceiver breakout boards include a 120 ohm resistor or jumper;
+remove/disable extras once the final physical bus ends are known.
 
 ## Raspberry Pi CAN
 
@@ -61,8 +61,7 @@ Then bring the interface up:
 sudo ip link set can0 up type can bitrate 500000
 ```
 
-Use the oscillator value printed for the exact HAT. Many Pi HATs are 16 MHz;
-the Arduino MCP2515 module in this project is configured in firmware as 8 MHz.
+Use the oscillator value printed for the exact HAT. Many Pi HATs are 16 MHz.
 
 ## MS3Pro Mini CAN Hookup
 
@@ -80,56 +79,56 @@ Project ownership assumptions:
 - MS3 owns RPM, TPS, MAP/boost, AFR, knock, coolant, IAT, EGT if fitted,
   battery voltage, oil pressure, oil temperature, flex fuel, fuel level if
   wired there, and injector pulse width/duty telemetry.
-- Arduino owns wheel speed, WMI tank/flow/status, light-status sensing, Air
-  Shot hardware, compressor relay, and boost control. It directly commands the
+- Teensy owns wheel speed, WMI tank/flow/status, light-status sensing, Air Shot
+  hardware, compressor relay, and boost control. It directly commands the
   electronic wastegate actuator power stages; there is no separate boost
   controller module.
 - Pi owns HUD/settings decisions and publishes boost target, mode, fuel profile,
   spark table select, WMI enable, and safety requests.
 
-## Arduino Mega CAN Interface
+## Teensy 4.1 CAN Interface
 
-The Arduino sketch targets a Mega 2560 Rev3 plus an MCP2515 CAN module at
-500 kbit/s, with an 8 MHz MCP2515 oscillator.
+The production controller sketch targets a Teensy 4.1 using native CAN1 through
+an external 3.3 V CAN transceiver. Teensy pins are not CANH/CANL directly.
 
-| Mega pin | Signal | Connects to |
+| Teensy pin | Signal | Connects to |
 | --- | --- | --- |
-| D10 | MCP2515 CS | MCP2515 CS input |
-| D2 | MCP2515 INT | MCP2515 INT output, interrupt-capable |
-| D50 | SPI MISO | MCP2515 SO |
-| D51 | SPI MOSI | MCP2515 SI |
-| D52 | SPI SCK | MCP2515 SCK |
-| D53 | Hardware SS | Leave as output/high; do not use as module CS |
-| 5V/GND | Module power | 5 V-compatible MCP2515 module power and ground |
-| CANH/CANL | CAN transceiver | CAN backbone |
+| 22 | CAN1 RX | Transceiver RXD |
+| 23 | CAN1 TX | Transceiver TXD |
+| 3.3 V | Logic power | 3.3 V transceiver VCC if required |
+| GND | Ground | Transceiver ground and common reference |
+| CANH/CANL | Bus pair | Transceiver CANH/CANL to CAN backbone |
 
-## Arduino Mega Harness Pinout
+Use a 3.3 V-compatible CAN transceiver. Do not connect Teensy pins directly to
+the CAN bus, and do not feed 5 V logic into Teensy pins.
 
-| Mega pin | Direction | Function | Hookup notes |
+## Teensy 4.1 Harness Pinout
+
+| Teensy pin | Direction | Function | Hookup notes |
 | --- | --- | --- | --- |
-| D5 | Output PWM | Wastegate actuator 1 PWM | To actuator power driver/H-bridge command input |
-| D22 | Output | Wastegate actuator 1 direction | To actuator power driver/H-bridge direction input |
-| D23 | Output | Wastegate actuator 1 enable | To actuator power driver/H-bridge enable input |
-| D6 | Output PWM | Wastegate actuator 2 PWM | To actuator power driver/H-bridge command input |
-| D24 | Output | Wastegate actuator 2 direction | To actuator power driver/H-bridge direction input |
-| D25 | Output | Wastegate actuator 2 enable | To actuator power driver/H-bridge enable input |
-| D7 | Output PWM | WMI pump command | Drive relay/MOSFET module, active high |
-| D8 | Output | Flame mode interlock | Drive external interlock circuit, active high |
-| D9 | Output | Air Shot solenoid | Drive MOSFET/relay, active high |
-| D27 | Output | Air compressor relay | Drive relay/MOSFET module, active high |
-| D3 | Input pullup | Front wheel Hall sensor | Open collector/open drain or conditioned 5 V pulse |
-| D18 | Input pullup | Rear wheel Hall sensor | Open collector/open drain or conditioned 5 V pulse |
-| D26 | Input pullup | Neutral switch/lamp | Active low; switch pulls to ground when neutral |
-| D28 | Input | Left indicator lamp sense | Condition bike voltage to 5 V logic, external pulldown |
-| D29 | Input | Right indicator lamp sense | Condition bike voltage to 5 V logic, external pulldown |
-| D30 | Input | High beam lamp sense | Condition bike voltage to 5 V logic, external pulldown |
-| D31 | Input | Brake lamp sense | Condition bike voltage to 5 V logic, external pulldown |
-| D32 | Input | Stock oil warning lamp sense | Status only; not the real oil pressure gauge path |
-| D33 | Input pullup | WMI pressure/status OK | Active low by default; switch pulls to ground when OK |
-| D19 | Input pullup | WMI flow sensor | Pulse input, interrupt-capable, 450 pulses/L default |
-| A0 | Analog input | Fallback oil pressure | 0.5-4.5 V, 0-100 psi fallback/bench path only |
-| A1 | Analog input | WMI tank level | 0-5 V analog sender, scaled 0-100% |
-| A2 | Analog input | Air Shot tank pressure | 0.5-4.5 V, 0-200 psi sender; compressor relay turns off below tank rating |
+| 2 | Output PWM | Wastegate actuator 1 PWM | To actuator power driver/H-bridge command input |
+| 3 | Output | Wastegate actuator 1 direction | To actuator power driver/H-bridge direction input |
+| 4 | Output | Wastegate actuator 1 enable | To actuator power driver/H-bridge enable input |
+| 5 | Output PWM | Wastegate actuator 2 PWM | To actuator power driver/H-bridge command input |
+| 6 | Output | Wastegate actuator 2 direction | To actuator power driver/H-bridge direction input |
+| 9 | Output | Wastegate actuator 2 enable | To actuator power driver/H-bridge enable input |
+| 10 | Output PWM | WMI pump command | Drive relay/MOSFET module, active high |
+| 11 | Output | Flame mode interlock | Drive external interlock circuit, active high |
+| 12 | Output | Air Shot solenoid | Drive MOSFET/relay, active high |
+| 24 | Output | Air compressor relay | Drive relay/MOSFET module, active high |
+| 18 | Input pullup | Front wheel Hall sensor | Open collector/open drain or conditioned 3.3 V pulse |
+| 19 | Input pullup | Rear wheel Hall sensor | Open collector/open drain or conditioned 3.3 V pulse |
+| 20 | Input pullup | WMI flow sensor | Pulse input, 450 pulses/L default |
+| 25 | Input pullup | Neutral switch/lamp | Active low; condition to 3.3 V |
+| 26 | Input | Left indicator lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
+| 27 | Input | Right indicator lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
+| 28 | Input | High beam lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
+| 29 | Input | Brake lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
+| 30 | Input | Stock oil warning lamp sense | Status only; not the real oil pressure gauge path |
+| 31 | Input pullup | WMI pressure/status OK | Active low by default; switch pulls to ground when OK |
+| A0 | Analog input | Fallback oil pressure | 0.5-4.5 V sender scaled to about 0.33-3.0 V at Teensy |
+| A1 | Analog input | WMI tank level | 0-5 V analog sender scaled to 0-3.3 V |
+| A2 | Analog input | Air Shot tank pressure | 0.5-4.5 V sender scaled to about 0.33-3.0 V at Teensy |
 
 Air Shot compressor relay behavior is buffer-based in firmware: it starts only
 when the bike is stationary, throttle is low, the engine is not cranking,
@@ -139,30 +138,41 @@ soon as any inhibit appears.
 
 ## Electrical Protection Notes
 
-- Do not connect 12-14 V bike lamp feeds directly to Arduino pins. Use an
+- Do not connect 12-14 V bike lamp feeds directly to Teensy pins. Use an
   optocoupler, automotive digital input conditioner, or divider plus clamp/TVS
   and a known pulldown.
+- Do not connect 5 V logic to Teensy pins. Teensy 4.1 GPIO and ADC pins are
+  3.3 V only and are not 5 V tolerant.
 - Do not drive relays, solenoids, pumps, compressor motors, or wastegate motors
-  directly from Arduino pins. Use fused power, a driver/MOSFET/relay module,
-  and flyback suppression for inductive loads.
-- Hall and flow inputs should present clean 0-5 V logic to the Mega. The sketch
-  enables internal pullups on those inputs.
-- Analog inputs must stay inside 0-5 V. Add filtering and input protection for
-  anything exposed to the motorcycle harness.
+  directly from Teensy pins. Use fused power, a driver/MOSFET/relay module, and
+  flyback suppression for inductive loads.
+- Hall and flow inputs should present clean 0-3.3 V logic to the Teensy. The
+  sketch enables internal pullups on those inputs.
+- Analog inputs must stay inside 0-3.3 V. Add filtering and input protection
+  for anything exposed to the motorcycle harness.
 - For the production bike, oil pressure and oil temperature should be wired to
-  the MS3Pro Mini. Arduino A0 is only retained as a fallback path if ECU CAN oil
+  the MS3Pro Mini. Teensy A0 is only retained as a fallback path if ECU CAN oil
   pressure is unavailable during bench testing.
 
 ## Current CAN ID Ownership
 
+The Python enum names still use `Arduino` for compatibility, but the production
+controller is now Teensy 4.1.
+
 | Range / ID | Owner | Purpose |
 | --- | --- | --- |
-| 0x100-0x10E | MS3/ECU to HUD | Engine telemetry, fuel/flex, injector data |
-| 0x110-0x112 | MS3/ECU to Arduino | Flame, WMI trigger, engine status |
-| 0x120-0x129 | Pi to Arduino | Boost target, mode, limp, traction, Air Shot request, WMI, fuel type |
-| 0x12A-0x12B | Arduino to MS3/ECU | Torque cut and traction slip requests |
-| 0x130-0x13F | Arduino to HUD | Air Shot, wheel speed, WMI, lights, traction, fallback statuses, service sensor voltages |
-| 0x140 | Pi to Arduino | NFC authorization |
-| 0x145-0x147 | Arduino to HUD | Service pin/relay states, firmware version, limp status |
+| 0x100-0x10E | MS3/ECU to HUD/controller | Engine telemetry, fuel/flex, injector data |
+| 0x110-0x112 | MS3/ECU to controller | Flame, WMI trigger, engine status |
+| 0x120-0x129 | Pi to controller | Boost target, mode, limp, traction, Air Shot request, WMI, fuel type |
+| 0x12A-0x12B | Controller to MS3/ECU | Torque cut and traction slip requests |
+| 0x130-0x13F | Controller to HUD | Air Shot, wheel speed, WMI, lights, traction, fallback statuses, service sensor voltages |
+| 0x140 | Pi to controller | NFC authorization |
+| 0x145-0x147 | Controller to HUD | Service pin/relay states, firmware version, limp status |
 | 0x150-0x152 | Pi to MS3/ECU | Fuel profile select, spark table select, rev limiter strategy |
 | 0x1F0-0x1F1 | System | POST request/response |
+
+## Legacy Mega 2560
+
+The old Arduino Mega 2560 + MCP2515 firmware remains in
+`arduino/legacy/mega2560/albatross_controller/`. It is not the production
+target anymore.

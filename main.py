@@ -132,7 +132,7 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
         (ArduinoToHudID.WMI_STATUS, struct.pack(">BHHB", _clamp_int(obj.get("wmi_tank", 0), 0, 100), _clamp_int(obj.get("wmi_commanded", 0), 0, 65535), _clamp_int(obj.get("wmi_actual", 0), 0, 65535), 1 if bool(obj.get("wmi_fault", False)) else 0), "RX"),
         (ArduinoToHudID.LIGHT_STATUS, bytes((light_flags,)), "RX"),
         (ArduinoToHudID.WASTEGATE_STATUS, bytes((_clamp_int(obj.get("wg1", 0), 0, 100), _clamp_int(obj.get("wg2", 0), 0, 100))), "RX"),
-        (ArduinoToHudID.SERVICE_SENSOR_VOLTAGES, struct.pack(">HHHH", _clamp_int(float(obj.get("oil_sensor_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("wmi_tank_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("arduino_5v", 5.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("air_tank_v", 2.95)) * 1000, 0, 65535)), "RX"),
+        (ArduinoToHudID.SERVICE_SENSOR_VOLTAGES, struct.pack(">HHHH", _clamp_int(float(obj.get("oil_sensor_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("wmi_tank_v", 0.0)) * 1000, 0, 65535), _clamp_int(float(obj.get("arduino_5v", 3.3)) * 1000, 0, 65535), _clamp_int(float(obj.get("air_tank_v", 2.95)) * 1000, 0, 65535)), "RX"),
         (ArduinoToHudID.SERVICE_DIGITAL_STATES, bytes((light_flags | (0x40 if bool(obj.get("wmi_pressure_ok", True)) else 0), output_bits, command_bits, fault_bits)), "RX"),
         (ArduinoToHudID.LIMP_STATUS, bytes((1 if limp_active else 0, limp_reason_code & 0xFF)), "RX"),
         (PiToArduinoID.AIR_SHOT_REQUEST, bytes((1,)), "TX") if bool(obj.get("airshot_request", False)) else None,
@@ -386,7 +386,7 @@ def main() -> None:
                     faults.append("SPEED SENSOR")
                 if snap.engine.gear not in ("N", "1", "2", "3", "4", "5", "6", "?"):
                     faults.append("GEAR SENSOR")
-                # Clutch slip is computed Arduino-side from predicted vs observed RPM:MPH ratio.
+                # Clutch slip is computed controller-side from predicted vs observed RPM:MPH ratio.
                 # Ratios are currently placeholders until measured drivetrain ratios are provided.
                 if (
                     snap.clutch.slip_pct >= 8.0
@@ -695,7 +695,7 @@ def main() -> None:
                     sensor_voltages=(
                         ServiceReading("Oil pressure sensor", f"{float(obj.get('oil_sensor_v', 2.75)):.2f} V"),
                         ServiceReading("WMI tank sender", f"{float(obj.get('wmi_tank_v', 3.25)):.2f} V"),
-                        ServiceReading("Arduino 5V rail", f"{float(obj.get('arduino_5v', 5.00)):.2f} V"),
+                        ServiceReading("Controller 3.3V rail", f"{float(obj.get('arduino_5v', 3.30)):.2f} V"),
                         ServiceReading("Air tank pressure sender", f"{float(obj.get('air_tank_v', 2.95)):.2f} V"),
                     ),
                     pin_states=(
@@ -717,7 +717,7 @@ def main() -> None:
                     ),
                     firmware_versions=(
                         ServiceReading("Pi HUD", "local/dev"),
-                        ServiceReading("Arduino controller", str(obj.get("arduino_fw", "demo"))),
+                        ServiceReading("Teensy controller", str(obj.get("arduino_fw", "demo"))),
                     ),
                 )
                 limp_active = bool(obj.get("limp_mode", snap.system.limp_mode_active))

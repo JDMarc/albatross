@@ -43,17 +43,17 @@ That creates:
 dist/albatross_update_VERSION.zip
 ```
 
-To include a prebuilt Arduino firmware image:
+To include a prebuilt Teensy 4.1 controller firmware image:
 
 ```powershell
-py -3.12 tools\make_update_bundle.py --arduino-hex C:\path\to\albatross_controller.hex
+py -3.12 tools\make_update_bundle.py --arduino-hex C:\path\to\albatross_controller_teensy41.hex
 ```
 
 Useful options:
 
 ```powershell
 py -3.12 tools\make_update_bundle.py --version test_001 --output-dir E:\
-py -3.12 tools\make_update_bundle.py --arduino-hex build\albatross_controller.hex --arduino-port /dev/ttyACM0
+py -3.12 tools\make_update_bundle.py --arduino-hex build\albatross_controller_teensy41.hex --arduino-port /dev/ttyACM0
 ```
 
 The packager excludes local/runtime files such as `.git`, `.venv`, `logs`, `settings`, `updates`, caches, and compiled Python files. It writes SHA-256 hashes into the manifest automatically.
@@ -65,8 +65,8 @@ albatross_update_2026_05_19.zip
   manifest.json
   pi/
     app.zip
-  arduino/
-    albatross_controller.hex
+  controller/
+    albatross_controller_teensy41.hex
 ```
 
 `manifest.json`:
@@ -80,23 +80,30 @@ albatross_update_2026_05_19.zip
     "app_archive": "pi/app.zip"
   },
   "arduino": {
-    "hex": "arduino/albatross_controller.hex",
-    "fqbn": "arduino:avr:mega",
+    "hex": "controller/albatross_controller_teensy41.hex",
+    "fqbn": "teensy:avr:teensy41",
     "baud": 115200
   },
   "sha256": {
     "pi/app.zip": "optional_app_archive_sha256",
-    "arduino/albatross_controller.hex": "optional_hex_sha256"
+    "controller/albatross_controller_teensy41.hex": "optional_hex_sha256"
   }
 }
 ```
 
+The manifest key is still named `arduino` for backward compatibility with older
+bundles and updater code, even when the payload targets the Teensy 4.1
+controller.
+
 The Pi app archive should contain the repo files to overlay onto the existing install. Runtime folders are preserved and not overwritten: `.git`, `.venv`, `logs`, `settings`, `updates`, and `__pycache__`.
 If `sha256` entries are present, the installer verifies each referenced payload before changing anything.
 
-## Arduino Flashing
+## Controller Flashing
 
-The Mega can stay permanently USB-connected to the Pi. The updater flashes with `arduino-cli upload -i` when available, then falls back to `avrdude`.
+The Teensy 4.1 can stay permanently USB-connected to the Pi. The updater flashes
+with `arduino-cli upload -i` using the Teensy board package. The old Mega
+`avrdude` fallback is retained only when a legacy bundle explicitly sets
+`fqbn` to `arduino:avr:mega`.
 
 Port detection checks:
 
@@ -112,4 +119,4 @@ Port detection checks:
 - `settings/` and `logs/` are backed up before install.
 - Current app files are backed up before a Pi app overlay.
 - Pi app updates write `updates/restart_required`; the next service restart or power cycle runs the new app.
-- Arduino-only updates do not require a Pi restart.
+- Controller-only updates do not require a Pi restart.

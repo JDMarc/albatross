@@ -1,4 +1,4 @@
-"""USB update bundle installer for Pi app and Arduino firmware."""
+"""USB update bundle installer for Pi app and controller firmware."""
 from __future__ import annotations
 
 import json
@@ -25,7 +25,7 @@ LOGGER = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UPDATE_STATE_DIR = REPO_ROOT / "updates"
 RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "settings", "updates"}
-DEFAULT_ARDUINO_FQBN = "arduino:avr:mega"
+DEFAULT_ARDUINO_FQBN = "teensy:avr:teensy41"
 DEFAULT_ARDUINO_BAUD = 115200
 DEFAULT_GITHUB_UPDATE_API = "https://api.github.com/repos/JDMarc/albatross/releases/latest"
 DOWNLOAD_CHUNK_SIZE = 1024 * 128
@@ -272,7 +272,7 @@ def _manifest_arduino_hex(manifest: dict[str, Any]) -> str | None:
     if isinstance(arduino, dict):
         value = arduino.get("hex") or arduino.get("firmware")
         return str(value) if value else None
-    value = manifest.get("arduino_hex")
+    value = manifest.get("arduino_hex") or manifest.get("controller_hex")
     return str(value) if value else None
 
 
@@ -353,18 +353,18 @@ def _install_arduino(bundle_root: Path, manifest: dict[str, Any]) -> bool:
         return False
     hex_path = _ensure_within(bundle_root, bundle_root / hex_rel)
     if not hex_path.exists():
-        raise FileNotFoundError(f"Arduino hex missing: {hex_rel}")
+        raise FileNotFoundError(f"Controller firmware hex missing: {hex_rel}")
     arduino = manifest.get("arduino") if isinstance(manifest.get("arduino"), dict) else {}
     port = _detect_arduino_port(manifest)
     if port is None:
-        raise RuntimeError("Arduino port not found; set ALBATROSS_ARDUINO_PORT or manifest arduino.port")
+        raise RuntimeError("Controller port not found; set ALBATROSS_ARDUINO_PORT or manifest arduino.port")
     fqbn = str(arduino.get("fqbn", DEFAULT_ARDUINO_FQBN))
     baud = int(arduino.get("baud", DEFAULT_ARDUINO_BAUD))
     if _flash_with_arduino_cli(hex_path, port, fqbn):
         return True
-    if _flash_with_avrdude(hex_path, port, baud):
+    if fqbn == "arduino:avr:mega" and _flash_with_avrdude(hex_path, port, baud):
         return True
-    raise RuntimeError("Neither arduino-cli nor avrdude is available for Arduino flashing")
+    raise RuntimeError("arduino-cli is required for Teensy controller flashing")
 
 
 def _preflight(manifest: dict[str, Any], snapshot: StateSnapshot) -> str | None:

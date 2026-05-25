@@ -72,17 +72,17 @@ def _write_bundle(bundle_path: Path, manifest: dict, app_archive: Path, arduino_
         zf.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n")
         zf.write(app_archive, "pi/app.zip")
         if arduino_hex is not None:
-            zf.write(arduino_hex, "arduino/albatross_controller.hex")
+            zf.write(arduino_hex, "controller/albatross_controller_teensy41.hex")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create a USB-ready Albatross update bundle")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist", help="directory for the generated bundle")
     parser.add_argument("--version", default=_default_version(), help="bundle version string")
-    parser.add_argument("--arduino-hex", type=Path, help="optional prebuilt Arduino Mega .hex to include")
-    parser.add_argument("--arduino-port", help="optional Arduino serial port hint for manifest")
-    parser.add_argument("--arduino-fqbn", default="arduino:avr:mega", help="Arduino FQBN for arduino-cli upload")
-    parser.add_argument("--arduino-baud", type=int, default=115200, help="avrdude upload baud fallback")
+    parser.add_argument("--arduino-hex", type=Path, help="optional prebuilt Teensy 4.1 controller .hex to include")
+    parser.add_argument("--arduino-port", help="optional controller serial port hint for manifest")
+    parser.add_argument("--arduino-fqbn", default="teensy:avr:teensy41", help="controller FQBN for arduino-cli upload")
+    parser.add_argument("--arduino-baud", type=int, default=115200, help="legacy Mega avrdude upload baud fallback")
     parser.add_argument("--min-battery-voltage", type=float, default=12.2)
     parser.add_argument("--allow-engine-running", action="store_true", help="do not require engine-off preflight")
     args = parser.parse_args()
@@ -98,7 +98,7 @@ def main() -> None:
         _build_app_archive(app_archive)
         arduino_hex = args.arduino_hex.resolve() if args.arduino_hex else None
         if arduino_hex is not None and not arduino_hex.exists():
-            raise SystemExit(f"Arduino hex not found: {arduino_hex}")
+            raise SystemExit(f"Controller firmware hex not found: {arduino_hex}")
 
         manifest = {
             "version": version,
@@ -113,14 +113,14 @@ def main() -> None:
             manifest["git_commit"] = commit
         if arduino_hex is not None:
             arduino_manifest = {
-                "hex": "arduino/albatross_controller.hex",
+                "hex": "controller/albatross_controller_teensy41.hex",
                 "fqbn": args.arduino_fqbn,
                 "baud": args.arduino_baud,
             }
             if args.arduino_port:
                 arduino_manifest["port"] = args.arduino_port
             manifest["arduino"] = arduino_manifest
-            manifest["sha256"]["arduino/albatross_controller.hex"] = _sha256(arduino_hex)
+            manifest["sha256"]["controller/albatross_controller_teensy41.hex"] = _sha256(arduino_hex)
 
         bundle_path = args.output_dir / f"albatross_update_{version}.zip"
         _write_bundle(bundle_path, manifest, app_archive, arduino_hex)

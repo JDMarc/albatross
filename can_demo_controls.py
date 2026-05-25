@@ -1,7 +1,7 @@
 """Quick CAN demo control panel with sliders/buttons/text boxes.
 
-Emits ECU and Arduino HUD frames by default. HUD-owned command frames and
-Arduino-to-ECU intervention requests are opt-in so the panel can stay connected
+Emits ECU and controller HUD frames by default. HUD-owned command frames and
+Controller-to-ECU intervention requests are opt-in so the panel can stay connected
 without fighting the real HUD controls.
 
 Usage:
@@ -117,7 +117,7 @@ class App:
             "oil_sensor_v": tk.DoubleVar(value=2.75),
             "wmi_tank_v": tk.DoubleVar(value=3.25),
             "air_tank_v": tk.DoubleVar(value=2.95),
-            "arduino_5v": tk.DoubleVar(value=5.00),
+            "arduino_5v": tk.DoubleVar(value=3.30),
             "air_compressor": tk.BooleanVar(value=False),
             "arduino_fw": tk.StringVar(value="0.1.0+1"),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
@@ -134,7 +134,7 @@ class App:
 
         ecu = ttk.LabelFrame(rootf, text="ECU -> HUD", padding=8)
         ecu.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
-        ard = ttk.LabelFrame(rootf, text="Arduino -> HUD", padding=8)
+        ard = ttk.LabelFrame(rootf, text="Controller -> HUD", padding=8)
         ard.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
         cmds = ttk.LabelFrame(rootf, text="Command Simulation / Misc", padding=8)
         cmds.grid(row=1, column=0, columnspan=2, sticky="nsew")
@@ -233,10 +233,10 @@ class App:
         service.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
         self._slider(service, "Oil Sensor V", "oil_sensor_v", 0.0, 5.0, 0)
         self._slider(service, "WMI Tank V", "wmi_tank_v", 0.0, 5.0, 1)
-        self._slider(service, "Arduino 5V", "arduino_5v", 4.5, 5.3, 2)
+        self._slider(service, "Controller 3.3V", "arduino_5v", 3.0, 3.5, 2)
         self._slider(service, "Air Tank V", "air_tank_v", 0.0, 5.0, 3)
         ttk.Checkbutton(service, text="Air Compressor Relay", variable=self.vars["air_compressor"]).grid(row=4, column=0, sticky="w")
-        ttk.Label(service, text="Arduino FW").grid(row=4, column=1, sticky="e")
+        ttk.Label(service, text="Controller FW").grid(row=4, column=1, sticky="e")
         ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=4, column=2, sticky="w")
 
     def _slider(self, parent, label, key, lo, hi, row):
@@ -421,7 +421,7 @@ class App:
             int(ArduinoToHudID.SERVICE_FIRMWARE_VERSION),
             bytes(
                 (
-                    0x01,
+                    0x04,
                     self._version_part(major, 255),
                     self._version_part(minor, 255),
                     self._version_part(patch, 255),

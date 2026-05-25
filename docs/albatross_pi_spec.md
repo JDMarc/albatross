@@ -4,9 +4,9 @@
 - Raspberry Pi is primary HUD brain and coordinator.
 - Drives 11″ display using Pygame with retro 80s aesthetic.
 - Translates rider inputs and environment into mode logic and targets.
-- Orchestrates CAN traffic between MS3Pro Mini ECU and Arduino actuators (AWC/TCS/eTRAC).
+- Orchestrates CAN traffic between MS3Pro Mini ECU and Teensy actuators (AWC/TCS/eTRAC).
 - Logs data, runs POST/diagnostics, enforces fail-safes, supervises OTA updates.
-- Real-time torque cuts handled on Arduino/MS3; Pi supervises and displays only.
+- Real-time torque cuts handled on Teensy/MS3; Pi supervises and displays only.
 
 ## 1. Processes, Timing, and Threads
 - **Supervisor (`main.py`)**: starts all subsystems and monitors health.
@@ -24,25 +24,25 @@
   - Watchdogs: state machine hang > 200 ms or HUD renderer hang > 300 ms triggers alarm and safe UI.
 
 ## 2. CAN Responsibilities (SocketCAN)
-- **Interface**: `can0` at 500 kbps or 1 Mbps per MS3/Arduino configuration.
+- **Interface**: `can0` at 500 kbps or 1 Mbps per MS3/Teensy configuration.
 - **ID ownership**:
   - MS3Pro Mini: broadcasts engine channels plus oil pressure, oil temperature, and flex fuel; receives ECU-safe map/limit requests.
-  - Arduino: broadcasts IMU/wheel speeds/Air Shot/WMI status, receives targets/flags.
+  - Teensy: broadcasts IMU/wheel speeds/Air Shot/WMI status, receives targets/flags.
   - Pi: sends requests/targets, receives telemetry, initiates POST.
-- **Pi → Arduino frames** (examples):
-  - `0x120`: Boost target command (PSI × 10) forwarded to the Arduino actuator layer.
+- **Pi → Teensy frames** (examples):
+  - `0x120`: Boost target command (PSI × 10) forwarded to the Teensy actuator layer.
   - `0x121`: Mode selector (1 byte: 1=ECO … 5=ALBATROSS) for synchronized HUD/actuator state.
   - `0x140`: NFC authentication acknowledgement (0x00 fail / 0x01 success).
 - **Pi → MS3 frames** (examples):
   - Fuel profile/table requests (`0x150`), spark-table requests (`0x151`), and rev-limiter strategy requests (`0x152`, 0=fuel cut, 1=ignition/spark cut for flame mode).
   - Timing bias requests and torque ceiling trims (ECU firmware track).
   - Launch RPM ceilings and boost caps linked to current fuel/WMI status.
-- **Arduino/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10E`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, battery voltage, flex-fuel ethanol content, and injector pulse width/duty; Arduino status (`0x130`-`0x13F`, `0x145`-`0x147`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, traction status, service sensor voltages, service pin/relay states, firmware version, and limp status.
-- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10E`), Pi HUD commands, Pi-to-ECU map requests, Arduino supervisory status/service frames (`0x130`-`0x13F`, `0x145`-`0x147`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
-- **MS3Pro Mini build note**: oil pressure, oil temperature, flex fuel, and injector pulse width/duty are MS3-owned inputs. The current HUD extension adds `0x10D` for flex-fuel ethanol percentage and `0x10E` for injector status; wheel speed and WMI status remain Arduino-owned.
+- **Teensy/MS3 → Pi frames** (examples): ECU telemetry (`0x100`-`0x10E`) covering RPM, throttle, boost, AFRs, knock, oil pressure/temp, coolant, fuel level, gear, load, IAT, dual-bank EGT, battery voltage, flex-fuel ethanol content, and injector pulse width/duty; Teensy status (`0x130`-`0x13F`, `0x145`-`0x147`) for Air Shot, AWC, tank pressure, twin turbo boost feedback, wastegate duty, wheel speed, WMI, lighting, fuel type, traction status, service sensor voltages, service pin/relay states, firmware version, and limp status.
+- **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10E`), Pi HUD commands, Pi-to-ECU map requests, Teensy supervisory status/service frames (`0x130`-`0x13F`, `0x145`-`0x147`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
+- **MS3Pro Mini build note**: oil pressure, oil temperature, flex fuel, and injector pulse width/duty are MS3-owned inputs. The current HUD extension adds `0x10D` for flex-fuel ethanol percentage and `0x10E` for injector status; wheel speed and WMI status remain Teensy-owned.
 - **Timeouts & fallbacks**:
-  - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Arduino.
-  - Loss of Arduino heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.
+  - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Teensy.
+  - Loss of Teensy heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.
   - WMI requested but flow low for 250 ms: drop requested boost and display fault banner.
 
 ## 3. State Machines (Brains)
@@ -50,7 +50,7 @@
 - **Sub-states**: BOOT → POST → READY → DRIVE → LIMP → SHUTDOWN; transient states include LAUNCH_ARMED, LAUNCH_ACTIVE, FLAME_ACTIVE.
 - **Mode parameters**: per-mode boost caps, throttle shaping, AWC/ATC aggressiveness, HUD brightness, flame/launch enablement.
 - **eTRAC selector**: chooses traction profile (DRY, DAMP, RAIN, COLD, GRAVEL) via weather/temp/GPS cues, defining slip targets, gains, wheelie pitch window, torque ramp rates.
-- **Fuel logic**: HUD fuel selection enforces max boost caps, timing bias windows, WMI strategy, and ECU fuel/stoich profile selection; Pi enforces caps and distributes to Arduino/MS3.
+- **Fuel logic**: HUD fuel selection enforces max boost caps, timing bias windows, WMI strategy, and ECU fuel/stoich profile selection; Pi enforces caps and distributes to Teensy/MS3.
 - **Launch control**: arming requires clutch/temperature/gear/knock conditions; per-mode RPM setpoint with HUD messaging.
 - **Safety escalations**: knock bursts trigger timing pull and boost reduction; persistent issues enter LIMP; high EGT/thermal load reduces requests and triggers “TURBO HOT” banner.
 
@@ -69,7 +69,7 @@
 ## 5. Input Handling
 - Physical controls are currently modeled as a D-pad plus three buttons: Select, Back, and momentary Air Shot request. Keyboard defaults are arrows, Enter/Space, Esc/Backspace, and `F` for Air Shot; joystick defaults are hat/D-pad, button 0 Select, button 1 Back, button 2 Air Shot.
 - Inputs are handled through Pygame keyboard/joystick events; physical controls should either debounce in hardware/USB encoder firmware or present clean HID button events to the Pi.
-- Air Shot firing is a momentary Pi request over CAN; Arduino owns the actual latch, mode/rpm/tps/gear/tank/boost safety gates, 10 second max latch timeout, tank-pressure-vs-manifold-pressure shutoff, compressor relay control, and shutoff when requested boost is reached. Compressor refill is buffer-based rather than shot-demand-based: it starts only when stationary/low throttle/not cranking, voltage is healthy, no undervoltage/limp report is active, tank pressure is at or below 95 psi, and the restart delay has expired; it stops at 145 psi or immediately on inhibit. During an active shot and a short decay window after it closes, wastegate control ignores small Air Shot-only MAP overshoot so the shot does not open the wastegates and slow turbo spool.
+- Air Shot firing is a momentary Pi request over CAN; Teensy owns the actual latch, mode/rpm/tps/gear/tank/boost safety gates, 10 second max latch timeout, tank-pressure-vs-manifold-pressure shutoff, compressor relay control, and shutoff when requested boost is reached. Compressor refill is buffer-based rather than shot-demand-based: it starts only when stationary/low throttle/not cranking, voltage is healthy, no undervoltage/limp report is active, tank pressure is at or below 95 psi, and the restart delay has expired; it stops at 145 psi or immediately on inhibit. During an active shot and a short decay window after it closes, wastegate control ignores small Air Shot-only MAP overshoot so the shot does not open the wastegates and slow turbo spool.
 
 ## 6. Pi-Side Calculations
 - **Boost target**: derived from selected fuel strategy, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp. Flex content verifies/derates E85 requests; it does not raise 87/91/93 selections above their own caps.
@@ -97,7 +97,7 @@
 
 ## 10. POST & Diagnostics
 - 3–5 s power-on self-test sequence verifying filesystem, RTC, CPU temp.
-- Sends POST request `0x1F0` and waits for `0x1F1` responses with Arduino/MS3 module status, sensor checks, actuator tests.
+- Sends POST request `0x1F0` and waits for `0x1F1` responses with Teensy/MS3 module status, sensor checks, actuator tests.
 - Displays pass/fail summary; critical failures block DRIVE (LIMP override optional).
 - On-ride diagnostics: graph pages (boost vs RPM, AFRs, knock, slip) and fault detail view referencing last 30 s snapshot.
 
@@ -146,7 +146,7 @@
 ## 13. Testing & Simulation
 - `tools/sim_can.py` provides bench simulation from logs or synthetic sweeps.
 - Unit tests for CAN encode/decode and derate logic.
-- Hardware-in-the-loop bench with CAN USB dongle and Arduino simulator.
+- Hardware-in-the-loop bench with CAN USB dongle and Teensy simulator.
 
 ## 14. OTA & Security
 - Signed `.tar.zst` update bundles; signature verification prior to apply.

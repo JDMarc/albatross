@@ -15,7 +15,7 @@ At a practical level, this repository exists to do four things reliably:
    - Priority status/warning indicators that are visible under stress.
 
 2) Decode and normalize CAN data into one coherent state
-   - ECU + Arduino frames are merged into a single StateSnapshot model.
+   - ECU + controller frames are merged into a single StateSnapshot model.
    - HUD code reads that snapshot instead of dealing with raw frame parsing.
 
 3) Enforce safe supervisory behavior
@@ -41,22 +41,24 @@ This is the short version of how this stuff works:
   - Publishes injector pulse width/duty on `0x10E` so the Pi can calculate
     fuel burn, MPG, and range from actual injection data.
 
-- Arduino Mega 2560 controller (arduino/albatross_controller)
+- Teensy 4.1 controller (arduino/teensy41/albatross_controller_teensy41)
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).
   - Manages Air Shot compressor + shot latch/rearm logic.
   - Computes wheel speed + slip, accepts Pi traction level command (0x124), and publishes torque-reduction requests (0x12A/0x12B) for ECU cooperation.
   - Enforces WMI/flame interlocks and limp-aware behavior.
 
-Arduino firmware notes (important)
+Controller firmware notes (important)
 
-   Current sketch target is Arduino Mega 2560 Rev3 with an MCP2515 CAN interface.
+   Current production sketch target is Teensy 4.1 with native CAN1 through a
+   3.3 V CAN transceiver. The old Mega/MCP2515 sketch is retained under
+   arduino/legacy/mega2560.
 
 Quick references:
 
-- Main sketch: arduino/albatross_controller/albatross_controller.ino
-- Arduino details/tuning notes: arduino/README.md
+- Main sketch: arduino/teensy41/albatross_controller_teensy41/albatross_controller_teensy41.ino
+- Controller details/tuning notes: arduino/README.md
 
-What Arduino currently publishes for the HUD/stack:
+What the controller currently publishes for the HUD/stack:
 
 - Air Shot status (0x130)
 - AWC/lean status (0x131)
@@ -68,7 +70,7 @@ What Arduino currently publishes for the HUD/stack:
 
 Bring-up reminder for this repo architecture:
 
-1) Flash Arduino sketch and verify CAN traffic exists first.
+1) Flash controller sketch and verify CAN traffic exists first.
 2) Confirm Pi receives expected IDs on can0.
 3) Then validate HUD rendering/state transitions.
 
@@ -109,7 +111,7 @@ Repository layout
 
 - updates/
   Created by USB and GitHub Release update installs. Update bundles can install
-  Pi app overlays and flash the USB-connected Arduino Mega; see
+  Pi app overlays and flash the USB-connected Teensy controller; see
   `docs/update_bundles.md`.
   Build bundles with `py -3.12 tools\make_update_bundle.py`.
 
@@ -188,7 +190,7 @@ but i cant be bothered to do this right now (as of 5/16/26)
 
 1) Start with your CAN map first
    - Update IDs/scaling in albatross_pi/canbus/ids.py and decode paths.
-   - Mirror those changes in your controller firmware map (Arduino/other MCU) so both sides agree.
+   - Mirror those changes in your controller firmware map so both sides agree.
    - Validate with logged sample frames before touching UI styling.
 
 2) Define your safety contract early

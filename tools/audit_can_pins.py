@@ -1,4 +1,4 @@
-"""Audit CAN ID and Arduino Mega pin assignments."""
+"""Audit CAN ID and controller pin assignments."""
 from __future__ import annotations
 
 import importlib.util
@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ARDUINO_SKETCH = ROOT / "arduino" / "albatross_controller" / "albatross_controller.ino"
+CONTROLLER_SKETCH = ROOT / "arduino" / "teensy41" / "albatross_controller_teensy41" / "albatross_controller_teensy41.ino"
 
 _ids_spec = importlib.util.spec_from_file_location("albatross_can_ids", ROOT / "albatross_pi" / "canbus" / "ids.py")
 if _ids_spec is None or _ids_spec.loader is None:
@@ -74,14 +74,19 @@ EXPECTED_ARDUINO_CAN_NAMES = {
 }
 
 
-MEGA_PWM_PINS = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 44, 45, 46}
-MEGA_INTERRUPT_PINS = {2, 3, 18, 19, 20, 21}
+TEENSY41_PWM_PINS = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    10, 11, 12, 13, 14, 15, 18, 19,
+    22, 23, 24, 25, 28, 29, 33, 36,
+    37,
+}
+TEENSY41_INTERRUPT_PINS = set(range(0, 42))
 ANALOG_WRITE_PINS = {"WG1_PWM_PIN", "WG2_PWM_PIN", "WMI_PUMP_PIN"}
-INTERRUPT_PINS = {"CAN_INT_PIN", "FRONT_WHEEL_HALL_PIN", "REAR_WHEEL_HALL_PIN", "WMI_FLOW_SENSOR_PIN"}
+INTERRUPT_PINS = {"FRONT_WHEEL_HALL_PIN", "REAR_WHEEL_HALL_PIN", "WMI_FLOW_SENSOR_PIN"}
 
 
 def _parse_arduino_constants() -> tuple[dict[str, int], dict[str, str]]:
-    text = ARDUINO_SKETCH.read_text(encoding="utf-8")
+    text = CONTROLLER_SKETCH.read_text(encoding="utf-8")
     can = {
         name: int(value, 16)
         for name, value in re.findall(r"constexpr\s+uint16_t\s+(\w+)\s*=\s*(0x[0-9A-Fa-f]+)", text)
@@ -91,10 +96,10 @@ def _parse_arduino_constants() -> tuple[dict[str, int], dict[str, str]]:
 
 
 def _duplicate_const_bool_names(function_name: str) -> list[str]:
-    text = ARDUINO_SKETCH.read_text(encoding="utf-8")
+    text = CONTROLLER_SKETCH.read_text(encoding="utf-8")
     match = re.search(rf"void\s+{function_name}\s*\(\)\s*\{{", text)
     if not match:
-        return [f"Unable to find Arduino function {function_name}()"]
+        return [f"Unable to find controller function {function_name}()"]
     start = match.end() - 1
     depth = 0
     end = start
@@ -135,7 +140,7 @@ def main() -> None:
     for member, arduino_name in EXPECTED_ARDUINO_CAN_NAMES.items():
         actual = arduino_can.get(arduino_name)
         if actual is None:
-            errors.append(f"Arduino missing CAN constant {arduino_name}")
+            errors.append(f"Controller missing CAN constant {arduino_name}")
         elif actual != member.value:
             errors.append(f"{arduino_name} is 0x{actual:03X}; expected 0x{member.value:03X} from {member}")
 
@@ -143,24 +148,24 @@ def main() -> None:
     for name, value in pins.items():
         previous = used_pins.setdefault(value, name)
         if previous != name:
-            errors.append(f"Duplicate Arduino pin assignment {value}: {previous} and {name}")
+            errors.append(f"Duplicate controller pin assignment {value}: {previous} and {name}")
 
     for name in ANALOG_WRITE_PINS:
         pin = _pin_number(pins.get(name, ""))
-        if pin not in MEGA_PWM_PINS:
-            errors.append(f"{name}={pins.get(name)} is not a Mega 2560 PWM pin")
+        if pin not in TEENSY41_PWM_PINS:
+            errors.append(f"{name}={pins.get(name)} is not a Teensy 4.1 PWM pin")
 
     for name in INTERRUPT_PINS:
         pin = _pin_number(pins.get(name, ""))
-        if pin not in MEGA_INTERRUPT_PINS:
-            errors.append(f"{name}={pins.get(name)} is not a Mega 2560 interrupt-capable pin")
+        if pin not in TEENSY41_INTERRUPT_PINS:
+            errors.append(f"{name}={pins.get(name)} is not a Teensy 4.1 interrupt-capable pin")
 
     for name in _duplicate_const_bool_names("updateControllers"):
         errors.append(f"Duplicate const bool declaration in updateControllers(): {name}")
 
     if errors:
         raise SystemExit("\n".join(errors))
-    print("CAN IDs and Mega pin assignments look consistent.")
+    print("CAN IDs and Teensy 4.1 pin assignments look consistent.")
 
 
 if __name__ == "__main__":
