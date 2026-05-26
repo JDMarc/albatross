@@ -867,7 +867,7 @@ class HUDRenderer:
             speed_rect = pygame.Rect(speed_area.x, speed_area.y, speed_area.width - gear_size - inner_gap, speed_area.height)
             gear_rect = pygame.Rect(speed_rect.right + inner_gap, speed_area.y, gear_size, gear_size)
 
-        panel_gap = max(int(height * 0.02), 18)
+        panel_gap = max(int(height * 0.018), 12)
         boost_ratio = ratios["boost"]
         afr_ratio = ratios["afr"]
         stats_ratio = ratios["stats"]
@@ -890,9 +890,9 @@ class HUDRenderer:
         temps_ratio = ratios["temps"]
         bottom_limit = message_rect.y - panel_gap
         right_budget = max(bottom_limit - content_top, 150)
-        airshot_min_height = max(104, int(height * 0.145))
-        traction_min_height = max(86, int(height * 0.12))
-        temps_min_height = max(190, int(height * 0.26))
+        airshot_min_height = max(76, int(height * 0.145))
+        traction_min_height = max(68, int(height * 0.12))
+        temps_min_height = max(100, int(height * 0.22))
         airshot_height = max(int(content_height * ratios["airshot"]), airshot_min_height)
         traction_height = max(int(content_height * ratios["traction"]), traction_min_height)
         temps_height = max(int(content_height * temps_ratio), temps_min_height)
@@ -908,21 +908,19 @@ class HUDRenderer:
                 overflow -= shrink
             if overflow > 0:
                 airshot_height = max(airshot_min_height, airshot_height - overflow)
-        # WMI panel removed; WMI readouts are merged into TempsGrid.
-        extra_right = max(content_height - temps_height - traction_height - airshot_height - 2 * panel_gap, 0)
-        temps_height += extra_right
-        temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
         # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
         fuel_width = center_width
         fuel_x = center_x
         fuel_rect = pygame.Rect(fuel_x, stats_rect.bottom + panel_gap, fuel_width, fuel_height)
-        traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
-        airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
-        # Prevent lower panels from overlapping the message line.
-        for r in (temps_rect, traction_rect, airshot_rect):
-            if r.bottom > bottom_limit:
-                minimum = airshot_min_height if r is airshot_rect else (traction_min_height if r is traction_rect else temps_min_height)
-                r.height = max(minimum, r.height - (r.bottom - bottom_limit))
+
+        # WMI panel removed; WMI readouts are merged into TempsGrid. Anchor the
+        # lower right panels from the bottom so Air Shot cannot disappear below
+        # the global hint/message area when the window is short.
+        airshot_rect = pygame.Rect(right_x, bottom_limit - airshot_height, right_width, airshot_height)
+        traction_rect = pygame.Rect(right_x, airshot_rect.y - panel_gap - traction_height, right_width, traction_height)
+        temps_bottom = traction_rect.y - panel_gap
+        temps_height = max(36, temps_bottom - content_top)
+        temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
 
         prior_fault_latch_until: dict[str, float] = {}
         for widget in self.widgets:

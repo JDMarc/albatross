@@ -68,10 +68,15 @@ class ModeStatsPanel(Widget):
         fault: bool,
     ) -> None:
         if fault:
-            pygame.draw.rect(surface, FAULT_AMBER, rect, width=1)
+            accent = pygame.Rect(rect.x, rect.y + 3, 2, max(1, rect.height - 6))
+            pygame.draw.rect(surface, FAULT_AMBER, accent)
+            pygame.draw.line(surface, FAULT_AMBER, (rect.x, rect.bottom - 1), (rect.right, rect.bottom - 1), 1)
         else:
             pygame.draw.line(surface, AMBER_DARK, (rect.x, rect.bottom - 1), (rect.right, rect.bottom - 1), 1)
-        inner = rect.inflate(-4, -2)
+        inner = rect.inflate(-8 if fault else -4, -4)
+        if fault:
+            inner.x += 4
+            inner.width = max(1, inner.width - 4)
         label_h = max(8, min(13, int(inner.height * 0.42)))
         value_h = max(8, inner.height - label_h)
         label_size = fit_font_size(label, inner.width, label_h, start_size=max(8, min(12, label_h)), bold=True, min_size=8)
