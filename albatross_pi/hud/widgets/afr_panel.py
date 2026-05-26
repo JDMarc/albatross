@@ -31,7 +31,7 @@ class AfrPanel(Widget):
             ),
         )
 
-        spark_surface = font(afr_font).render(f"Spark {spark:4.1f}°", True, AMBER_GLOW)
+        spark_surface = font(afr_font).render(f"Spark {spark:4.1f}deg", True, AMBER_GLOW)
         surface.blit(
             spark_surface,
             (

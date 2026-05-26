@@ -868,24 +868,33 @@ class HUDRenderer:
             gear_rect = pygame.Rect(speed_rect.right + inner_gap, speed_area.y, gear_size, gear_size)
 
         panel_gap = max(int(height * 0.018), 12)
+        high_performance_mode = mode in {"RACE", "ALBATROSS"}
         boost_ratio = ratios["boost"]
         afr_ratio = ratios["afr"]
         stats_ratio = ratios["stats"]
+        if high_performance_mode:
+            stats_ratio += afr_ratio
         fuel_height = max(int(content_height * ratios["fuel"]), int(height * 0.055))
-        center_budget = max(content_height - fuel_height - 3 * panel_gap, 120)
-        center_weight = max(boost_ratio + afr_ratio + stats_ratio, 1e-6)
+        center_panel_gaps = 2 if high_performance_mode else 3
+        center_budget = max(content_height - fuel_height - center_panel_gaps * panel_gap, 120)
+        center_weight = max(boost_ratio + (0.0 if high_performance_mode else afr_ratio) + stats_ratio, 1e-6)
         boost_height = max(int(center_budget * boost_ratio / center_weight), int(height * 0.16))
-        afr_height = max(int(center_budget * afr_ratio / center_weight), int(height * 0.11))
+        afr_height = 0 if high_performance_mode else max(int(center_budget * afr_ratio / center_weight), int(height * 0.11))
         stats_height = max(int(center_budget * stats_ratio / center_weight), int(height * 0.13))
-        center_total = boost_height + afr_height + stats_height
+        center_total = boost_height + stats_height if high_performance_mode else boost_height + afr_height + stats_height
         if center_total > center_budget:
             scale = center_budget / float(center_total)
             boost_height = max(int(boost_height * scale), 56)
-            afr_height = max(int(afr_height * scale), 46)
+            if not high_performance_mode:
+                afr_height = max(int(afr_height * scale), 46)
             stats_height = max(int(stats_height * scale), 46)
         boost_rect = pygame.Rect(center_x, content_top, center_width, boost_height)
-        afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
-        stats_rect = pygame.Rect(center_x, afr_rect.bottom + panel_gap, center_width, stats_height)
+        if high_performance_mode:
+            afr_rect = None
+            stats_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, stats_height)
+        else:
+            afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
+            stats_rect = pygame.Rect(center_x, afr_rect.bottom + panel_gap, center_width, stats_height)
 
         bottom_limit = message_rect.y - panel_gap
         compact_strip_height = max(40, min(52, int(height * 0.075)))
@@ -911,13 +920,12 @@ class HUDRenderer:
                 prior_fault_latch_until = dict(widget._fault_latch_until)
                 break
 
-        self.widgets = [
+        widgets = [
             HeaderBar(top_bar_rect),
             MessageLine(message_rect),
             RpmBar(rpm_rect),
             SpeedGear(speed_rect, gear_rect),
             BoostPanel(boost_rect),
-            AfrPanel(afr_rect),
             ModeStatsPanel(stats_rect),
             AlertPanel(alert_rect),
             TempsGrid(temps_rect),
@@ -925,6 +933,9 @@ class HUDRenderer:
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
         ]
+        if afr_rect is not None:
+            widgets.insert(5, AfrPanel(afr_rect))
+        self.widgets = widgets
         for widget in self.widgets:
             if isinstance(widget, AlertPanel):
                 widget._fault_latch_until = prior_fault_latch_until

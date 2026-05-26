@@ -34,13 +34,16 @@ class BoostPanel(Widget):
         target_x = bar_rect.x + int(bar_rect.width * target_pct)
         pygame.draw.line(surface, AMBER_GLOW, (target_x, bar_rect.y), (target_x, bar_rect.bottom), 2)
 
+        target_text = f"REQ {engine.target_boost_psi:4.1f}"
+        target_column_width = max(int(self.rect.width * 0.34), 90)
+
         text = f"Boost {engine.boost_psi:4.1f} psi"
-        top_font = fit_font_size(text, self.rect.width - 2 * bar_padding, int(self.rect.height * 0.28), start_size=max(16, int(self.rect.height * 0.3)), bold=True)
+        top_text_width = max(80, self.rect.width - target_column_width - 3 * bar_padding)
+        top_font = fit_font_size(text, top_text_width, int(self.rect.height * 0.28), start_size=max(16, int(self.rect.height * 0.3)), bold=True)
         text_surface = font(top_font, bold=True).render(text, True, AMBER_BRIGHT)
         surface.blit(text_surface, (self.rect.x + bar_padding, self.rect.y + bar_padding // 2))
 
-        target_text = f"REQ {engine.target_boost_psi:4.1f}"
-        target_font = fit_font_size(target_text, int(self.rect.width * 0.34), int(self.rect.height * 0.18), start_size=max(12, int(self.rect.height * 0.18)), bold=True)
+        target_font = fit_font_size(target_text, target_column_width, int(self.rect.height * 0.18), start_size=max(12, int(self.rect.height * 0.18)), bold=True)
         target_surface = font(target_font, bold=True).render(target_text, True, AMBER_BRIGHT)
         surface.blit(
             target_surface,

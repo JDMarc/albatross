@@ -40,11 +40,13 @@ class ModeStatsPanel(Widget):
         y = self.rect.y + max(4, padding // 2) + title_surface.get_height() + 2
         available_h = max(18, self.rect.bottom - y - max(4, padding // 2))
         grid_gap = max(4, min(8, padding))
-        cell_w = max(32, (self.rect.width - 2 * padding - grid_gap) // 2)
-        cell_h = max(12, (available_h - grid_gap) // 2)
+        columns = 2
+        grid_rows = max(1, math.ceil(len(rows) / columns))
+        cell_w = max(32, (self.rect.width - 2 * padding - grid_gap * (columns - 1)) // columns)
+        cell_h = max(12, (available_h - grid_gap * (grid_rows - 1)) // grid_rows)
         for idx, (label, value, fault) in enumerate(rows):
-            col = idx % 2
-            row = idx // 2
+            col = idx % columns
+            row = idx // columns
             row_rect = pygame.Rect(
                 self.rect.x + padding + col * (cell_w + grid_gap),
                 y + row * (cell_h + grid_gap),
@@ -94,6 +96,14 @@ class ModeStatsPanel(Widget):
         fuel_low = 0 <= state.environment.fuel_level_pct <= 15
         wmi_flow = f"{state.wmi.actual_flow_cc_min:.0f}/{state.wmi.commanded_flow_cc_min:.0f}"
         boost_error = abs(state.engine.boost_psi - state.engine.target_boost_psi) > 3.0 and state.engine.target_boost_psi > 4.0
+        afr_text = f"{state.engine.afr_left:.1f}/{state.engine.afr_right:.1f}"
+        afr_fault = (
+            state.engine.afr_left > 0
+            and state.engine.afr_right > 0
+            and abs(state.engine.afr_left - state.engine.afr_right) >= 0.8
+        )
+        spark_text = f"{state.engine.spark_advance_deg:.1f}deg"
+        spark_fault = state.engine.knock_events > 0
         if mode == "ECO":
             return [
                 (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 24),
@@ -118,13 +128,17 @@ class ModeStatsPanel(Widget):
         if mode == "RACE":
             return [
                 ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}psi", boost_error),
+                ("AFR L/R", afr_text, afr_fault),
+                ("SPARK", spark_text, spark_fault),
                 ("EGT", f"{state.temps.exhaust_temp_f:.0f}F", state.temps.exhaust_temp_f > 1600),
                 ("WMI FLOW", wmi_flow, state.wmi.fault_active or state.wmi.actual_flow_cc_min < state.wmi.commanded_flow_cc_min * 0.6),
                 ("TC CUT", f"{state.traction.torque_cut_pct:.0f}%", state.traction.sensor_fault),
             ]
         return [
+            ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}psi", boost_error),
+            ("AFR L/R", afr_text, afr_fault),
+            ("SPARK", spark_text, spark_fault),
             ("AIR SHOT", f"{state.air_shot.pressure_psi:.0f} psi", state.air_shot.pressure_psi < 35 and state.engine.target_boost_psi > 6),
             ("WMI FLOW", wmi_flow, state.wmi.fault_active),
             ("IAT/EGT", f"{state.temps.intake_temp_f:.0f}/{state.temps.exhaust_temp_f:.0f}F", state.temps.intake_temp_f > 155 or state.temps.exhaust_temp_f > 1600),
-            ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}psi", boost_error),
         ]
