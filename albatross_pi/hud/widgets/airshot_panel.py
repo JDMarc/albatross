@@ -78,12 +78,18 @@ class AirShotPanel(Widget):
         status_color = (255, 230, 210) if flash_on else ((90, 56, 24) if not firing else FAULT_AMBER)
         label = "AIR"
         psi = "EMPTY" if charges == 0 else f"{pressure:.0f}PSI"
-        gap = 5
-        pip_w = max(8, min(16, rect.height // 2))
-        pip_total_w = self.max_shots * pip_w + (self.max_shots - 1) * 3
+        gap = max(6, int(rect.width * 0.012))
         label_w = max(26, int(rect.width * 0.16))
         status_w = max(54, int(rect.width * 0.30))
-        psi_w = max(42, rect.width - label_w - status_w - pip_total_w - 3 * gap)
+        psi_w = max(58, int(rect.width * 0.18))
+        pip_area_w = max(
+            self.max_shots * 18 + (self.max_shots - 1) * gap,
+            rect.width - label_w - status_w - psi_w - 3 * gap,
+        )
+        pip_gap = max(5, min(12, int(pip_area_w * 0.05)))
+        pip_w = max(18, (pip_area_w - (self.max_shots - 1) * pip_gap) // self.max_shots)
+        pip_h = max(10, min(18, int(rect.height * 0.48)))
+        pip_total_w = self.max_shots * pip_w + (self.max_shots - 1) * pip_gap
 
         label_size = fit_font_size(label, label_w, rect.height, start_size=16, bold=True)
         psi_size = fit_font_size(psi, psi_w, rect.height, start_size=18, bold=True)
@@ -97,9 +103,9 @@ class AirShotPanel(Widget):
         x += label_w + gap
         surface.blit(psi_s, (x, y_center - psi_s.get_height() // 2))
         x += psi_w + gap
-        pip_y = y_center - pip_w // 2
+        pip_y = y_center - pip_h // 2
         for i in range(self.max_shots):
-            r = pygame.Rect(x + i * (pip_w + 3), pip_y, pip_w, pip_w)
+            r = pygame.Rect(x + i * (pip_w + pip_gap), pip_y, pip_w, pip_h)
             pygame.draw.rect(surface, AMBER_DARK, r, width=1)
             if i < charges:
                 pygame.draw.rect(surface, AMBER_BRIGHT, r.inflate(-3, -3))
