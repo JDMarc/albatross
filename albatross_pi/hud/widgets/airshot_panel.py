@@ -80,16 +80,8 @@ class AirShotPanel(Widget):
         psi = "EMPTY" if charges == 0 else f"{pressure:.0f}PSI"
         gap = max(6, int(rect.width * 0.012))
         label_w = max(26, int(rect.width * 0.16))
-        status_w = max(54, int(rect.width * 0.30))
         psi_w = max(58, int(rect.width * 0.18))
-        pip_area_w = max(
-            self.max_shots * 18 + (self.max_shots - 1) * gap,
-            rect.width - label_w - status_w - psi_w - 3 * gap,
-        )
-        pip_gap = max(5, min(12, int(pip_area_w * 0.05)))
-        pip_w = max(18, (pip_area_w - (self.max_shots - 1) * pip_gap) // self.max_shots)
-        pip_h = max(10, min(18, int(rect.height * 0.48)))
-        pip_total_w = self.max_shots * pip_w + (self.max_shots - 1) * pip_gap
+        status_w = max(54, int(rect.width * 0.24))
 
         label_size = fit_font_size(label, label_w, rect.height, start_size=16, bold=True)
         psi_size = fit_font_size(psi, psi_w, rect.height, start_size=18, bold=True)
@@ -101,12 +93,21 @@ class AirShotPanel(Widget):
         x = rect.x
         surface.blit(label_s, (x, y_center - label_s.get_height() // 2))
         x += label_w + gap
-        surface.blit(psi_s, (x, y_center - psi_s.get_height() // 2))
-        x += psi_w + gap
+        psi_x = x
+        surface.blit(psi_s, (psi_x, y_center - psi_s.get_height() // 2))
+        status_x = rect.right - status_s.get_width()
+        pips_zone_left = psi_x + psi_s.get_width() + gap
+        pips_zone_right = status_x - gap
+        pips_zone_w = max(self.max_shots * 18, pips_zone_right - pips_zone_left)
+        pip_gap = max(5, min(12, int(pips_zone_w * 0.05)))
+        pip_w = max(18, (pips_zone_w - (self.max_shots - 1) * pip_gap) // self.max_shots)
+        pip_h = max(10, min(18, int(rect.height * 0.48)))
+        pip_total_w = self.max_shots * pip_w + (self.max_shots - 1) * pip_gap
+        x = pips_zone_left + max(0, (pips_zone_right - pips_zone_left - pip_total_w) // 2)
         pip_y = y_center - pip_h // 2
         for i in range(self.max_shots):
             r = pygame.Rect(x + i * (pip_w + pip_gap), pip_y, pip_w, pip_h)
             pygame.draw.rect(surface, AMBER_DARK, r, width=1)
             if i < charges:
                 pygame.draw.rect(surface, AMBER_BRIGHT, r.inflate(-3, -3))
-        surface.blit(status_s, (rect.right - status_s.get_width(), y_center - status_s.get_height() // 2))
+        surface.blit(status_s, (status_x, y_center - status_s.get_height() // 2))
