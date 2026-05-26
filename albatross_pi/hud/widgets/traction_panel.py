@@ -1,4 +1,4 @@
-"""eTRAC and wheelie indicators."""
+"""Traction control and wheelie indicators."""
 from __future__ import annotations
 
 import pygame
@@ -30,7 +30,7 @@ class TractionPanel(Widget):
         bar_h = max(10, min(20, int(inner.height * 0.24)))
         bottom_h = max(14, inner.height - title_h - bar_h - 6)
 
-        title = "eTRAC"
+        title = "TCS"
         status = "FAULT" if state.traction.sensor_fault else ("CUT" if state.traction.active else (state.traction.intervention_level or "MED"))
         status_color = FAULT_AMBER if state.traction.sensor_fault or status == "OFF" else AMBER_BRIGHT
         title_surface = self._fit(title, inner.width // 2, title_h, 20, AMBER_GLOW)
@@ -74,7 +74,7 @@ class TractionPanel(Widget):
 
     def _draw_compact(self, surface: pygame.Surface, rect: pygame.Rect, state: StateSnapshot) -> None:
         status = "FAULT" if state.traction.sensor_fault else ("CUT" if state.traction.active else (state.traction.intervention_level or "MED"))
-        left = f"eTRAC {status}"
+        left = f"TCS {status}"
         right = f"{state.traction.slip_pct:.1f}% | {state.traction.torque_cut_pct:.0f}%"
         left_color = FAULT_AMBER if state.traction.sensor_fault or status == "OFF" else AMBER_GLOW
         right_color = FAULT_AMBER if state.traction.sensor_fault else AMBER_BRIGHT

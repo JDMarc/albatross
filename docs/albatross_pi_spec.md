@@ -4,7 +4,7 @@
 - Raspberry Pi is primary HUD brain and coordinator.
 - Drives 11″ display using Pygame with retro 80s aesthetic.
 - Translates rider inputs and environment into mode logic and targets.
-- Orchestrates CAN traffic between MS3Pro Mini ECU and Teensy actuators (AWC/TCS/eTRAC).
+- Orchestrates CAN traffic between MS3Pro Mini ECU and Teensy actuators (AWC/TCS).
 - Logs data, runs POST/diagnostics, enforces fail-safes, supervises OTA updates.
 - Real-time torque cuts handled on Teensy/MS3; Pi supervises and displays only.
 
@@ -49,7 +49,7 @@
 - **Top-level modes**: ECO, NORMAL, SPORT, RACE, ALBATROSS.
 - **Sub-states**: BOOT → POST → READY → DRIVE → LIMP → SHUTDOWN; transient states include LAUNCH_ARMED, LAUNCH_ACTIVE, FLAME_ACTIVE.
 - **Mode parameters**: per-mode boost caps, throttle shaping, AWC/ATC aggressiveness, HUD brightness, flame/launch enablement.
-- **eTRAC selector**: chooses traction profile (DRY, DAMP, RAIN, COLD, GRAVEL) via weather/temp/GPS cues, defining slip targets, gains, wheelie pitch window, torque ramp rates.
+- **TCS profile selector**: chooses traction profile (DRY, DAMP, RAIN, COLD, GRAVEL) via weather/temp/GPS cues, defining slip targets, gains, wheelie pitch window, torque ramp rates.
 - **Fuel logic**: HUD fuel selection enforces max boost caps, timing bias windows, WMI strategy, and ECU fuel/stoich profile selection; Pi enforces caps and distributes to Teensy/MS3.
 - **Launch control**: arming requires clutch/temperature/gear/knock conditions; per-mode RPM setpoint with HUD messaging.
 - **Safety escalations**: knock bursts trigger timing pull and boost reduction; persistent issues enter LIMP; high EGT/thermal load reduces requests and triggers “TURBO HOT” banner.
@@ -60,7 +60,7 @@
 - 60 FPS target with pre-rendered static assets and cached text surfaces.
 - **Layout**:
   - Top bar: mode, fuel icon, time, ambient temp, GPS lock, rain badge.
-  - Primary cluster: RPM bar with numeric RPM and “SHIFT!” badge ≥10k; speed, gear; boost gauge with target and duty %, overboost warning; AFR/timing panel with knock light; temperatures/pressures (coolant, oil temp, oil pressure, battery V, IAT, EGT); Air Shot indicators; WMI metrics and fault lamp; eTRAC/AWC slip bars, wheelie indicator, intervention icons; scrolling message line; GL500 heritage alert panel highlights priority warnings.
+  - Primary cluster: RPM bar with numeric RPM and “SHIFT!” badge ≥10k; speed, gear; boost gauge with target and duty %, overboost warning; AFR/timing panel with knock light; temperatures/pressures (coolant, oil temp, oil pressure, battery V, IAT, EGT); Air Shot indicators; WMI metrics and fault lamp; TCS/AWC slip bars, wheelie indicator, intervention icons; scrolling message line; GL500 heritage alert panel highlights priority warnings.
 - **Mode-specific layouts**: ECO (economy emphasis), SPORT (boost/temps focus), RACE (lap timer, G-meter, slip bar), ALBATROSS (flame icon, warnings, bold tach).
 - **Service mode**: settings-accessible diagnostic overlay for raw recent CAN frames, sensor voltage/status, digital pin states, relay/output states, and firmware versions.
 - **Brightness/night modes**: auto-dim via ambient sensor/time with manual override; night adds subtle starfield.
@@ -74,7 +74,7 @@
 ## 6. Pi-Side Calculations
 - **Boost target**: derived from selected fuel strategy, MS3 flex-fuel ethanol content, WMI health, mode, IAT with derates for knock, injector duty limits, WMI failures, high EGT, coolant/oil over-temp. Flex content verifies/derates E85 requests; it does not raise 87/91/93 selections above their own caps.
 - **Fuel economy/range**: Pi integrates distance from speed against fuel burn from MS3 injector pulse width/duty. Current default assumes two 1100 cc/min injectors and stock GL500 17.5 L / 4.62 US gal tank capacity; heuristic MPG is only a fallback when injector telemetry is absent.
-- **eTRAC profile**: weather + sensors select traction profile; GPS/sensor fusion can switch to GRAVEL/ROUGH.
+- **TCS profile**: weather + sensors select traction profile; GPS/sensor fusion can switch to GRAVEL/ROUGH.
 - **Timing bias**: suggest advance for high-octane fuels with clean knock history; otherwise neutral/retard.
 - **Launch setpoint**: mode-based and conditioned on temps/pressures.
 - **Fuel prompts**: detect refuel events (GPS + fuel level change) and prompt for fuel type updates.
@@ -91,7 +91,7 @@
 - Cool-down periods to avoid spam; duck other audio on critical alerts.
 
 ## 9. Configuration System
-- YAML/JSON files (`modes.yaml`, `fuels.yaml`, `etrac.yaml`, `canmap.yaml`, `ui.yaml`).
+- YAML/JSON files (`modes.yaml`, `fuels.yaml`, `tcs.yaml`, `canmap.yaml`, `ui.yaml`).
 - Runtime edits via settings menu with schema validation and atomic swaps.
 - Rider presets stored and linked to NFC tags.
 
@@ -154,7 +154,7 @@
 - Reject unsigned firmware over BLE/Wi-Fi.
 
 ## 15. Done-Done Checklist
-- SocketCAN scripts; verified scaling; state machine/mode enforcement; POST exchange with HUD feedback; WMI fail-safe; Air Shot gating/logging; eTRAC selection; shift banner; brightness control; black box dump; audio cues; bench sim achieving 60 FPS and <40% CPU.
+- SocketCAN scripts; verified scaling; state machine/mode enforcement; POST exchange with HUD feedback; WMI fail-safe; Air Shot gating/logging; TCS selection; shift banner; brightness control; black box dump; audio cues; bench sim achieving 60 FPS and <40% CPU.
 
 ## 16. Phase 2 Nice-to-Haves
 - Lap timer with GPS splits and track map.
