@@ -40,6 +40,8 @@ This is the short version of how this stuff works:
   - Receives selected control intents/limits from the network.
   - Publishes injector pulse width/duty on `0x10E` so the Pi can calculate
     fuel burn, MPG, and range from actual injection data.
+  - Optionally publishes left/right boost pressure on `0x10F` so split-tract
+    boost mismatch is visible instead of hidden by the average boost display.
 
 - Teensy 4.1 controller (arduino/teensy41/albatross_controller_teensy41)
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).

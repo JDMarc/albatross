@@ -54,6 +54,8 @@ class EngineState:
     speed_mph: float = 0.0
     gear: str = "?"
     boost_psi: float = 0.0
+    boost_left_psi: float = -1.0
+    boost_right_psi: float = -1.0
     target_boost_psi: float = 0.0
     wastegate_duty_pct: float = 0.0
     afr_left: float = 0.0
@@ -72,6 +74,8 @@ class TemperaturesState:
     battery_voltage: float = -1.0
     intake_temp_f: float = 0.0
     exhaust_temp_f: float = 0.0
+    exhaust_left_temp_f: float = -1.0
+    exhaust_right_temp_f: float = -1.0
     alternator_temp_f: float = 0.0
 
 

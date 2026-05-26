@@ -24,6 +24,7 @@ namespace CanId {
   constexpr uint16_t ECU_BATTERY = 0x10C;
   constexpr uint16_t ECU_FLEX_FUEL = 0x10D;
   constexpr uint16_t ECU_INJECTOR_STATUS = 0x10E;
+  constexpr uint16_t ECU_BOOST_BANKS = 0x10F;
 
   constexpr uint16_t ECU_TO_ARD_FLAME_STATUS = 0x110;
   constexpr uint16_t ECU_TO_ARD_WMI_TRIGGER = 0x111;
@@ -296,7 +297,7 @@ bool elapsedSince(uint32_t last_ms, uint32_t timeout_ms, uint32_t now_ms) {
 }
 
 bool isEcuFrame(uint16_t id) {
-  return (id >= CanId::ECU_RPM && id <= CanId::ECU_INJECTOR_STATUS) ||
+  return (id >= CanId::ECU_RPM && id <= CanId::ECU_BOOST_BANKS) ||
       (id >= CanId::ECU_TO_ARD_FLAME_STATUS && id <= CanId::ECU_TO_ARD_ENGINE_STATUS);
 }
 
@@ -321,6 +322,13 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       break;
     case CanId::ECU_BOOST:
       if (len >= 2) g_inputs.boost_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
+      break;
+    case CanId::ECU_BOOST_BANKS:
+      if (len >= 4) {
+        const uint16_t left = (uint16_t(data[0]) << 8) | data[1];
+        const uint16_t right = (uint16_t(data[2]) << 8) | data[3];
+        g_inputs.boost_psi_x10 = (left + right) / 2;
+      }
       break;
     case CanId::ECU_KNOCK:
       if (len >= 2) g_inputs.knock_bits = (uint16_t(data[0]) << 8) | data[1];

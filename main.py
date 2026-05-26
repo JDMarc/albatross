@@ -124,6 +124,29 @@ def _demo_recent_can_frames(obj: dict[str, object]) -> tuple[CANFrameRecord, ...
         (ECUToHudID.ENGINE_RPM, struct.pack(">H", _clamp_int(obj.get("rpm", 0), 0, 65535)), "RX"),
         (ECUToHudID.THROTTLE_POSITION, bytes((_clamp_int(obj.get("tps", 0), 0, 100),)), "RX"),
         (ECUToHudID.BOOST_PRESSURE, struct.pack(">H", _clamp_int(float(obj.get("boost", 0.0)) * 10, 0, 65535)), "RX"),
+        (
+            ECUToHudID.BOOST_PRESSURE_BANKS,
+            struct.pack(
+                ">HH",
+                _clamp_int(float(obj.get("boost_l", obj.get("boost", 0.0))) * 10, 0, 65535),
+                _clamp_int(float(obj.get("boost_r", obj.get("boost", 0.0))) * 10, 0, 65535),
+            ),
+            "RX",
+        ),
+        (
+            ECUToHudID.AFR_BANKS,
+            struct.pack(
+                ">HH",
+                _clamp_int(float(obj.get("afr_l", 0.0)) * 100, 0, 65535),
+                _clamp_int(float(obj.get("afr_r", 0.0)) * 100, 0, 65535),
+            ),
+            "RX",
+        ),
+        (
+            ECUToHudID.EXHAUST_GAS_TEMP,
+            struct.pack(">HH", f_to_cx10("egt_b1", 1450.0), f_to_cx10("egt_b2", 1470.0)),
+            "RX",
+        ),
         (ECUToHudID.OIL_PRESSURE_TEMP, struct.pack(">HH", _clamp_int(float(obj.get("oilp", 0.0)) * 10, 0, 65535), f_to_cx10("oilt", 205.0)), "RX"),
         (ECUToHudID.COOLANT_TEMP, struct.pack(">H", f_to_cx10("clt", 190.0)), "RX"),
         (ECUToHudID.BATTERY_VOLTAGE, struct.pack(">H", _clamp_int(float(obj.get("batt_v", 0.0)) * 1000, 0, 65535)), "RX"),
@@ -345,6 +368,9 @@ def main() -> None:
             last_escalation_ts = 0.0
             boost_ctrl_error_start: float | None = None
             wmi_flow_low_start: float | None = None
+            boost_mismatch_start: float | None = None
+            egt_mismatch_start: float | None = None
+            afr_mismatch_start: float | None = None
             prev_boost_psi = 0.0
             prev_wg_duty = 0.0
             wg_stuck_start: float | None = None
@@ -418,6 +444,49 @@ def main() -> None:
                     and abs(snap.engine.boost_psi - (snap.temps.exhaust_temp_f / 100.0)) > 9.0
                 ):
                     faults.append("CYL EGT BOOST MISMATCH")
+                boost_mismatch = (
+                    snap.engine.boost_left_psi >= 0.0
+                    and snap.engine.boost_right_psi >= 0.0
+                    and snap.engine.rpm > 3000
+                    and snap.engine.throttle_pct > 35
+                    and (snap.engine.target_boost_psi > 4.0 or snap.engine.boost_psi > 4.0)
+                    and abs(snap.engine.boost_left_psi - snap.engine.boost_right_psi) >= 3.0
+                )
+                if boost_mismatch:
+                    if boost_mismatch_start is None:
+                        boost_mismatch_start = now_ts
+                    elif (now_ts - boost_mismatch_start) >= 0.6:
+                        faults.append("CYL BOOST MISMATCH")
+                else:
+                    boost_mismatch_start = None
+                egt_mismatch = (
+                    snap.temps.exhaust_left_temp_f >= 0.0
+                    and snap.temps.exhaust_right_temp_f >= 0.0
+                    and snap.engine.rpm > 3000
+                    and snap.engine.throttle_pct > 35
+                    and abs(snap.temps.exhaust_left_temp_f - snap.temps.exhaust_right_temp_f) >= 150.0
+                )
+                if egt_mismatch:
+                    if egt_mismatch_start is None:
+                        egt_mismatch_start = now_ts
+                    elif (now_ts - egt_mismatch_start) >= 0.8:
+                        faults.append("CYL EGT MISMATCH")
+                else:
+                    egt_mismatch_start = None
+                afr_mismatch = (
+                    snap.engine.afr_left > 0.0
+                    and snap.engine.afr_right > 0.0
+                    and snap.engine.rpm > 2500
+                    and snap.engine.throttle_pct > 30
+                    and abs(snap.engine.afr_left - snap.engine.afr_right) >= 0.8
+                )
+                if afr_mismatch:
+                    if afr_mismatch_start is None:
+                        afr_mismatch_start = now_ts
+                    elif (now_ts - afr_mismatch_start) >= 0.8:
+                        faults.append("CYL AFR MISMATCH")
+                else:
+                    afr_mismatch_start = None
                 if snap.engine.boost_psi > (snap.engine.target_boost_psi + 3.0):
                     faults.append("OVERBOOST")
                 if snap.engine.knock_events >= 3:
@@ -624,7 +693,12 @@ def main() -> None:
                     snap.engine,
                     rpm=int(obj.get("rpm", snap.engine.rpm)),
                     speed_mph=float(obj.get("speed_mph", obj.get("speed", snap.engine.speed_mph))),
-                    boost_psi=float(obj.get("boost", snap.engine.boost_psi)),
+                    boost_psi=(
+                        float(obj.get("boost_l", obj.get("boost", snap.engine.boost_psi)))
+                        + float(obj.get("boost_r", obj.get("boost", snap.engine.boost_psi)))
+                    ) / 2.0,
+                    boost_left_psi=float(obj.get("boost_l", obj.get("boost", snap.engine.boost_left_psi))),
+                    boost_right_psi=float(obj.get("boost_r", obj.get("boost", snap.engine.boost_right_psi))),
                     throttle_pct=float(obj.get("tps", snap.engine.throttle_pct)),
                     gear=str(obj.get("gear", snap.engine.gear)),
                     afr_left=float(obj.get("afr_l", snap.engine.afr_left)),
@@ -645,6 +719,8 @@ def main() -> None:
                     oil_pressure_psi=float(obj.get("oilp", snap.temps.oil_pressure_psi)),
                     intake_temp_f=float(obj.get("iat", snap.temps.intake_temp_f)),
                     exhaust_temp_f=(float(obj.get("egt_b1", snap.temps.exhaust_temp_f)) + float(obj.get("egt_b2", snap.temps.exhaust_temp_f))) / 2.0,
+                    exhaust_left_temp_f=float(obj.get("egt_b1", snap.temps.exhaust_left_temp_f)),
+                    exhaust_right_temp_f=float(obj.get("egt_b2", snap.temps.exhaust_right_temp_f)),
                     battery_voltage=float(obj.get("batt_v", snap.temps.battery_voltage)),
                 )
                 env = replace(

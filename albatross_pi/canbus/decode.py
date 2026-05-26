@@ -73,6 +73,8 @@ class CANStateAggregator:
             "speed_mph": 0.0,
             "gear": "?",
             "boost_psi": 0.0,
+            "boost_left_psi": -1.0,
+            "boost_right_psi": -1.0,
             "target_boost_psi": 0.0,
             "wastegate_duty_pct": 0.0,
             "afr_left": 0.0,
@@ -89,6 +91,8 @@ class CANStateAggregator:
             "battery_voltage": -1.0,
             "intake_temp_f": 0.0,
             "exhaust_temp_f": 0.0,
+            "exhaust_left_temp_f": -1.0,
+            "exhaust_right_temp_f": -1.0,
             "alternator_temp_f": 0.0,
         }
         self._airshot = AirShotState()
@@ -132,6 +136,8 @@ class CANStateAggregator:
                     battery_voltage=self._temps_data.get("battery_voltage", -1.0),
                     intake_temp_f=self._temps_data.get("intake_temp_f", 0.0),
                     exhaust_temp_f=self._temps_data.get("exhaust_temp_f", 0.0),
+                    exhaust_left_temp_f=self._temps_data.get("exhaust_left_temp_f", -1.0),
+                    exhaust_right_temp_f=self._temps_data.get("exhaust_right_temp_f", -1.0),
                     alternator_temp_f=self._temps_data.get("alternator_temp_f", 0.0),
                 ),
                 air_shot=self._airshot,
@@ -192,7 +198,20 @@ class CANStateAggregator:
         if len(data) < 2:
             return
         (raw_boost,) = struct.unpack_from(">H", data)
-        self._engine_data["boost_psi"] = raw_boost / 10.0
+        boost = raw_boost / 10.0
+        self._engine_data["boost_psi"] = boost
+        self._engine_data["boost_left_psi"] = boost
+        self._engine_data["boost_right_psi"] = boost
+
+    def _update_boost_banks(self, data: bytes) -> None:
+        if len(data) < 4:
+            return
+        left_raw, right_raw = struct.unpack_from(">HH", data)
+        left = left_raw / 10.0
+        right = right_raw / 10.0
+        self._engine_data["boost_left_psi"] = left
+        self._engine_data["boost_right_psi"] = right
+        self._engine_data["boost_psi"] = (left + right) / 2.0
 
     def _update_afr(self, data: bytes) -> None:
         if len(data) < 4:
@@ -264,8 +283,11 @@ class CANStateAggregator:
         if len(data) < 4:
             return
         bank1, bank2 = struct.unpack_from(">HH", data[:4])
-        average = (bank1 + bank2) / 20.0
-        self._temps_data["exhaust_temp_f"] = _c_to_f(average)
+        left_f = _c_to_f(bank1 / 10.0)
+        right_f = _c_to_f(bank2 / 10.0)
+        self._temps_data["exhaust_left_temp_f"] = left_f
+        self._temps_data["exhaust_right_temp_f"] = right_f
+        self._temps_data["exhaust_temp_f"] = (left_f + right_f) / 2.0
 
 
     def _update_battery_voltage(self, data: bytes) -> None:
@@ -566,6 +588,7 @@ _FRAME_DISPATCH: Dict[int, Callable[[CANStateAggregator, bytes], None]] = {
     int(ECUToHudID.ENGINE_RPM): CANStateAggregator._update_engine_rpm,
     int(ECUToHudID.THROTTLE_POSITION): CANStateAggregator._update_throttle,
     int(ECUToHudID.BOOST_PRESSURE): CANStateAggregator._update_boost,
+    int(ECUToHudID.BOOST_PRESSURE_BANKS): CANStateAggregator._update_boost_banks,
     int(ECUToHudID.AFR_BANKS): CANStateAggregator._update_afr,
     int(ECUToHudID.KNOCK_STATUS): CANStateAggregator._update_knock,
     int(ECUToHudID.OIL_PRESSURE_TEMP): CANStateAggregator._update_oil,

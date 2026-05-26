@@ -59,6 +59,8 @@ class App:
             "rpm": tk.IntVar(value=2000),
             "tps": tk.IntVar(value=20),
             "boost": tk.DoubleVar(value=4.0),
+            "boost_l": tk.DoubleVar(value=4.0),
+            "boost_r": tk.DoubleVar(value=4.0),
             "afr_l": tk.DoubleVar(value=12.5),
             "afr_r": tk.DoubleVar(value=12.6),
             "knock_mask": tk.IntVar(value=0),
@@ -142,7 +144,9 @@ class App:
         ecu_sliders = [
             ("RPM", "rpm", 0, 14000),
             ("TPS %", "tps", 0, 100),
-            ("Boost psi", "boost", 0, 30),
+            ("Boost avg psi", "boost", 0, 30),
+            ("Boost Left", "boost_l", 0, 30),
+            ("Boost Right", "boost_r", 0, 30),
             ("AFR Left", "afr_l", 8.0, 20.0),
             ("AFR Right", "afr_r", 8.0, 20.0),
             ("Knock Bitmask", "knock_mask", 0, 255),
@@ -293,6 +297,14 @@ class App:
         self._send(int(ECUToHudID.ENGINE_RPM), struct.pack(">H", max(0, min(65535, rpm))))
         self._send(int(ECUToHudID.THROTTLE_POSITION), bytes((max(0, min(100, int(self.vars["tps"].get()))),)))
         self._send(int(ECUToHudID.BOOST_PRESSURE), struct.pack(">H", int(max(0.0, float(self.vars["boost"].get())) * 10)))
+        self._send(
+            int(ECUToHudID.BOOST_PRESSURE_BANKS),
+            struct.pack(
+                ">HH",
+                int(max(0.0, float(self.vars["boost_l"].get())) * 10),
+                int(max(0.0, float(self.vars["boost_r"].get())) * 10),
+            ),
+        )
         self._send(int(ECUToHudID.AFR_BANKS), struct.pack(">HH", int(float(self.vars["afr_l"].get()) * 100), int(float(self.vars["afr_r"].get()) * 100)))
         self._send(int(ECUToHudID.KNOCK_STATUS), struct.pack(">H", max(0, min(0xFFFF, int(self.vars["knock_mask"].get())))))
         self._send(int(ECUToHudID.OIL_PRESSURE_TEMP), struct.pack(">HH", int(max(0.0, float(self.vars["oilp"].get())) * 10), oil_t_c10))

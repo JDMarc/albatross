@@ -161,7 +161,7 @@ controller is now Teensy 4.1.
 
 | Range / ID | Owner | Purpose |
 | --- | --- | --- |
-| 0x100-0x10E | MS3/ECU to HUD/controller | Engine telemetry, fuel/flex, injector data |
+| 0x100-0x10F | MS3/ECU to HUD/controller | Engine telemetry, fuel/flex, injector data, optional left/right boost |
 | 0x110-0x112 | MS3/ECU to controller | Flame, WMI trigger, engine status |
 | 0x120-0x129 | Pi to controller | Boost target, mode, limp, traction, Air Shot request, WMI, fuel type |
 | 0x12A-0x12B | Controller to MS3/ECU | Torque cut and traction slip requests |

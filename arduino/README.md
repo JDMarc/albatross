@@ -147,6 +147,10 @@ reduction.
 - MS3 publishes flex-fuel ethanol content to the HUD on ECU frame `0x10D`
   (byte 0 = ethanol %). Teensy does not infer fuel type from the flex sensor;
   the Pi/HUD uses ethanol percentage for supervisory boost caps.
+- MS3 may publish optional split boost pressure on `0x10F`:
+  bytes 0-1 = left boost psi x10, bytes 2-3 = right boost psi x10. The Teensy
+  averages that pair for boost-control feedback, while the Pi uses the split
+  values to detect left/right tract mismatch.
 - Teensy reports fuel type in `0x13D` using the shared fuel code map:
   0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
 - Teensy accepts Pi fuel type selection on `0x129` using the same map.

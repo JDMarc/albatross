@@ -71,6 +71,9 @@ class EvaAlertAudio:
             "ECU STALE": "ECU-STALE.wav",
             "CLUTCH SLIP": "CLUTCH-SLIP.wav",
             "CYL EGT BOOST MISMATCH": "CYL-EGT-BOOST-MISMATCH.wav",
+            "CYL BOOST MISMATCH": "CYL-EGT-BOOST-MISMATCH.wav",
+            "CYL EGT MISMATCH": "CYL-EGT-BOOST-MISMATCH.wav",
+            "CYL AFR MISMATCH": "CYL-EGT-BOOST-MISMATCH.wav",
             "OVERBOOST": "OVERBOOST.wav",
             "BOOST CONTROL ERROR": "BOOST-CONTROL-ERROR.wav",
             "SLOW TURBO SPOOL": "SLOW-TURBO-SPOOL.wav",
@@ -400,8 +403,41 @@ class HUDRenderer:
         if self._persistent_fault("CYL EGT BOOST MISMATCH", egt_boost_mismatch, now_s, 1.0):
             active.add("CYL EGT BOOST MISMATCH")
 
+        boost_mismatch = (
+            engine.boost_left_psi >= 0.0
+            and engine.boost_right_psi >= 0.0
+            and high_load
+            and engine.rpm > 3000
+            and (engine.target_boost_psi > 4.0 or engine.boost_psi > 4.0)
+            and abs(engine.boost_left_psi - engine.boost_right_psi) >= 3.0
+        )
+        if self._persistent_fault("CYL BOOST MISMATCH", boost_mismatch, now_s, 0.6):
+            active.add("CYL BOOST MISMATCH")
+
+        egt_mismatch = (
+            temps.exhaust_left_temp_f >= 0.0
+            and temps.exhaust_right_temp_f >= 0.0
+            and high_load
+            and engine.rpm > 3000
+            and abs(temps.exhaust_left_temp_f - temps.exhaust_right_temp_f) >= 150.0
+        )
+        if self._persistent_fault("CYL EGT MISMATCH", egt_mismatch, now_s, 0.8):
+            active.add("CYL EGT MISMATCH")
+
+        afr_mismatch = (
+            engine.afr_left > 0.0
+            and engine.afr_right > 0.0
+            and high_load
+            and engine.rpm > 2500
+            and abs(engine.afr_left - engine.afr_right) >= 0.8
+        )
+        if self._persistent_fault("CYL AFR MISMATCH", afr_mismatch, now_s, 0.8):
+            active.add("CYL AFR MISMATCH")
+
         sensor_values = (
             engine.boost_psi,
+            engine.boost_left_psi,
+            engine.boost_right_psi,
             engine.target_boost_psi,
             engine.throttle_pct,
             engine.engine_load_pct,
@@ -411,6 +447,8 @@ class HUDRenderer:
             temps.battery_voltage,
             temps.intake_temp_f,
             temps.exhaust_temp_f,
+            temps.exhaust_left_temp_f,
+            temps.exhaust_right_temp_f,
             wmi.tank_level_pct,
             wmi.commanded_flow_cc_min,
             wmi.actual_flow_cc_min,
@@ -1530,12 +1568,14 @@ class HUDRenderer:
             ("SPD/GEAR", f"{status['speed_mph']} mph / {status['gear']}"),
             ("MODE/FUEL", f"{status['mode']} / {status['fuel_type']} E{status['ethanol_content_pct']}"),
             ("BOOST", f"{status['boost_psi']} / {status['target_boost_psi']} psi"),
+            ("BOOST L/R", f"{status['boost_left_psi']} / {status['boost_right_psi']} psi"),
             ("WG/TPS", f"{status['wastegate_duty_pct']}% / {status['throttle_pct']}%"),
             ("AFR", f"{status['afr_left']} / {status['afr_right']}"),
             ("KNOCK", f"{status['knock_events']}"),
             ("OIL", f"{status['oil_pressure_psi']} psi / {status['oil_temp_f']} F"),
             ("CLT/IAT", f"{status['coolant_temp_f']} / {status['intake_temp_f']} F"),
             ("EGT/BATT", f"{status['exhaust_temp_f']} F / {status['battery_voltage']} V"),
+            ("EGT L/R", f"{status['exhaust_left_temp_f']} / {status['exhaust_right_temp_f']} F"),
             ("WMI", f"{status['wmi_actual_flow_cc_min']}/{status['wmi_commanded_flow_cc_min']} ccm {status['wmi_tank_level_pct']}%"),
             ("TRAC", f"{status['traction_slip_pct']}% slip / {status['traction_torque_cut_pct']}% cut"),
         ]
