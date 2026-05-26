@@ -13,50 +13,72 @@ class TractionPanel(Widget):
         self.rect = rect
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
+        previous_clip = surface.get_clip()
+        surface.set_clip(self.rect)
         pygame.draw.rect(surface, AMBER_BG, self.rect)
-        padding = max(8, int(self.rect.height * 0.15))
-        slip_bar_height = max(8, int(self.rect.height * 0.2))
-        slip_rect = pygame.Rect(
-            self.rect.x + padding,
-            self.rect.y + padding + slip_bar_height,
-            self.rect.width - 2 * padding,
-            slip_bar_height,
-        )
-        pygame.draw.rect(surface, AMBER_DARK, slip_rect)
-        fill = slip_rect.copy()
-        fill.width = int(slip_rect.width * min(1.0, state.traction.slip_pct / 20.0))
-        pygame.draw.rect(surface, AMBER_BRIGHT, fill)
+        border = FAULT_AMBER if state.traction.sensor_fault else (AMBER_BRIGHT if state.traction.active else AMBER_DARK)
+        pygame.draw.rect(surface, border, self.rect, width=1)
 
-        slip_text = f"Slip {state.traction.slip_pct:4.1f}%"
-        label_font = fit_font_size(slip_text, self.rect.width - 2 * padding, int(self.rect.height * 0.26), start_size=max(14, int(self.rect.height * 0.25)))
-        slip_surface = font(label_font).render(slip_text, True, AMBER_GLOW)
+        padding = max(6, min(12, int(self.rect.height * 0.12)))
+        inner = self.rect.inflate(-2 * padding, -2 * padding)
+        if inner.height < 62:
+            self._draw_compact(surface, inner, state)
+            surface.set_clip(previous_clip)
+            return
+
+        title_h = max(14, min(22, int(inner.height * 0.25)))
+        bar_h = max(10, min(20, int(inner.height * 0.24)))
+        bottom_h = max(14, inner.height - title_h - bar_h - 6)
+
+        title = "eTRAC"
+        status = "FAULT" if state.traction.sensor_fault else ("CUT" if state.traction.active else (state.traction.intervention_level or "MED"))
+        status_color = FAULT_AMBER if state.traction.sensor_fault or status == "OFF" else AMBER_BRIGHT
+        title_surface = self._fit(title, inner.width // 2, title_h, 20, AMBER_GLOW)
+        status_surface = self._fit(status, inner.width // 2, title_h, 20, status_color)
+        surface.blit(title_surface, (inner.x, inner.y))
+        surface.blit(status_surface, (inner.right - status_surface.get_width(), inner.y))
+
+        slip_rect = pygame.Rect(inner.x, inner.y + title_h + 3, inner.width, bar_h)
+        pygame.draw.rect(surface, AMBER_DARK, slip_rect, width=2)
+        fill = slip_rect.inflate(-4, -4)
+        fill.width = int(fill.width * min(1.0, max(0.0, state.traction.slip_pct) / 20.0))
+        pygame.draw.rect(surface, FAULT_AMBER if state.traction.sensor_fault else AMBER_BRIGHT, fill)
+
+        bottom_y = slip_rect.bottom + 3
+        col_w = max(48, (inner.width - 10) // 3)
+        metrics = (
+            (pygame.Rect(inner.x, bottom_y, col_w, bottom_h), f"SLIP {state.traction.slip_pct:.1f}%", state.traction.sensor_fault),
+            (pygame.Rect(inner.x + col_w + 5, bottom_y, col_w, bottom_h), f"CUT {state.traction.torque_cut_pct:.0f}%", state.traction.active),
+            (pygame.Rect(inner.right - col_w, bottom_y, col_w, bottom_h), f"PITCH {state.traction.wheelie_pitch_deg:+.1f}deg", False),
+        )
+        for rect, text, hot in metrics:
+            self._draw_metric(surface, rect, text, hot)
+        surface.set_clip(previous_clip)
+
+    @staticmethod
+    def _fit(text: str, max_w: int, max_h: int, start_size: int, color: tuple[int, int, int] | list[int]) -> pygame.Surface:
+        size = fit_font_size(text, max_w, max_h, start_size=start_size, bold=True)
+        return font(size, bold=True).render(text, True, color)
+
+    @staticmethod
+    def _draw_metric(surface: pygame.Surface, rect: pygame.Rect, text: str, hot: bool) -> None:
+        size = fit_font_size(text, rect.width, rect.height, start_size=max(8, min(15, rect.height)), bold=True)
+        rendered = font(size, bold=True).render(text, True, FAULT_AMBER if hot else AMBER_GLOW)
         surface.blit(
-            slip_surface,
+            rendered,
             (
-                self.rect.x + padding,
-                self.rect.y + padding // 2,
+                rect.x + (rect.width - rendered.get_width()) // 2,
+                rect.y + max(0, (rect.height - rendered.get_height()) // 2),
             ),
         )
 
-        wheelie_text = f"Pitch {state.traction.wheelie_pitch_deg:+4.1f}°"
-        wheelie_font = fit_font_size(wheelie_text, self.rect.width - 2 * padding, int(self.rect.height * 0.24), start_size=max(14, int(self.rect.height * 0.24)))
-        wheelie_surface = font(wheelie_font).render(wheelie_text, True, AMBER_GLOW)
-        surface.blit(
-            wheelie_surface,
-            (
-                self.rect.x + padding,
-                slip_rect.bottom + padding // 2,
-            ),
-        )
-
-        level = f"CUT {state.traction.torque_cut_pct:2.0f}%" if state.traction.active else (state.traction.intervention_level or "MED")
-        level_font = fit_font_size(level, self.rect.width // 3, int(self.rect.height * 0.26), start_size=max(14, int(self.rect.height * 0.25)), bold=True)
-        level_color = FAULT_AMBER if state.traction.sensor_fault or level == "OFF" else AMBER_BRIGHT
-        level_surface = font(level_font, bold=True).render(level, True, level_color)
-        surface.blit(
-            level_surface,
-            (
-                self.rect.right - level_surface.get_width() - padding,
-                self.rect.y + padding // 2,
-            ),
-        )
+    def _draw_compact(self, surface: pygame.Surface, rect: pygame.Rect, state: StateSnapshot) -> None:
+        status = "FAULT" if state.traction.sensor_fault else ("CUT" if state.traction.active else (state.traction.intervention_level or "MED"))
+        left = f"eTRAC {status}"
+        right = f"{state.traction.slip_pct:.1f}% | {state.traction.torque_cut_pct:.0f}%"
+        left_color = FAULT_AMBER if state.traction.sensor_fault or status == "OFF" else AMBER_GLOW
+        right_color = FAULT_AMBER if state.traction.sensor_fault else AMBER_BRIGHT
+        left_surface = self._fit(left, rect.width // 2, rect.height, 16, left_color)
+        right_surface = self._fit(right, rect.width // 2, rect.height, 15, right_color)
+        surface.blit(left_surface, (rect.x, rect.centery - left_surface.get_height() // 2))
+        surface.blit(right_surface, (rect.right - right_surface.get_width(), rect.centery - right_surface.get_height() // 2))

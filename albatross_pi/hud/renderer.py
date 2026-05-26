@@ -891,7 +891,7 @@ class HUDRenderer:
         bottom_limit = message_rect.y - panel_gap
         right_budget = max(bottom_limit - content_top, 150)
         airshot_min_height = max(104, int(height * 0.145))
-        traction_min_height = max(58, int(height * 0.08))
+        traction_min_height = max(86, int(height * 0.12))
         temps_min_height = max(190, int(height * 0.26))
         airshot_height = max(int(content_height * ratios["airshot"]), airshot_min_height)
         traction_height = max(int(content_height * ratios["traction"]), traction_min_height)
