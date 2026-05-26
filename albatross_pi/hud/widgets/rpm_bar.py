@@ -60,12 +60,30 @@ class RpmBar(Widget):
         surface.blit(rz_label, (rz_label_x - rz_label.get_width() // 2, tick_y - rz_label.get_height() - 10))
 
         if over_red:
-            shift_size = max(18, int(self.rect.height * 0.7))
-            shift_surface = font(shift_size, bold=True).render("REDLINE", True, (255, 220, 220))
+            plate_w = min(max(int(self.rect.width * 0.13), 112), int(self.rect.width * 0.22))
+            plate_h = max(18, self.rect.height - 10)
+            plate = pygame.Rect(
+                self.rect.right - plate_w - 8,
+                self.rect.y + (self.rect.height - plate_h) // 2,
+                plate_w,
+                plate_h,
+            )
+            pygame.draw.rect(surface, (12, 2, 0), plate)
+            pygame.draw.rect(surface, FAULT_AMBER, plate, 2)
+            stripe_step = max(12, plate.height // 2)
+            previous_clip = surface.get_clip()
+            surface.set_clip(plate)
+            for x in range(plate.x - plate.height, plate.right, stripe_step):
+                pygame.draw.line(surface, (75, 12, 6), (x, plate.bottom - 2), (x + plate.height, plate.y + 2), 2)
+            surface.set_clip(previous_clip)
+            pygame.draw.rect(surface, FAULT_AMBER, plate, 2)
+            label = "REDLINE"
+            label_size = fit_font_size(label, plate.width - 16, plate.height - 8, start_size=max(14, int(plate.height * 0.65)), bold=True)
+            label_surface = font(label_size, bold=True).render(label, True, (255, 210, 190))
             surface.blit(
-                shift_surface,
+                label_surface,
                 (
-                    self.rect.right - shift_surface.get_width() - 10,
-                    self.rect.centery - shift_surface.get_height() // 2,
+                    plate.centerx - label_surface.get_width() // 2,
+                    plate.centery - label_surface.get_height() // 2,
                 ),
             )

@@ -19,7 +19,6 @@ import pygame
 from ..diagnostics.fault_logger import engine_status, fault_action, fault_reason
 from ..economy import EconomyTracker
 from .widgets.airshot_panel import AirShotPanel
-from .widgets.afr_panel import AfrPanel
 from .widgets.alert_panel import AlertPanel
 from .widgets.boost_panel import BoostPanel
 from .widgets.fuel_panel import FuelPanel
@@ -759,7 +758,7 @@ class HUDRenderer:
                 "center": 0.43,
                 "right": 0.42,
                 "rpm": 0.092,
-                "boost": 0.46,
+                "boost": 0.43,
                 "afr": 0.14,
                 "stats": 0.25,
                 "fuel": 0.07,
@@ -868,39 +867,27 @@ class HUDRenderer:
             gear_rect = pygame.Rect(speed_rect.right + inner_gap, speed_area.y, gear_size, gear_size)
 
         panel_gap = max(int(height * 0.018), 12)
-        high_performance_mode = mode in {"RACE", "ALBATROSS"}
         boost_ratio = ratios["boost"]
         afr_ratio = ratios["afr"]
-        stats_ratio = ratios["stats"]
-        if high_performance_mode:
-            stats_ratio += afr_ratio
+        stats_ratio = ratios["stats"] + afr_ratio
         fuel_height = max(int(content_height * ratios["fuel"]), int(height * 0.055))
-        center_panel_gaps = 2 if high_performance_mode else 3
-        center_budget = max(content_height - fuel_height - center_panel_gaps * panel_gap, 120)
-        center_weight = max(boost_ratio + (0.0 if high_performance_mode else afr_ratio) + stats_ratio, 1e-6)
+        center_budget = max(content_height - fuel_height - 2 * panel_gap, 120)
+        center_weight = max(boost_ratio + stats_ratio, 1e-6)
         boost_height = max(int(center_budget * boost_ratio / center_weight), int(height * 0.16))
-        afr_height = 0 if high_performance_mode else max(int(center_budget * afr_ratio / center_weight), int(height * 0.11))
         stats_height = max(int(center_budget * stats_ratio / center_weight), int(height * 0.13))
-        center_total = boost_height + stats_height if high_performance_mode else boost_height + afr_height + stats_height
+        center_total = boost_height + stats_height
         if center_total > center_budget:
             scale = center_budget / float(center_total)
             boost_height = max(int(boost_height * scale), 56)
-            if not high_performance_mode:
-                afr_height = max(int(afr_height * scale), 46)
             stats_height = max(int(stats_height * scale), 46)
         boost_rect = pygame.Rect(center_x, content_top, center_width, boost_height)
-        if high_performance_mode:
-            afr_rect = None
-            stats_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, stats_height)
-        else:
-            afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
-            stats_rect = pygame.Rect(center_x, afr_rect.bottom + panel_gap, center_width, stats_height)
+        stats_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, stats_height)
 
         bottom_limit = message_rect.y - panel_gap
         compact_strip_height = max(40, min(52, int(height * 0.075)))
         airshot_height = compact_strip_height
         traction_height = compact_strip_height
-        # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
+        # Fuel gauge moved to center-lower zone under mode stats.
         fuel_width = center_width
         fuel_x = center_x
         fuel_rect = pygame.Rect(fuel_x, stats_rect.bottom + panel_gap, fuel_width, fuel_height)
@@ -933,8 +920,6 @@ class HUDRenderer:
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
         ]
-        if afr_rect is not None:
-            widgets.insert(5, AfrPanel(afr_rect))
         self.widgets = widgets
         for widget in self.widgets:
             if isinstance(widget, AlertPanel):

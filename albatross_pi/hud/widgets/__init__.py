@@ -1,5 +1,4 @@
 """Widget exports for the HUD."""
-from .afr_panel import AfrPanel
 from .airshot_panel import AirShotPanel
 from .alert_panel import AlertPanel
 from .boost_panel import BoostPanel
@@ -14,7 +13,6 @@ from .traction_panel import TractionPanel
 from .wmi_panel import WMIPanel
 
 __all__ = [
-    "AfrPanel",
     "AirShotPanel",
     "AlertPanel",
     "BoostPanel",
