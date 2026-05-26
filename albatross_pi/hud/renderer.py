@@ -887,27 +887,10 @@ class HUDRenderer:
         afr_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, afr_height)
         stats_rect = pygame.Rect(center_x, afr_rect.bottom + panel_gap, center_width, stats_height)
 
-        temps_ratio = ratios["temps"]
         bottom_limit = message_rect.y - panel_gap
-        right_budget = max(bottom_limit - content_top, 150)
-        airshot_min_height = max(76, int(height * 0.145))
-        traction_min_height = max(68, int(height * 0.12))
-        temps_min_height = max(100, int(height * 0.22))
-        airshot_height = max(int(content_height * ratios["airshot"]), airshot_min_height)
-        traction_height = max(int(content_height * ratios["traction"]), traction_min_height)
-        temps_height = max(int(content_height * temps_ratio), temps_min_height)
-        right_total = temps_height + traction_height + airshot_height + 2 * panel_gap
-        if right_total > right_budget:
-            overflow = right_total - right_budget
-            shrink = min(overflow, max(0, temps_height - temps_min_height))
-            temps_height -= shrink
-            overflow -= shrink
-            if overflow > 0:
-                shrink = min(overflow, max(0, traction_height - traction_min_height))
-                traction_height -= shrink
-                overflow -= shrink
-            if overflow > 0:
-                airshot_height = max(airshot_min_height, airshot_height - overflow)
+        compact_strip_height = max(40, min(52, int(height * 0.075)))
+        airshot_height = compact_strip_height
+        traction_height = compact_strip_height
         # Fuel gauge moved to center-lower zone (under AFR/SPARK and right of alert panel).
         fuel_width = center_width
         fuel_x = center_x
