@@ -707,9 +707,9 @@ class HUDRenderer:
                 "afr": 0.16,
                 "stats": 0.42,
                 "fuel": 0.16,
-                "temps": 0.68,
+                "temps": 0.62,
                 "traction": 0.10,
-                "airshot": 0.08,
+                "airshot": 0.14,
                 "alert": 0.24,
             },
             "NORMAL": {
@@ -721,9 +721,9 @@ class HUDRenderer:
                 "afr": 0.18,
                 "stats": 0.34,
                 "fuel": 0.14,
-                "temps": 0.62,
+                "temps": 0.56,
                 "traction": 0.12,
-                "airshot": 0.10,
+                "airshot": 0.14,
                 "alert": 0.30,
             },
             "SPORT": {
@@ -735,9 +735,9 @@ class HUDRenderer:
                 "afr": 0.18,
                 "stats": 0.24,
                 "fuel": 0.10,
-                "temps": 0.55,
+                "temps": 0.51,
                 "traction": 0.17,
-                "airshot": 0.10,
+                "airshot": 0.14,
                 "alert": 0.34,
             },
             "RACE": {
@@ -888,9 +888,26 @@ class HUDRenderer:
         stats_rect = pygame.Rect(center_x, afr_rect.bottom + panel_gap, center_width, stats_height)
 
         temps_ratio = ratios["temps"]
-        temps_height = max(int(content_height * temps_ratio), int(height * 0.34))
-        traction_height = max(int(content_height * ratios["traction"]), int(height * 0.08))
-        airshot_height = max(int(content_height * ratios["airshot"]), int(height * 0.06))
+        bottom_limit = message_rect.y - panel_gap
+        right_budget = max(bottom_limit - content_top, 150)
+        airshot_min_height = max(104, int(height * 0.145))
+        traction_min_height = max(58, int(height * 0.08))
+        temps_min_height = max(190, int(height * 0.26))
+        airshot_height = max(int(content_height * ratios["airshot"]), airshot_min_height)
+        traction_height = max(int(content_height * ratios["traction"]), traction_min_height)
+        temps_height = max(int(content_height * temps_ratio), temps_min_height)
+        right_total = temps_height + traction_height + airshot_height + 2 * panel_gap
+        if right_total > right_budget:
+            overflow = right_total - right_budget
+            shrink = min(overflow, max(0, temps_height - temps_min_height))
+            temps_height -= shrink
+            overflow -= shrink
+            if overflow > 0:
+                shrink = min(overflow, max(0, traction_height - traction_min_height))
+                traction_height -= shrink
+                overflow -= shrink
+            if overflow > 0:
+                airshot_height = max(airshot_min_height, airshot_height - overflow)
         # WMI panel removed; WMI readouts are merged into TempsGrid.
         extra_right = max(content_height - temps_height - traction_height - airshot_height - 2 * panel_gap, 0)
         temps_height += extra_right
@@ -902,10 +919,10 @@ class HUDRenderer:
         traction_rect = pygame.Rect(right_x, temps_rect.bottom + panel_gap, right_width, traction_height)
         airshot_rect = pygame.Rect(right_x, traction_rect.bottom + panel_gap, right_width, airshot_height)
         # Prevent lower panels from overlapping the message line.
-        bottom_limit = message_rect.y - panel_gap
         for r in (temps_rect, traction_rect, airshot_rect):
             if r.bottom > bottom_limit:
-                r.height = max(36, r.height - (r.bottom - bottom_limit))
+                minimum = airshot_min_height if r is airshot_rect else (traction_min_height if r is traction_rect else temps_min_height)
+                r.height = max(minimum, r.height - (r.bottom - bottom_limit))
 
         prior_fault_latch_until: dict[str, float] = {}
         for widget in self.widgets:
