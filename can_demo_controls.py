@@ -131,9 +131,36 @@ class App:
         self._tick()
 
     def _build(self) -> None:
-        rootf = ttk.Frame(self.root, padding=8)
-        rootf.grid(sticky="nsew")
+        shell = ttk.Frame(self.root)
+        shell.grid(sticky="nsew")
         self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(shell, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(shell, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        rootf = ttk.Frame(canvas, padding=8)
+        canvas_window = canvas.create_window((0, 0), window=rootf, anchor="nw")
+        rootf.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(canvas_window, width=event.width))
+
+        def scroll_units(delta: int) -> None:
+            canvas.yview_scroll(delta, "units")
+
+        def on_mousewheel(event) -> None:
+            delta = getattr(event, "delta", 0)
+            if delta:
+                scroll_units(-1 if delta > 0 else 1)
+
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        canvas.bind_all("<Button-4>", lambda _event: scroll_units(-1))
+        canvas.bind_all("<Button-5>", lambda _event: scroll_units(1))
+
         rootf.columnconfigure(0, weight=1)
         rootf.columnconfigure(1, weight=1)
 
