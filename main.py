@@ -65,6 +65,13 @@ def _clamp_int(value: object, lo: int, hi: int, default: int = 0) -> int:
         return default
 
 
+def _optional_float(value: object, default: float | None = None) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _demo_frame_record(frame_id: int, name: str, payload: bytes, timestamp: datetime, direction: str = "RX") -> CANFrameRecord:
     return CANFrameRecord(
         arbitration_id=frame_id,
@@ -729,6 +736,9 @@ def main() -> None:
                     fuel_type=str(obj.get("fuel_type", snap.environment.fuel_type)),
                     ethanol_content_pct=float(obj.get("ethanol_pct", snap.environment.ethanol_content_pct)),
                     fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
+                    gps_lock=bool(obj.get("gps_lock", snap.environment.gps_lock)),
+                    gps_latitude=_optional_float(obj.get("gps_lat", obj.get("gps_latitude")), snap.environment.gps_latitude),
+                    gps_longitude=_optional_float(obj.get("gps_lon", obj.get("gps_longitude")), snap.environment.gps_longitude),
                     message_line=str(obj.get("msg", snap.environment.message_line)),
                     flame_mode_enabled=bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)),
                     rev_limiter_strategy="IGNITION CUT" if bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)) else "FUEL CUT",

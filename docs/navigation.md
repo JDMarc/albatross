@@ -32,6 +32,15 @@ Phone telemetry UDP JSON may provide:
 The same `EnvironmentState.gps_latitude` and `gps_longitude` fields can later
 be populated by a dedicated USB or UART GNSS receiver.
 
+For a desktop bench without GPS hardware, run:
+
+```text
+py -3.12 can_demo_controls.py --dry-run
+```
+
+Use the `Navigation GPS -> HUD` fields to enter decimal latitude and longitude
+coordinates and toggle the simulated GPS lock.
+
 ## Map Tiles
 
 The default development source is OpenStreetMap's standard raster tile server.

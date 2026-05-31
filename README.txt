@@ -132,6 +132,11 @@ Desktop / demo iteration:
 python main.py --width 1280 --height 480
 
 
+For desktop CAN/demo control testing without a GPS receiver, run
+`py -3.12 can_demo_controls.py --dry-run` and use the `Navigation GPS -> HUD`
+fields to enter latitude, longitude, and simulated GPS-lock state.
+
+
 Live CAN mode (SocketCAN):
 
 

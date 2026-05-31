@@ -122,6 +122,9 @@ class App:
             "arduino_5v": tk.DoubleVar(value=3.30),
             "air_compressor": tk.BooleanVar(value=False),
             "arduino_fw": tk.StringVar(value="0.1.0+1"),
+            "gps_lock": tk.BooleanVar(value=True),
+            "gps_lat": tk.StringVar(value="42.3314"),
+            "gps_lon": tk.StringVar(value="-83.0458"),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
         }
         self._build()
@@ -243,6 +246,14 @@ class App:
         ttk.Label(service, text="Controller FW").grid(row=4, column=1, sticky="e")
         ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=4, column=2, sticky="w")
 
+        navigation = ttk.LabelFrame(rootf, text="Navigation GPS -> HUD", padding=8)
+        navigation.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        ttk.Checkbutton(navigation, text="GPS Lock", variable=self.vars["gps_lock"]).grid(row=0, column=0, sticky="w")
+        ttk.Label(navigation, text="Latitude").grid(row=0, column=1, sticky="e", padx=(16, 4))
+        ttk.Entry(navigation, textvariable=self.vars["gps_lat"], width=16).grid(row=0, column=2, sticky="w")
+        ttk.Label(navigation, text="Longitude").grid(row=0, column=3, sticky="e", padx=(16, 4))
+        ttk.Entry(navigation, textvariable=self.vars["gps_lon"], width=16).grid(row=0, column=4, sticky="w")
+
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
         s = ttk.Scale(parent, from_=lo, to=hi, variable=self.vars[key], orient="horizontal")
@@ -272,6 +283,14 @@ class App:
             return max(0, min(limit, int(value or 0)))
         except ValueError:
             return 0
+
+    @staticmethod
+    def _coordinate(value: object, lo: float, hi: float) -> float | None:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if lo <= parsed <= hi else None
 
     def send_all(self) -> None:
         gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
@@ -444,6 +463,14 @@ class App:
         )
 
         payload = {k: (v.get() if hasattr(v, "get") else v) for k, v in self.vars.items()}
+        gps_lat = self._coordinate(payload.get("gps_lat"), -85.0, 85.0)
+        gps_lon = self._coordinate(payload.get("gps_lon"), -180.0, 180.0)
+        if gps_lat is None or gps_lon is None:
+            payload.pop("gps_lat", None)
+            payload.pop("gps_lon", None)
+        else:
+            payload["gps_lat"] = gps_lat
+            payload["gps_lon"] = gps_lon
         if not bool(self.vars["send_hud_commands"].get()):
             for key in ("mode", "fuel_type", "traction", "boost_target", "wmi_arm", "flame_mode", "engine_run", "nfc_ok"):
                 payload.pop(key, None)
