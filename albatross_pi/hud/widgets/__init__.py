@@ -6,6 +6,7 @@ from .fuel_panel import FuelPanel
 from .header_bar import HeaderBar
 from .message_line import MessageLine
 from .mode_stats_panel import ModeStatsPanel
+from .navigation_panel import NavigationPanel
 from .rpm_bar import RpmBar
 from .speed_gear import SpeedGear
 from .temps_grid import TempsGrid
@@ -20,6 +21,7 @@ __all__ = [
     "HeaderBar",
     "MessageLine",
     "ModeStatsPanel",
+    "NavigationPanel",
     "RpmBar",
     "SpeedGear",
     "TempsGrid",

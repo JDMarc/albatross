@@ -18,6 +18,7 @@ import pygame
 
 from ..diagnostics.fault_logger import engine_status, fault_action, fault_reason
 from ..economy import EconomyTracker
+from ..navigation import NavigationManager
 from .widgets.airshot_panel import AirShotPanel
 from .widgets.alert_panel import AlertPanel
 from .widgets.boost_panel import BoostPanel
@@ -25,6 +26,7 @@ from .widgets.fuel_panel import FuelPanel
 from .widgets.header_bar import HeaderBar
 from .widgets.message_line import MessageLine
 from .widgets.mode_stats_panel import ModeStatsPanel
+from .widgets.navigation_panel import NavigationPanel
 from .widgets.rpm_bar import RpmBar
 from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
@@ -262,7 +264,7 @@ class HUDRenderer:
         self._online_update_progress = 0.0
         self._online_update_busy = False
         self._online_update_lock = threading.Lock()
-        self._focus_targets = ["SETTINGS", "MEDIA", "FAULTS"]
+        self._focus_targets = ["NAV", "SETTINGS", "MEDIA", "FAULTS"]
         self._focus_index = 0
         self._active_menu = "home"
         self._fault_detail_index = 0
@@ -272,7 +274,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE", "SENSOR CONF"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "NAV MAP", "NAV ONLINE", "NAV ZOOM", "NAV CACHE", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE", "SENSOR CONF"]
         self._phone_link_enabled = False
         self._flame_mode_manual_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
@@ -284,6 +286,14 @@ class HUDRenderer:
         self._auto_dim_enabled = True
         self._preferences = HUDPreferences(preferences_path)
         self._load_preferences()
+        navigation_settings = Path(preferences_path).parent / "navigation.json" if preferences_path is not None else Path("settings/navigation.json")
+        self._navigation = NavigationManager(settings_path=navigation_settings)
+        self._nav_cursor = 0
+        self._nav_action_cursor = 0
+        self._nav_selected_waypoint_id: str | None = None
+        self._nav_keyboard_text = ""
+        self._nav_keyboard_row = 0
+        self._nav_keyboard_col = 0
         self._mode_layout_anim_until = time.monotonic() + 0.9
         apply_theme(self._themes[self._theme_index])
         self._phone_track = ""
@@ -898,8 +908,20 @@ class HUDRenderer:
         airshot_rect = pygame.Rect(right_x, bottom_limit - airshot_height, right_width, airshot_height)
         traction_rect = pygame.Rect(right_x, airshot_rect.y - panel_gap - traction_height, right_width, traction_height)
         temps_bottom = traction_rect.y - panel_gap
-        temps_height = max(36, temps_bottom - content_top)
-        temps_rect = pygame.Rect(right_x, content_top, right_width, temps_height)
+        right_primary_height = max(36, temps_bottom - content_top)
+        map_mode = mode in {"ECO", "NORMAL"}
+        if map_mode:
+            navigation_rect = pygame.Rect(right_x, content_top, right_width, right_primary_height)
+            temps_rect = None
+        else:
+            nav_banner_height = max(40, min(54, int(height * 0.075)))
+            navigation_rect = pygame.Rect(right_x, content_top, right_width, nav_banner_height)
+            temps_rect = pygame.Rect(
+                right_x,
+                navigation_rect.bottom + panel_gap,
+                right_width,
+                max(36, temps_bottom - navigation_rect.bottom - panel_gap),
+            )
 
         prior_fault_latch_until: dict[str, float] = {}
         for widget in self.widgets:
@@ -915,11 +937,15 @@ class HUDRenderer:
             BoostPanel(boost_rect),
             ModeStatsPanel(stats_rect),
             AlertPanel(alert_rect),
-            TempsGrid(temps_rect),
             FuelPanel(fuel_rect),
             TractionPanel(traction_rect),
             AirShotPanel(airshot_rect),
         ]
+        if temps_rect is not None:
+            widgets.insert(7, TempsGrid(temps_rect))
+            widgets.insert(7, NavigationPanel(navigation_rect, self._navigation, compact=True))
+        else:
+            widgets.insert(7, NavigationPanel(navigation_rect, self._navigation))
         self.widgets = widgets
         for widget in self.widgets:
             if isinstance(widget, AlertPanel):
@@ -1150,6 +1176,7 @@ class HUDRenderer:
         return self.screen.copy()
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
+        self._navigation.update_position(state.environment.gps_latitude, state.environment.gps_longitude)
         previous_focus_target = self._home_focus_target() if self._active_menu == "home" else ""
         previous_had_faults = bool(self._visible_faults)
         self._visible_faults = tuple(state.faults)
@@ -1160,6 +1187,7 @@ class HUDRenderer:
             widget.draw(self.screen, state)
         self._render_home_mode_hover_underline(state)
         self._render_home_fault_focus_outline(state)
+        self._render_home_navigation_focus_outline()
         self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
         if self._active_menu == "settings":
@@ -1176,6 +1204,15 @@ class HUDRenderer:
         elif self._active_menu == "sensor_confidence":
             self._render_modal_dimmer()
             self._render_sensor_confidence_overlay(state)
+        elif self._active_menu == "nav_waypoints":
+            self._render_modal_dimmer()
+            self._render_navigation_waypoint_overlay()
+        elif self._active_menu == "nav_actions":
+            self._render_modal_dimmer()
+            self._render_navigation_action_overlay()
+        elif self._active_menu == "nav_keyboard":
+            self._render_modal_dimmer()
+            self._render_navigation_keyboard_overlay()
         self._render_global_hints()
         self._apply_brightness_overlay(state)
         if (not self._post_complete) or self._post_fault_active:
@@ -1235,6 +1272,12 @@ class HUDRenderer:
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(1)
             return
+        if self._active_menu == "nav_keyboard":
+            self._move_nav_keyboard(0, 1)
+            return
+        if self._active_menu in {"nav_waypoints", "nav_actions"}:
+            self._handle_down()
+            return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
             if item == "TRACTION":
@@ -1272,6 +1315,12 @@ class HUDRenderer:
                 self._active_menu = "service"
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
+            elif item == "NAV MAP":
+                self._navigation.set_map_enabled(True)
+            elif item == "NAV ONLINE":
+                self._navigation.set_online_enabled(True)
+            elif item == "NAV ZOOM":
+                self._navigation.set_zoom(self._navigation.zoom + 1)
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1284,6 +1333,12 @@ class HUDRenderer:
     def _handle_dpad_left(self) -> None:
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(-1)
+            return
+        if self._active_menu == "nav_keyboard":
+            self._move_nav_keyboard(0, -1)
+            return
+        if self._active_menu in {"nav_waypoints", "nav_actions"}:
+            self._handle_up()
             return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
@@ -1322,6 +1377,12 @@ class HUDRenderer:
                 self._active_menu = "service"
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
+            elif item == "NAV MAP":
+                self._navigation.set_map_enabled(False)
+            elif item == "NAV ONLINE":
+                self._navigation.set_online_enabled(False)
+            elif item == "NAV ZOOM":
+                self._navigation.set_zoom(self._navigation.zoom - 1)
             return
         if self._active_menu == "media":
             if self._media_device_menu_open and self._available_devices:
@@ -1334,6 +1395,12 @@ class HUDRenderer:
     def _handle_up(self) -> None:
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(-1)
+        elif self._active_menu == "nav_waypoints":
+            self._nav_cursor = (self._nav_cursor - 1) % max(1, len(self._navigation_menu_items()))
+        elif self._active_menu == "nav_actions":
+            self._nav_action_cursor = (self._nav_action_cursor - 1) % len(self._navigation_action_items())
+        elif self._active_menu == "nav_keyboard":
+            self._move_nav_keyboard(-1, 0)
         elif self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor - 1) % len(self._setting_items)
         elif self._active_menu == "media":
@@ -1347,6 +1414,12 @@ class HUDRenderer:
     def _handle_down(self) -> None:
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(1)
+        elif self._active_menu == "nav_waypoints":
+            self._nav_cursor = (self._nav_cursor + 1) % max(1, len(self._navigation_menu_items()))
+        elif self._active_menu == "nav_actions":
+            self._nav_action_cursor = (self._nav_action_cursor + 1) % len(self._navigation_action_items())
+        elif self._active_menu == "nav_keyboard":
+            self._move_nav_keyboard(1, 0)
         elif self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor + 1) % len(self._setting_items)
         elif self._active_menu == "media":
@@ -1368,6 +1441,10 @@ class HUDRenderer:
                     self._fault_detail_index = 0
                     self._active_menu = "fault_detail"
                 return
+            if target == "NAV":
+                self._nav_cursor = 0
+                self._active_menu = "nav_waypoints"
+                return
             if target == "SETTINGS":
                 cur = self.state
                 gear = (cur.engine.gear or "").strip().upper()
@@ -1382,6 +1459,15 @@ class HUDRenderer:
             return
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(1)
+            return
+        if self._active_menu == "nav_waypoints":
+            self._activate_navigation_menu_item()
+            return
+        if self._active_menu == "nav_actions":
+            self._activate_navigation_action()
+            return
+        if self._active_menu == "nav_keyboard":
+            self._activate_nav_keyboard_key()
             return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
@@ -1404,6 +1490,10 @@ class HUDRenderer:
                 self._active_menu = "service"
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
+            elif item == "NAV MAP":
+                self._navigation.set_map_enabled(not self._navigation.map_enabled)
+            elif item == "NAV ONLINE":
+                self._navigation.set_online_enabled(not self._navigation.online_enabled)
             return
 
     def _request_air_shot(self) -> None:
@@ -1413,10 +1503,103 @@ class HUDRenderer:
             except Exception:
                 LOGGER.exception("Air Shot request callback failed")
 
+    def _navigation_menu_items(self) -> list[tuple[str, str | None]]:
+        items: list[tuple[str, str | None]] = [("SAVE CURRENT LOCATION", None)]
+        if self._navigation.active:
+            items.append(("STOP NAVIGATION", None))
+        items.extend((waypoint.name, waypoint.waypoint_id) for waypoint in self._navigation.waypoints)
+        return items
+
+    @staticmethod
+    def _navigation_action_items() -> tuple[str, ...]:
+        return ("NAVIGATE", "DELETE", "BACK")
+
+    @staticmethod
+    def _navigation_keyboard_rows() -> tuple[tuple[str, ...], ...]:
+        return (
+            tuple("ABCDEFGH"),
+            tuple("IJKLMNOP"),
+            tuple("QRSTUVWX"),
+            ("Y", "Z", "0", "1", "2", "3", "4", "5"),
+            ("6", "7", "8", "9", "-", "SPACE", "DEL", "SAVE"),
+            ("CANCEL",),
+        )
+
+    def _activate_navigation_menu_item(self) -> None:
+        items = self._navigation_menu_items()
+        if not items:
+            return
+        self._nav_cursor %= len(items)
+        label, waypoint_id = items[self._nav_cursor]
+        if label == "SAVE CURRENT LOCATION":
+            self._nav_keyboard_text = ""
+            self._nav_keyboard_row = 0
+            self._nav_keyboard_col = 0
+            self._active_menu = "nav_keyboard"
+            return
+        if label == "STOP NAVIGATION":
+            self._navigation.stop_navigation()
+            self._nav_cursor = 0
+            return
+        if waypoint_id is not None:
+            self._nav_selected_waypoint_id = waypoint_id
+            self._nav_action_cursor = 0
+            self._active_menu = "nav_actions"
+
+    def _activate_navigation_action(self) -> None:
+        waypoint_id = self._nav_selected_waypoint_id
+        if waypoint_id is None:
+            self._active_menu = "nav_waypoints"
+            return
+        action = self._navigation_action_items()[self._nav_action_cursor % len(self._navigation_action_items())]
+        if action == "NAVIGATE":
+            self._navigation.start_navigation(waypoint_id)
+            self._active_menu = "home"
+        elif action == "DELETE":
+            self._navigation.delete_waypoint(waypoint_id)
+            self._nav_selected_waypoint_id = None
+            self._nav_cursor = 0
+            self._active_menu = "nav_waypoints"
+        else:
+            self._active_menu = "nav_waypoints"
+
+    def _move_nav_keyboard(self, row_delta: int, col_delta: int) -> None:
+        rows = self._navigation_keyboard_rows()
+        self._nav_keyboard_row = (self._nav_keyboard_row + row_delta) % len(rows)
+        row = rows[self._nav_keyboard_row]
+        self._nav_keyboard_col = (self._nav_keyboard_col + col_delta) % len(row)
+
+    def _activate_nav_keyboard_key(self) -> None:
+        rows = self._navigation_keyboard_rows()
+        row = rows[self._nav_keyboard_row]
+        key = row[self._nav_keyboard_col % len(row)]
+        if key == "SPACE":
+            if self._nav_keyboard_text and len(self._nav_keyboard_text) < 20:
+                self._nav_keyboard_text += " "
+        elif key == "DEL":
+            self._nav_keyboard_text = self._nav_keyboard_text[:-1]
+        elif key == "SAVE":
+            if self._navigation.add_current_waypoint(self._nav_keyboard_text) is not None:
+                self._active_menu = "nav_waypoints"
+                self._nav_cursor = max(0, len(self._navigation_menu_items()) - 1)
+        elif key == "CANCEL":
+            self._active_menu = "nav_waypoints"
+        elif len(self._nav_keyboard_text) < 20:
+            self._nav_keyboard_text += key
+
     def _handle_back(self) -> None:
         if self._active_menu != "home":
             if self._active_menu == "media" and self._media_device_menu_open:
                 self._media_device_menu_open = False
+                return
+            if self._active_menu == "nav_actions":
+                self._active_menu = "nav_waypoints"
+                return
+            if self._active_menu == "nav_keyboard":
+                if self._nav_keyboard_text:
+                    self._nav_keyboard_text = self._nav_keyboard_text[:-1]
+                else:
+                    self._active_menu = "nav_waypoints"
                 return
             self._active_menu = "home"
 
@@ -1587,6 +1770,95 @@ class HUDRenderer:
         hint = "ARROWS: NEXT FAULT  |  ENTER: NEXT  |  ESC: BACK"
         hint_surface = font(12, bold=True).render(hint, True, glow)
         self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 18, panel.bottom - 24))
+
+    def _render_navigation_waypoint_overlay(self) -> None:
+        _bg, bright, glow, fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(720, sw - 80), min(500, sh - 64))
+        panel.center = (sw // 2, sh // 2)
+        self._draw_navigation_panel_shell(panel, "NAVIGATION / WAYPOINTS")
+        location = self._navigation.current_location
+        gps_text = f"GPS {location[0]:.5f}, {location[1]:.5f}" if location else "GPS LOCK REQUIRED"
+        self.screen.blit(font(12, bold=True).render(gps_text, True, glow if location else fault), (panel.x + 18, panel.y + 42))
+        items = self._navigation_menu_items()
+        self._nav_cursor %= max(1, len(items))
+        row_h = 30
+        start_y = panel.y + 76
+        visible_rows = max(1, (panel.height - 116) // row_h)
+        first = min(max(0, self._nav_cursor - visible_rows // 2), max(0, len(items) - visible_rows))
+        for row, (label, waypoint_id) in enumerate(items[first:first + visible_rows]):
+            idx = first + row
+            active = idx == self._nav_cursor
+            color = bright if active else glow
+            prefix = ">" if active else " "
+            suffix = ""
+            if waypoint_id == self._navigation.active_waypoint_id:
+                suffix = "  [ACTIVE]"
+            text = f"{prefix} {label}{suffix}"
+            self.screen.blit(font(15, bold=active).render(text[:56], True, color), (panel.x + 18, start_y + row * row_h))
+            if active:
+                pygame.draw.line(self.screen, color, (panel.x + 18, start_y + row * row_h + 23), (panel.right - 18, start_y + row * row_h + 23), 1)
+        status = self._navigation.route_status
+        status_surface = font(12, bold=True).render(status[:48], True, bright)
+        self.screen.blit(status_surface, (panel.x + 18, panel.bottom - 50))
+        hint = font(12).render("ARROWS: MOVE  |  ENTER: SELECT  |  ESC: BACK", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 28))
+
+    def _render_navigation_action_overlay(self) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(520, sw - 80), min(250, sh - 80))
+        panel.center = (sw // 2, sh // 2)
+        waypoint = next((row for row in self._navigation.waypoints if row.waypoint_id == self._nav_selected_waypoint_id), None)
+        self._draw_navigation_panel_shell(panel, "WAYPOINT ACTION")
+        title = waypoint.name if waypoint else "WAYPOINT MISSING"
+        self.screen.blit(font(18, bold=True).render(title[:28], True, bright), (panel.x + 18, panel.y + 50))
+        for idx, action in enumerate(self._navigation_action_items()):
+            active = idx == self._nav_action_cursor
+            color = bright if active else glow
+            prefix = ">" if active else " "
+            self.screen.blit(font(15, bold=active).render(f"{prefix} {action}", True, color), (panel.x + 20, panel.y + 92 + idx * 30))
+        hint = font(12).render("ARROWS: MOVE  |  ENTER: SELECT  |  ESC: BACK", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 24))
+
+    def _render_navigation_keyboard_overlay(self) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(760, sw - 72), min(520, sh - 56))
+        panel.center = (sw // 2, sh // 2)
+        self._draw_navigation_panel_shell(panel, "NAME WAYPOINT")
+        entry_rect = pygame.Rect(panel.x + 18, panel.y + 50, panel.width - 36, 42)
+        pygame.draw.rect(self.screen, (5, 4, 0), entry_rect)
+        pygame.draw.rect(self.screen, glow, entry_rect, 1)
+        entry_text = self._nav_keyboard_text or "_"
+        self.screen.blit(font(20, bold=True).render(entry_text, True, bright), (entry_rect.x + 10, entry_rect.y + 8))
+        rows = self._navigation_keyboard_rows()
+        top = panel.y + 104
+        gap = 6
+        row_h = 34
+        for row_idx, keys in enumerate(rows):
+            key_w = max(62, (panel.width - 36 - gap * (len(keys) - 1)) // len(keys))
+            total_w = key_w * len(keys) + gap * (len(keys) - 1)
+            x = panel.centerx - total_w // 2
+            y = top + row_idx * (row_h + gap)
+            for col_idx, key in enumerate(keys):
+                active = row_idx == self._nav_keyboard_row and col_idx == self._nav_keyboard_col % len(keys)
+                key_rect = pygame.Rect(x + col_idx * (key_w + gap), y, key_w, row_h)
+                pygame.draw.rect(self.screen, (22, 14, 0), key_rect)
+                pygame.draw.rect(self.screen, bright if active else glow, key_rect, 2 if active else 1)
+                label_size = fit_font_size(key, key_rect.width - 10, key_rect.height - 8, start_size=15, bold=active)
+                label = font(label_size, bold=active).render(key, True, bright if active else glow)
+                self.screen.blit(label, (key_rect.centerx - label.get_width() // 2, key_rect.centery - label.get_height() // 2))
+        hint = font(12).render("ARROWS: MOVE  |  ENTER: TYPE  |  ESC: DELETE/BACK", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 22))
+
+    def _draw_navigation_panel_shell(self, panel: pygame.Rect, title: str) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        overlay = pygame.Surface(panel.size, pygame.SRCALPHA)
+        overlay.fill((8, 6, 0, 242))
+        self.screen.blit(overlay, panel.topleft)
+        pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
+        self.screen.blit(font(20, bold=True).render(title, True, bright), (panel.x + 16, panel.y + 12))
 
     def _render_settings_overlay(self) -> None:
         bg, bright, glow, _fault = self._theme_colors()
@@ -1931,6 +2203,14 @@ class HUDRenderer:
             return "OPEN"
         if item == "SENSOR CONF":
             return "OPEN"
+        if item == "NAV MAP":
+            return "ON" if self._navigation.map_enabled else "OFF"
+        if item == "NAV ONLINE":
+            return "ON" if self._navigation.online_enabled else "OFF"
+        if item == "NAV ZOOM":
+            return str(self._navigation.zoom)
+        if item == "NAV CACHE":
+            return f"{self._navigation.cached_tile_count} TILES"
         return "ON" if self._auto_dim_enabled else "OFF"
 
     def _apply_fuel_type_selection(self, fuel_type_index: int, *, notify: bool = True) -> None:
@@ -1977,7 +2257,7 @@ class HUDRenderer:
 
     def _home_focus_targets(self) -> list[str]:
         if self._visible_faults:
-            return ["FAULTS", "SETTINGS", "MEDIA"]
+            return ["NAV", "FAULTS", "SETTINGS", "MEDIA"]
         return list(self._focus_targets)
 
     def _set_home_focus_target(self, target: str) -> None:
@@ -2015,6 +2295,17 @@ class HUDRenderer:
         label = "SELECT FAULT" if state.faults else "NO FAULT"
         surface = font(11, bold=True).render(label, True, color if state.faults else glow)
         self.screen.blit(surface, (alert_rect.x + 8, max(0, alert_rect.y - surface.get_height() - 2)))
+
+    def _render_home_navigation_focus_outline(self) -> None:
+        if self._active_menu != "home" or self._home_focus_target() != "NAV":
+            return
+        nav_rect = next((widget.rect for widget in self.widgets if isinstance(widget, NavigationPanel)), None)
+        if nav_rect is None:
+            return
+        _bg, bright, _glow, _fault = self._theme_colors()
+        pygame.draw.rect(self.screen, bright, nav_rect.inflate(6, 6), width=2, border_radius=6)
+        label = font(11, bold=True).render("SELECT NAV", True, bright)
+        self.screen.blit(label, (nav_rect.x + 8, max(0, nav_rect.y - label.get_height() - 2)))
 
     def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
         _bg, bright, _glow, _fault = self._theme_colors()

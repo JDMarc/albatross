@@ -88,6 +88,8 @@ class EnvironmentState:
     ethanol_content_pct: float = -1.0
     ambient_temp_f: float = 70.0
     gps_lock: bool = False
+    gps_latitude: float | None = None
+    gps_longitude: float | None = None
     rain: bool = False
     time: datetime = field(default_factory=datetime.now)
     brightness_pct: float = 75.0

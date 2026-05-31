@@ -60,9 +60,13 @@
 - 60 FPS target with pre-rendered static assets and cached text surfaces.
 - **Layout**:
   - Top bar: mode, fuel icon, time, ambient temp, GPS lock, rain badge.
-  - Primary cluster: RPM bar with numeric RPM and “SHIFT!” badge ≥10k; speed, gear; boost gauge with target and duty %, overboost warning; AFR/timing panel with knock light; temperatures/pressures (coolant, oil temp, oil pressure, battery V, IAT, EGT); Air Shot indicators; WMI metrics and fault lamp; TCS/AWC slip bars, wheelie indicator, intervention icons; scrolling message line; GL500 heritage alert panel highlights priority warnings.
+  - Primary cluster: RPM bar with numeric RPM and “SHIFT!” badge ≥10k; speed, gear; boost gauge with target and duty %, overboost warning; high-mode AFR/timing stats with knock indication; temperatures/pressures (coolant, oil temp, oil pressure, battery V, IAT, EGT); Air Shot indicators; WMI metrics and fault lamp; TCS/AWC slip bars, wheelie indicator, intervention icons; scrolling message line; GL500 heritage alert panel highlights priority warnings.
 - **Mode-specific layouts**: ECO (economy emphasis), SPORT (boost/temps focus), RACE (lap timer, G-meter, slip bar), ALBATROSS (flame icon, warnings, bold tach).
 - **Service mode**: settings-accessible diagnostic overlay for raw recent CAN frames, sensor voltage/status, digital pin states, relay/output states, and firmware versions.
+- **Navigation**: ECO/NORMAL replace the large temperature grid with a themed
+  road map and compact safety strip. SPORT/RACE/ALBATROSS show a next-turn
+  banner. Persistent named waypoints, D-pad text entry, cached visible raster
+  tiles, and OSRM-compatible road routes are documented in `docs/navigation.md`.
 - **Brightness/night modes**: auto-dim via ambient sensor/time with manual override; night adds subtle starfield.
 - **Performance**: pre-render static grids/labels; cache text by value buckets; use integer scaling and dirty rectangles where applicable.
 

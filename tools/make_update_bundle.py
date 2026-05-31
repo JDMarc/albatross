@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDE_DIRS = {".git", ".venv", "__pycache__", "dist", "logs", "settings", "updates", ".pytest_cache"}
+EXCLUDE_DIRS = {".git", ".venv", "__pycache__", "dist", "logs", "maps", "settings", "updates", ".pytest_cache"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
 

@@ -105,6 +105,12 @@ Repository layout
   `hud_settings.json` remembers selected mode, traction level, fuel type,
   brightness, phone link, theme, and auto-dim across power cycles.
 
+- maps/
+  Created by the navigation system for cached or preloaded XYZ raster tiles.
+  ECO/NORMAL show a selectable road map with persistent waypoints; performance
+  modes retain their gauges and use a compact next-turn banner. See
+  `docs/navigation.md` before configuring a production tile/router provider.
+
 - deploy/albatross-hud.service  
   Example systemd unit for power-on auto-launch on Raspberry Pi.
 

@@ -24,7 +24,7 @@ LOGGER = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UPDATE_STATE_DIR = REPO_ROOT / "updates"
-RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "settings", "updates"}
+RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "maps", "settings", "updates"}
 DEFAULT_ARDUINO_FQBN = "teensy:avr:teensy41"
 DEFAULT_ARDUINO_BAUD = 115200
 DEFAULT_GITHUB_UPDATE_API = "https://api.github.com/repos/JDMarc/albatross/releases/latest"

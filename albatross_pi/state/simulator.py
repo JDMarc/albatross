@@ -188,6 +188,8 @@ class StateSimulator:
             rev_limiter_strategy="IGNITION CUT" if (mode in {"RACE", "ALBATROSS"} or snapshot.environment.flame_mode_enabled) else "FUEL CUT",
             ambient_temp_f=72 + math.sin(self._phase * math.tau * 0.2) * 5,
             gps_lock=rng.random() > 0.1,
+            gps_latitude=42.3314 + math.sin(self._phase * math.tau) * 0.004,
+            gps_longitude=-83.0458 + math.cos(self._phase * math.tau) * 0.004,
             rain=rng.random() > 0.9,
             time=now,
             message_line=message,

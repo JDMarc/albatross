@@ -56,7 +56,7 @@ py -3.12 tools\make_update_bundle.py --version test_001 --output-dir E:\
 py -3.12 tools\make_update_bundle.py --arduino-hex build\albatross_controller_teensy41.hex --arduino-port /dev/ttyACM0
 ```
 
-The packager excludes local/runtime files such as `.git`, `.venv`, `logs`, `settings`, `updates`, caches, and compiled Python files. It writes SHA-256 hashes into the manifest automatically.
+The packager excludes local/runtime files such as `.git`, `.venv`, `logs`, `maps`, `settings`, `updates`, caches, and compiled Python files. It writes SHA-256 hashes into the manifest automatically.
 
 ## Bundle Layout
 
@@ -95,7 +95,7 @@ The manifest key is still named `arduino` for backward compatibility with older
 bundles and updater code, even when the payload targets the Teensy 4.1
 controller.
 
-The Pi app archive should contain the repo files to overlay onto the existing install. Runtime folders are preserved and not overwritten: `.git`, `.venv`, `logs`, `settings`, `updates`, and `__pycache__`.
+The Pi app archive should contain the repo files to overlay onto the existing install. Runtime folders are preserved and not overwritten: `.git`, `.venv`, `logs`, `maps`, `settings`, `updates`, and `__pycache__`.
 If `sha256` entries are present, the installer verifies each referenced payload before changing anything.
 
 ## Controller Flashing
