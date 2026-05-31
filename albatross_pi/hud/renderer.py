@@ -894,7 +894,7 @@ class HUDRenderer:
         stats_rect = pygame.Rect(center_x, boost_rect.bottom + panel_gap, center_width, stats_height)
 
         bottom_limit = message_rect.y - panel_gap
-        compact_strip_height = max(40, min(52, int(height * 0.075)))
+        compact_strip_height = max(36, min(46, int(height * 0.065)))
         airshot_height = compact_strip_height
         traction_height = compact_strip_height
         # Fuel gauge moved to center-lower zone under mode stats.
@@ -905,22 +905,23 @@ class HUDRenderer:
         # WMI panel removed; WMI readouts are merged into TempsGrid. Anchor the
         # lower right panels from the bottom so Air Shot cannot disappear below
         # the global hint/message area when the window is short.
-        airshot_rect = pygame.Rect(right_x, bottom_limit - airshot_height, right_width, airshot_height)
-        traction_rect = pygame.Rect(right_x, airshot_rect.y - panel_gap - traction_height, right_width, traction_height)
-        temps_bottom = traction_rect.y - panel_gap
-        right_primary_height = max(36, temps_bottom - content_top)
         map_mode = mode in {"ECO", "NORMAL"}
+        right_panel_gap = panel_gap if map_mode else max(6, int(height * 0.01))
+        airshot_rect = pygame.Rect(right_x, bottom_limit - airshot_height, right_width, airshot_height)
+        traction_rect = pygame.Rect(right_x, airshot_rect.y - right_panel_gap - traction_height, right_width, traction_height)
+        temps_bottom = traction_rect.y - right_panel_gap
+        right_primary_height = max(36, temps_bottom - content_top)
         if map_mode:
             navigation_rect = pygame.Rect(right_x, content_top, right_width, right_primary_height)
             temps_rect = None
         else:
-            nav_banner_height = max(40, min(54, int(height * 0.075)))
+            nav_banner_height = max(36, min(44, int(height * 0.06)))
             navigation_rect = pygame.Rect(right_x, content_top, right_width, nav_banner_height)
             temps_rect = pygame.Rect(
                 right_x,
-                navigation_rect.bottom + panel_gap,
+                navigation_rect.bottom + right_panel_gap,
                 right_width,
-                max(36, temps_bottom - navigation_rect.bottom - panel_gap),
+                max(36, temps_bottom - navigation_rect.bottom - right_panel_gap),
             )
 
         prior_fault_latch_until: dict[str, float] = {}
