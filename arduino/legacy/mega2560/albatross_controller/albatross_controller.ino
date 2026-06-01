@@ -271,7 +271,7 @@ uint8_t computeWastegatePosition(uint16_t target_psi_x10, uint16_t actual_psi_x1
   // Throttle gating keeps spool behavior predictable and safe.
   if (tps_pct < 20) duty = 0;
   else if (tps_pct < 40) duty = (duty < 35) ? duty : 35;
-  else if (tps_pct < 60) duty = min<int16_t>(duty, 55);
+  else if (tps_pct < 60) duty = (duty < 55) ? duty : 55;
 
   // Safety trims.
   if (knock) duty -= 20;
@@ -836,9 +836,13 @@ void updateControllers() {
   const bool tc_active = tc_latched && tc_allowed;
   const uint8_t requested_torque_cut_pct = tc_active ? torqueCutForSlip(filtered_slip_ratio, tc_limit) : 0;
   if (requested_torque_cut_pct > g_outputs.traction_torque_cut_pct) {
-    g_outputs.traction_torque_cut_pct = min<uint8_t>(requested_torque_cut_pct, g_outputs.traction_torque_cut_pct + 4);
+    g_outputs.traction_torque_cut_pct =
+        (requested_torque_cut_pct < g_outputs.traction_torque_cut_pct + 4)
+            ? requested_torque_cut_pct
+            : static_cast<uint8_t>(g_outputs.traction_torque_cut_pct + 4);
   } else if (g_outputs.traction_torque_cut_pct > requested_torque_cut_pct) {
-    const uint8_t step = min<uint8_t>(8, g_outputs.traction_torque_cut_pct - requested_torque_cut_pct);
+    const uint8_t delta = g_outputs.traction_torque_cut_pct - requested_torque_cut_pct;
+    const uint8_t step = (delta < 8) ? delta : 8;
     g_outputs.traction_torque_cut_pct -= step;
   }
   g_outputs.traction_slip_pct_x10 = static_cast<int16_t>(constrain(static_cast<int>(roundf(filtered_slip_ratio * 1000.0f)), -1000, 1000));
