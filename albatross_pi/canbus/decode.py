@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import struct
+import time
 from dataclasses import replace
 from datetime import datetime
 from threading import Condition, Lock
@@ -56,6 +57,9 @@ _FIRMWARE_DEVICE_NAMES = {
     0x04: "Teensy controller",
 }
 
+_ECU_RX_IDS = {int(member) for member in ECUToHudID}
+_CONTROLLER_RX_IDS = {int(member) for member in ArduinoToHudID}
+
 
 def _c_to_f(celsius: float) -> float:
     return celsius * 9.0 / 5.0 + 32.0
@@ -108,6 +112,9 @@ class CANStateAggregator:
         self._system = SystemStatus()
         self._faults: Dict[int, str] = {}
         self._shift_light = False
+        self._last_rx_monotonic: float | None = None
+        self._last_ecu_rx_monotonic: float | None = None
+        self._last_controller_rx_monotonic: float | None = None
         self._last_snapshot = StateSnapshot(
             engine=replace(EngineState(), rpm_redline=rpm_redline),
             service=self._service,
@@ -120,6 +127,13 @@ class CANStateAggregator:
         """Decode the provided frame and update internal state."""
         handler = _FRAME_DISPATCH.get(arbitration_id)
         with self._condition:
+            if direction.upper() == "RX":
+                received_at = time.monotonic()
+                self._last_rx_monotonic = received_at
+                if arbitration_id in _ECU_RX_IDS:
+                    self._last_ecu_rx_monotonic = received_at
+                elif arbitration_id in _CONTROLLER_RX_IDS:
+                    self._last_controller_rx_monotonic = received_at
             self._record_can_frame(arbitration_id, data, direction)
             if handler is not None:
                 handler(self, data)
@@ -169,6 +183,34 @@ class CANStateAggregator:
     def current_snapshot(self) -> StateSnapshot:
         with self._lock:
             return self._last_snapshot
+
+    def rx_age_s(self) -> float:
+        """Return the worst required-source age without counting local TX echoes."""
+        return max(self.ecu_rx_age_s(), self.controller_rx_age_s())
+
+    def any_rx_age_s(self) -> float:
+        """Return age of any real bus receive, including utility frames."""
+        with self._lock:
+            last_rx = self._last_rx_monotonic
+        return self._age_s(last_rx)
+
+    def ecu_rx_age_s(self) -> float:
+        """Return age of the latest MS3 telemetry frame."""
+        with self._lock:
+            last_rx = self._last_ecu_rx_monotonic
+        return self._age_s(last_rx)
+
+    def controller_rx_age_s(self) -> float:
+        """Return age of the latest Teensy status frame."""
+        with self._lock:
+            last_rx = self._last_controller_rx_monotonic
+        return self._age_s(last_rx)
+
+    @staticmethod
+    def _age_s(last_rx: float | None) -> float:
+        if last_rx is None:
+            return float("inf")
+        return max(0.0, time.monotonic() - last_rx)
     # ------------------------------------------------------------------
     # Frame handlers
     # ------------------------------------------------------------------
@@ -416,7 +458,7 @@ class CANStateAggregator:
             ("Flame requested", 0x02),
             ("Limp requested", 0x04),
             ("Run switch", 0x08),
-            ("WMI armed", 0x10),
+            ("Legacy WMI arm", 0x10),
             ("Air Shot request", 0x20),
         )
         fault_labels = (
@@ -572,7 +614,7 @@ class CANStateAggregator:
             return
         status = data[0]
         env_dict = self._environment.__dict__.copy()
-        env_dict["message_line"] = "NFC OK" if status else "NFC FAIL"
+        env_dict["message_line"] = "NFC OK" if status else "NFC LOCKED"
         self._environment = EnvironmentState(**env_dict)
 
     def _update_post_frame(self, data: bytes) -> None:

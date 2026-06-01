@@ -6,6 +6,8 @@ import os
 import shutil
 import string
 import threading
+import time
+from collections import deque
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +19,8 @@ from albatross_pi.state.snapshot import StateSnapshot
 
 FAULT_NAME_TO_CODE = {name: code for code, name in FAULT_CODE_MAP.items()}
 DRIVE_REMOVABLE = 2
+PRE_FAULT_SECONDS = 30.0
+PRE_FAULT_SAMPLE_INTERVAL_S = 0.1
 
 
 def _safe_float(value: float) -> float:
@@ -185,6 +189,33 @@ def engine_status(snapshot: StateSnapshot) -> dict[str, Any]:
     }
 
 
+def pre_fault_sample(snapshot: StateSnapshot) -> dict[str, Any]:
+    """Keep the black-box window compact enough to inspect and export easily."""
+    status = engine_status(snapshot)
+    return {
+        "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+        "rpm": status["rpm"],
+        "speed_mph": status["speed_mph"],
+        "gear": status["gear"],
+        "mode": status["mode"],
+        "fuel_type": status["fuel_type"],
+        "boost_psi": status["boost_psi"],
+        "target_boost_psi": status["target_boost_psi"],
+        "wastegate_duty_pct": status["wastegate_duty_pct"],
+        "throttle_pct": status["throttle_pct"],
+        "oil_pressure_psi": status["oil_pressure_psi"],
+        "oil_temp_f": status["oil_temp_f"],
+        "coolant_temp_f": status["coolant_temp_f"],
+        "intake_temp_f": status["intake_temp_f"],
+        "exhaust_temp_f": status["exhaust_temp_f"],
+        "battery_voltage": status["battery_voltage"],
+        "wmi_flow_cc_min": status["wmi_actual_flow_cc_min"],
+        "wmi_request_cc_min": status["wmi_commanded_flow_cc_min"],
+        "traction_slip_pct": status["traction_slip_pct"],
+        "traction_cut_pct": status["traction_torque_cut_pct"],
+    }
+
+
 def _is_accessible_dir(path: Path) -> bool:
     try:
         return path.exists() and path.is_dir()
@@ -245,6 +276,8 @@ class FaultLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._active_faults: set[str] = set()
         self._lock = threading.Lock()
+        self._pre_fault_samples: deque[tuple[float, dict[str, Any]]] = deque()
+        self._last_pre_fault_sample_s = 0.0
         date = datetime.now().strftime("%Y-%m-%d")
         self._event_log = self.log_dir / f"fault_events_{date}.jsonl"
         self._summary_log = self.log_dir / f"fault_events_{date}.txt"
@@ -260,8 +293,22 @@ class FaultLogger:
     def log_fault(self, fault: str, snapshot: StateSnapshot) -> None:
         self._write_fault_event(fault, snapshot)
 
+    def observe(self, snapshot: StateSnapshot) -> None:
+        """Sample a rolling readable black-box window for future fault events."""
+        now_s = time.monotonic()
+        with self._lock:
+            if now_s - self._last_pre_fault_sample_s < PRE_FAULT_SAMPLE_INTERVAL_S:
+                return
+            self._last_pre_fault_sample_s = now_s
+            self._pre_fault_samples.append((now_s, pre_fault_sample(snapshot)))
+            while self._pre_fault_samples and now_s - self._pre_fault_samples[0][0] > PRE_FAULT_SECONDS:
+                self._pre_fault_samples.popleft()
+
     def _write_fault_event(self, fault: str, snapshot: StateSnapshot) -> None:
         now = datetime.now()
+        with self._lock:
+            pre_fault_window = [sample for _, sample in self._pre_fault_samples]
+        timeline_name = self._timeline_name(now, fault)
         event = {
             "timestamp": now.isoformat(timespec="milliseconds"),
             "code": f"0x{FAULT_NAME_TO_CODE.get(fault, 0):08X}",
@@ -269,6 +316,8 @@ class FaultLogger:
             "reason": fault_reason(fault, snapshot),
             "engine_status": engine_status(snapshot),
             "snapshot": _snapshot_dict(snapshot),
+            "pre_fault_timeline": timeline_name,
+            "pre_fault_window": pre_fault_window,
         }
         line = json.dumps(event, sort_keys=True)
         summary = self._format_summary(event)
@@ -277,6 +326,30 @@ class FaultLogger:
                 handle.write(line + "\n")
             with self._summary_log.open("a", encoding="utf-8") as handle:
                 handle.write(summary + "\n")
+            self._write_pre_fault_timeline(self.log_dir / timeline_name, fault, event, pre_fault_window)
+
+    @staticmethod
+    def _timeline_name(timestamp: datetime, fault: str) -> str:
+        safe_fault = "".join(char if char.isalnum() else "_" for char in fault.lower()).strip("_")
+        return f"pre_fault_{timestamp.strftime('%Y%m%d_%H%M%S_%f')[:-3]}_{safe_fault}.txt"
+
+    @staticmethod
+    def _write_pre_fault_timeline(path: Path, fault: str, event: dict[str, Any], samples: list[dict[str, Any]]) -> None:
+        columns = (
+            "timestamp", "rpm", "speed_mph", "gear", "mode", "fuel_type", "boost_psi",
+            "target_boost_psi", "wastegate_duty_pct", "throttle_pct", "oil_pressure_psi",
+            "oil_temp_f", "coolant_temp_f", "intake_temp_f", "exhaust_temp_f",
+            "battery_voltage", "wmi_flow_cc_min", "wmi_request_cc_min",
+            "traction_slip_pct", "traction_cut_pct",
+        )
+        with path.open("w", encoding="utf-8") as handle:
+            handle.write(f"FAULT: {fault}\n")
+            handle.write(f"TRIGGERED: {event['timestamp']}\n")
+            handle.write(f"REASON: {event['reason']}\n")
+            handle.write("WINDOW: approximately 30 seconds before the fault, sampled at 10 Hz\n\n")
+            handle.write("\t".join(columns) + "\n")
+            for sample in samples:
+                handle.write("\t".join(str(sample.get(column, "")) for column in columns) + "\n")
 
     @staticmethod
     def _format_summary(event: dict[str, Any]) -> str:

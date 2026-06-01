@@ -63,6 +63,22 @@ sudo ip link set can0 up type can bitrate 500000
 
 Use the oscillator value printed for the exact HAT. Many Pi HATs are 16 MHz.
 
+## Raspberry Pi Controlled Shutdown
+
+The external Pi power supply must remain latched on after key-off long enough
+for Linux to halt cleanly. Merge `deploy/config.txt.power.fragment` into the Pi
+boot configuration after checking the CAN HAT pin use:
+
+| Pi signal | Physical pin | Connects to |
+| --- | ---: | --- |
+| GPIO17 | 11 | Active-low shutdown request from ignition-off supervisor or pushbutton circuit |
+| GPIO27 | 13 | External power latch/supervisor safe-to-remove-power input |
+
+GPIO27 changes state only after Linux has halted. The external latch should
+remove Pi power then, with a bounded timeout fallback. Protect the Pi supply
+with fused input power, reverse-polarity protection, automotive transient
+suppression, and a suitable DC/DC converter. See `docs/power_nfc_watchdogs.md`.
+
 ## MS3Pro Mini CAN Hookup
 
 The MS3Pro Mini pinout uses:
@@ -84,7 +100,8 @@ Project ownership assumptions:
   electronic wastegate actuator power stages; there is no separate boost
   controller module.
 - Pi owns HUD/settings decisions and publishes boost target, mode, fuel profile,
-  spark table select, WMI enable, and safety requests.
+  spark table select, NFC/start authority, and safety requests. WMI is
+  automatic on the Teensy; the old Pi WMI-enable frame is legacy-only.
 
 ## Teensy 4.1 CAN Interface
 

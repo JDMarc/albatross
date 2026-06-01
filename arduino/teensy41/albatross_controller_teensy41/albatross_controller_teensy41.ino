@@ -1,4 +1,5 @@
 #include <FlexCAN_T4.h>
+#include <Watchdog_t4.h>
 #include <math.h>
 
 // Target board: Teensy 4.1
@@ -6,6 +7,7 @@
 static constexpr uint32_t CAN_BITRATE = 500000;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> CANBUS;
+WDT_T4<WDT3> CONTROLLER_WATCHDOG;
 
 // --- CAN IDs (must match master table) ---
 namespace CanId {
@@ -795,11 +797,14 @@ void updateControllers() {
   analogWrite(WG2_PWM_PIN, wg2_pwm);
 
   // Ancillary controls handled on the Teensy.
+  // WMI is automatic. The deprecated PI_WMI_ENABLE bit remains visible for
+  // old tools, but rider arming is not required for normal operation.
+  const bool wmi_demanded =
+      target >= 60 || g_inputs.boost_psi_x10 >= 60 || g_commands.wmi_trigger_pct_x10 > 0;
   const bool wmi_conditions =
-      g_commands.nfc_ok && !limp && !control_link_stale && g_commands.wmi_arm &&
-      g_inputs.rpm > 3300 && g_inputs.tps_pct > 38 && g_inputs.boost_psi_x10 >= 60;
-  const bool legacy_trigger = (g_commands.wmi_trigger_pct_x10 > 0) && (g_inputs.tps_pct > 45) && g_commands.nfc_ok && !control_link_stale;
-  const bool wmi_enable = wmi_conditions || legacy_trigger;
+      g_commands.nfc_ok && !limp && !control_link_stale && wmi_demanded &&
+      g_inputs.rpm > 3300 && g_inputs.tps_pct > 38;
+  const bool wmi_enable = wmi_conditions;
 
   const float boost_ratio = constrain(g_inputs.boost_psi_x10 / 220.0f, 0.0f, 1.0f);
   const float target_ratio = constrain(g_commands.boost_target_psi_x10 / 220.0f, 0.0f, 1.0f);
@@ -1056,6 +1061,11 @@ void setup() {
   CANBUS.setBaudRate(CAN_BITRATE);
   CANBUS.setMaxMB(16);
   CANBUS.enableFIFO();
+
+  WDT_timings_t watchdog_config = {};
+  watchdog_config.trigger = 1; // early-warning interrupt threshold, seconds
+  watchdog_config.timeout = 2; // hardware reset threshold, seconds
+  CONTROLLER_WATCHDOG.begin(watchdog_config);
 }
 
 void loop() {
@@ -1079,4 +1089,6 @@ void loop() {
     lastPublishMs = now;
     publishStatusFrames();
   }
+
+  CONTROLLER_WATCHDOG.feed();
 }

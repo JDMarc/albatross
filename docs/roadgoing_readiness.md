@@ -28,18 +28,18 @@ suited to the wastegate actuator current.
 | Brake system | External | Front/rear brakes, brake switches, hydraulic condition, brake light activation, and inspection compliance are outside the code but mandatory. |
 | Kill switch / run switch | Partial | Pi sends engine-run state and Teensy requests torque cut/no boost, but the bike still needs a hardwired ignition/fuel/ECU kill path independent of software. |
 | Fusing and power distribution | Missing in code | Every branch needs fuse sizing, relay strategy, wire gauge, and serviceable connectors documented. |
-| Load dump/transient protection | Missing in code | Pi, Teensy, CAN modules, and sensor inputs need automotive power protection, reverse polarity protection, and brownout behavior validation. |
+| Load dump/transient protection | Hardware provision documented | Pi, Teensy, CAN modules, and sensor inputs still need selected automotive power protection, reverse polarity protection, and brownout validation. See `docs/power_nfc_watchdogs.md`. |
 | Weather/vibration | Hardware | Enclosures, strain relief, sealed connectors, conformal coating where appropriate, and vibration mounts need to be selected. |
-| Watchdog/fail-silent behavior | Partial | Teensy no-boost CAN stale behavior exists, but hardware watchdog reset, Pi process supervision, and road simulation tests are still needed. |
+| Watchdog/fail-silent behavior | Partial | Teensy hardware watchdog, source-specific CAN stale behavior, and Pi render-loop systemd watchdog are implemented. Bench fault-injection and powered-actuator validation are still required. |
 | Boost actuator power stage | Required | Teensy logic pins must feed a current-rated H-bridge/driver. Add position feedback if the chosen wastegate actuator supports it. |
 | Mechanical boost failsafe | Required | Wastegate should fail to spring/base boost or no boost on power loss, blown fuse, Teensy reset, CAN loss, or driver fault. |
 | MS3 hard limits | Required | MS3 must enforce boost/fuel/ignition/overboost/AFR/oil/temperature safeties even if Pi or Teensy misbehaves. |
 | Sensor calibration | Required | Wheel circumference, magnet count, gear ratios, WMI flow pulses/L, tank sender scaling, oil/flex/fuel sensors, and boost/MAP scaling need measured calibration. |
-| Logging and recovery | Partial | Fault logging and USB export exist; add a rider-readable fault summary and post-ride review workflow before relying on logs for diagnosis. |
-| Updates | Partial | USB update bundle flow exists; add rollback verification and "engine off, voltage OK" installation tests on the actual Pi. |
+| Logging and recovery | Partial | Fault JSONL, readable summaries, USB export, and readable 30-second pre-fault timelines exist. Define the post-ride review workflow before relying on logs for diagnosis. |
+| Updates | Partial | USB/GitHub bundle flow and automatic application-overlay rollback exist. Verify rollback and "engine off, voltage OK" installs on the actual Pi. |
 | EMI/grounding | Hardware | CAN twisted pair, shield strategy, star/sensor grounds, ignitor/injector noise separation, and alternator noise testing need validation. |
 | Human factors | Partial | HUD has indicator/high-beam icons and fault voice lines; verify sunlight readability, glove controls, startup time, and no critical text overlap on the real display. |
-| Battery/charging health | Partial | Voltage faults exist; add current draw budget, parasitic draw target, alternator capacity check, and low-voltage graceful shutdown. |
+| Battery/charging health | Partial | Voltage faults and low-voltage controlled Pi shutdown exist; add current draw budget, parasitic draw target, alternator capacity check, and external hold-up/latch validation. |
 | Road-test plan | Missing | Add staged tests: powered bench, spinning-wheel bench, no-boost ride, spring/base-boost ride, low-boost ride, WMI-disabled ride, CAN-fault injection, thermal soak. |
 
 ## Highest-Priority Engineering Additions
@@ -47,7 +47,7 @@ suited to the wastegate actuator current.
 1. Add a hardware kill path that does not depend on Pi, Teensy, CAN, or Python.
 2. Add or confirm mechanical boost fail-safe behavior with the wastegate actuator
    and driver powered off.
-3. Add a watchdog on Teensy and a systemd restart/watchdog path on the Pi.
+3. Bench-validate the Teensy watchdog reset and Pi systemd render-loop watchdog path.
 4. Bench-test Teensy CAN stale timeout behavior with the wastegate actuator
    driver powered, confirming zero boost, no Air Shot, no flame, and stable HUD
    reporting when Pi or ECU frames stop.

@@ -31,15 +31,18 @@ from albatross_pi.canbus.encode import (
     build_flame_mode_frame,
     build_limp_mode_frame,
     build_media_control_frame,
+    build_nfc_auth_frame,
     build_phone_link_frame,
 )
 from albatross_pi.canbus.ids import LIMP_REASON_CODES
 from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
+from albatross_pi.runtime import PiPowerSupervisor, SystemdNotifier
+from albatross_pi.security import NfcAuthorizer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import CANFrameRecord, ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, SystemStatus, WMIState
-from albatross_pi.updater import install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
+from albatross_pi.updater import confirm_pending_update_health, install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
 
 
 def _iter_can_snapshots(
@@ -192,6 +195,9 @@ def main() -> None:
     parser.add_argument("--settings-file", type=Path, default=Path("settings/hud_settings.json"), help="persistent HUD settings file")
     parser.add_argument("--phone-bt-mac", help="Paired phone Bluetooth MAC for media/weather/GPS bridge")
     parser.add_argument("--phone-telemetry-udp", default="127.0.0.1:5010", help="UDP host:port for phone weather/GPS telemetry")
+    parser.add_argument("--nfc-config", type=Path, default=Path("settings/nfc_auth.json"), help="USB NFC authorization configuration")
+    parser.add_argument("--nfc-bypass", action="store_true", help="bench-only: permit engine run without an NFC scan")
+    parser.add_argument("--disable-low-voltage-shutdown", action="store_true", help="disable orderly Pi halt after sustained engine-off undervoltage")
     parser.add_argument("--bind-inputs", action="store_true", help="Prompt keyboard bindings for demo controls")
     parser.add_argument(
         "--snapshot",
@@ -202,6 +208,8 @@ def main() -> None:
 
     _configure_logging(args.log_level)
     fault_logger = FaultLogger(args.fault_log_dir)
+    power_supervisor = PiPowerSupervisor(enabled=not args.disable_low_voltage_shutdown)
+    systemd_notifier = SystemdNotifier()
 
     if args.snapshot:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -233,7 +241,14 @@ def main() -> None:
         for fault in faults:
             fault_logger.log_fault(fault, snapshot)
 
+    def _observe_snapshot(snapshot: StateSnapshot) -> None:
+        fault_logger.observe(snapshot)
+        power_supervisor.observe(snapshot)
+
     renderer.configure_fault_log_callback(_record_faults)
+    renderer.configure_snapshot_log_callback(_observe_snapshot)
+    renderer.configure_runtime_heartbeat_callback(systemd_notifier.watchdog)
+    renderer.configure_runtime_health_callback(confirm_pending_update_health)
     renderer.configure_log_export_callback(fault_logger.export_to_usb)
     renderer.configure_update_install_callback(lambda snapshot: install_update_from_usb(snapshot).display())
 
@@ -276,6 +291,9 @@ def main() -> None:
     aggregator: CANStateAggregator | None = None
     simulator: StateSimulator | None = None
     stream: Iterable[StateSnapshot] | None = None
+    nfc_authorizer: NfcAuthorizer | None = None
+    authority_stop_event = threading.Event()
+    engine_run_inhibit = threading.Event()
 
     if args.can_interface:
         aggregator = CANStateAggregator()
@@ -365,7 +383,33 @@ def main() -> None:
         renderer.configure_fuel_type_callback(_send_fuel_type)
         renderer.configure_flame_callback(_send_flame_mode)
         renderer.configure_air_shot_callback(_send_air_shot_request)
+        renderer.configure_can_freshness_callback(
+            aggregator.rx_age_s,
+            ecu_callback=aggregator.ecu_rx_age_s,
+            controller_callback=aggregator.controller_rx_age_s,
+        )
         renderer.sync_persisted_controls()
+
+        nfc_authorizer = NfcAuthorizer.from_config(args.nfc_config, bypass=args.nfc_bypass)
+        nfc_authorizer.start()
+
+        def _send_start_authority() -> None:
+            assert can_interface is not None and aggregator is not None and nfc_authorizer is not None
+            while not authority_stop_event.is_set():
+                authorized = nfc_authorizer.authorized
+                engine_run_enabled = authorized and not engine_run_inhibit.is_set()
+                try:
+                    for frame in (
+                        build_nfc_auth_frame(authorized),
+                        build_engine_run_switch_frame(engine_run_enabled),
+                    ):
+                        can_interface.send(*frame)
+                        aggregator.mark_sent_frame(*frame)
+                except Exception:
+                    logging.exception("Unable to publish NFC/start authority heartbeat")
+                authority_stop_event.wait(0.25)
+
+        threading.Thread(target=_send_start_authority, name="start-authority", daemon=True).start()
 
         def _safety_supervisor() -> None:
             assert aggregator is not None and can_interface is not None
@@ -391,6 +435,8 @@ def main() -> None:
                     return "ENGINE RUN OFF"
                 if "ECU STALE" in faults_now:
                     return "ECU CAN STALE"
+                if "CAN STALE" in faults_now:
+                    return "CONTROL LINK STALE"
                 if "LOW OIL PRESS" in faults_now or "CRITICAL OIL PRESS" in faults_now:
                     return "LOW OIL PRESS"
                 if "COOLANT HOT" in faults_now or "EGT HIGH" in faults_now or "INTAKE AIR HOT" in faults_now:
@@ -412,7 +458,11 @@ def main() -> None:
                 faults: list[str] = []
                 now_ts = time.time()
 
-                # Comms/freshness (simple): if key telemetry never appears or drops to all-zero under throttle.
+                # Source-specific ages cannot be hidden by unrelated traffic or local TX echoes.
+                if aggregator.ecu_rx_age_s() > 0.5:
+                    faults.append("ECU STALE")
+                if aggregator.controller_rx_age_s() > 0.5:
+                    faults.append("CAN STALE")
                 if snap.engine.throttle_pct > 15 and snap.engine.rpm < 300:
                     faults.append("ECU STALE")
                 if snap.engine.rpm > 0 and snap.engine.speed_mph == 0 and snap.engine.gear not in ("N", "?"):
@@ -542,7 +592,7 @@ def main() -> None:
                 prev_boost_psi = snap.engine.boost_psi
                 prev_wg_duty = snap.engine.wastegate_duty_pct
 
-                severe = any(f in faults for f in ("ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HIGH", "CLUTCH SLIP"))
+                severe = any(f in faults for f in ("CAN STALE", "ECU STALE", "LOW OIL PRESS", "COOLANT HOT", "EGT HIGH", "CLUTCH SLIP"))
                 desired_boost = 0.0 if severe else calculate_boost_target(snap)
                 if (
                     last_requested_boost is None
@@ -618,6 +668,7 @@ def main() -> None:
                 # Engine run switch "OFF" acts as ECU-level kill (ignition/fuel cut).
                 # Re-send every 1s while active for robustness against frame loss.
                 if should_cut_run_switch:
+                    engine_run_inhibit.set()
                     if last_engine_run_switch_enabled or (now_ts - last_escalation_ts) >= 1.0:
                         frame = build_engine_run_switch_frame(False)
                         can_interface.send(*frame)
@@ -626,11 +677,15 @@ def main() -> None:
                     last_engine_run_switch_enabled = False
                     faults.append("ENGINE RUN SWITCH OFF")
                 elif not last_engine_run_switch_enabled:
-                    frame = build_engine_run_switch_frame(True)
-                    can_interface.send(*frame)
-                    aggregator.mark_sent_frame(*frame)
-                    last_engine_run_switch_enabled = True
-                    logging.info("Safety supervisor restored engine run switch to ON.")
+                    engine_run_inhibit.clear()
+                    if nfc_authorizer is not None and nfc_authorizer.authorized:
+                        frame = build_engine_run_switch_frame(True)
+                        can_interface.send(*frame)
+                        aggregator.mark_sent_frame(*frame)
+                        last_engine_run_switch_enabled = True
+                        logging.info("Safety supervisor restored authorized engine run switch to ON.")
+                else:
+                    engine_run_inhibit.clear()
 
                 if faults:
                     active_limp = severe or should_shutdown_engine or should_cut_run_switch
@@ -835,6 +890,10 @@ def main() -> None:
         _start_demo_udp_listener(args.demo_udp_listen)
 
     def _shutdown_handler(*_: object) -> None:
+        authority_stop_event.set()
+        if nfc_authorizer:
+            nfc_authorizer.stop()
+        systemd_notifier.stopping()
         if can_interface:
             can_interface.stop()
         pygame.quit()
@@ -855,11 +914,16 @@ def main() -> None:
         else:
             if stream is None:
                 stream = []
+            systemd_notifier.ready()
             renderer.run(stream)
     except Exception:
         logging.exception("HUD runtime error")
         raise
     finally:
+        authority_stop_event.set()
+        if nfc_authorizer:
+            nfc_authorizer.stop()
+        systemd_notifier.stopping()
         if can_interface:
             can_interface.stop()
 

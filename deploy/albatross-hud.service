@@ -4,7 +4,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
 User=pi
 WorkingDirectory=/home/pi/albatross
 Environment=PYTHONUNBUFFERED=1
@@ -12,6 +13,7 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /home/pi/albatross/pi_main.py --can-interface can0 --width 1280 --height 480
 Restart=always
 RestartSec=2
+WatchdogSec=5
 
 [Install]
 WantedBy=multi-user.target

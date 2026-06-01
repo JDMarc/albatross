@@ -781,11 +781,14 @@ void updateControllers() {
   analogWrite(WG2_PWM_PIN, wg2_pwm);
 
   // Ancillary controls handled Arduino-side.
+  // WMI is automatic. The deprecated PI_WMI_ENABLE bit remains visible for
+  // old tools, but rider arming is not required for normal operation.
+  const bool wmi_demanded =
+      target >= 60 || g_inputs.boost_psi_x10 >= 60 || g_commands.wmi_trigger_pct_x10 > 0;
   const bool wmi_conditions =
-      g_commands.nfc_ok && !limp && !control_link_stale && g_commands.wmi_arm &&
-      g_inputs.rpm > 3300 && g_inputs.tps_pct > 38 && g_inputs.boost_psi_x10 >= 60;
-  const bool legacy_trigger = (g_commands.wmi_trigger_pct_x10 > 0) && (g_inputs.tps_pct > 45) && g_commands.nfc_ok && !control_link_stale;
-  const bool wmi_enable = wmi_conditions || legacy_trigger;
+      g_commands.nfc_ok && !limp && !control_link_stale && wmi_demanded &&
+      g_inputs.rpm > 3300 && g_inputs.tps_pct > 38;
+  const bool wmi_enable = wmi_conditions;
 
   const float boost_ratio = constrain(g_inputs.boost_psi_x10 / 220.0f, 0.0f, 1.0f);
   const float target_ratio = constrain(g_commands.boost_target_psi_x10 / 220.0f, 0.0f, 1.0f);

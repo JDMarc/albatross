@@ -47,7 +47,8 @@ This is the short version of how this stuff works:
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).
   - Manages Air Shot compressor + shot latch/rearm logic.
   - Computes wheel speed + slip, accepts Pi traction level command (0x124), and publishes torque-reduction requests (0x12A/0x12B) for ECU cooperation.
-  - Enforces WMI/flame interlocks and limp-aware behavior.
+  - Enforces automatic demand-driven WMI/flame interlocks and limp-aware behavior.
+  - Uses a hardware watchdog so stalled controller firmware resets into inactive outputs.
 
 Controller firmware notes (important)
 
@@ -97,8 +98,10 @@ Repository layout
 - logs/
   Created on first startup. Faults are written as both raw JSONL
   (`fault_events_YYYY-MM-DD.jsonl`) and a readable one-line summary
-  (`fault_events_YYYY-MM-DD.txt`). Use the text file for quick diagnosis;
-  use the JSONL when you need the complete snapshot.
+  (`fault_events_YYYY-MM-DD.txt`). Each fault also writes a readable
+  `pre_fault_*.txt` timeline containing approximately 30 seconds of lead-in
+  data. Use the text files for quick diagnosis; use JSONL when you need the
+  complete trigger snapshot and machine-readable timeline.
 
 - settings/
   Created when rider-adjustable HUD preferences are changed. The default
@@ -113,6 +116,10 @@ Repository layout
 
 - deploy/albatross-hud.service  
   Example systemd unit for power-on auto-launch on Raspberry Pi.
+
+- deploy/config.txt.power.fragment
+  Raspberry Pi GPIO overlay fragment for controlled key-off shutdown and
+  external power-latch handoff. See `docs/power_nfc_watchdogs.md`.
 
 - docs/  
   Project spec and ECU setup notes.
@@ -231,3 +238,5 @@ I AM NOT RESPONSIBLE IF SOMETHING BLOWS UP!!!!!!
 
 MS3Pro-specific setup details are in docs/ms3_tunerstudio_setup.md.
 Full project vision/spec notes are in docs/albatross_pi_spec.md.
+Production NFC authorization, watchdogs, and controlled Pi shutdown hardware
+are documented in docs/power_nfc_watchdogs.md.

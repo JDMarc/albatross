@@ -119,4 +119,10 @@ Port detection checks:
 - `settings/` and `logs/` are backed up before install.
 - Current app files are backed up before a Pi app overlay.
 - Pi app updates write `updates/restart_required`; the next service restart or power cycle runs the new app.
+- New Pi overlays must keep the HUD alive through POST and 15 seconds of
+  runtime. Two unconfirmed starts are permitted; the following launch restores
+  the versioned app backup automatically.
 - Controller-only updates do not require a Pi restart.
+
+This is application-level overlay rollback. It is not yet a full A/B
+filesystem or OS-image update scheme.

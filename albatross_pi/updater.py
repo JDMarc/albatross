@@ -24,6 +24,9 @@ LOGGER = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UPDATE_STATE_DIR = REPO_ROOT / "updates"
+PENDING_HEALTH_PATH = UPDATE_STATE_DIR / "pending_health.json"
+RESTART_REQUIRED_PATH = UPDATE_STATE_DIR / "restart_required"
+MAX_UNCONFIRMED_STARTS = 2
 RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "maps", "settings", "updates"}
 DEFAULT_ARDUINO_FQBN = "teensy:avr:teensy41"
 DEFAULT_ARDUINO_BAUD = 115200
@@ -88,6 +91,13 @@ def _copytree_overlay(source: Path, destination: Path) -> None:
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp_path.replace(path)
 
 
 def _backup_runtime_dirs(backup_root: Path) -> None:
@@ -411,9 +421,18 @@ def install_update_bundle(
             "backup": str(backup_root),
             "restart_required": pi_updated,
         }
-        (UPDATE_STATE_DIR / "last_update.json").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_json_atomic(UPDATE_STATE_DIR / "last_update.json", state)
         if pi_updated:
-            (UPDATE_STATE_DIR / "restart_required").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            _write_json_atomic(RESTART_REQUIRED_PATH, state)
+            _write_json_atomic(
+                PENDING_HEALTH_PATH,
+                {
+                    "version": version,
+                    "backup": str(backup_root),
+                    "installed_at": state["installed_at"],
+                    "startup_attempts": 0,
+                },
+            )
         if pi_updated and arduino_updated:
             return UpdateResult("PI+ARD OK", "RESTART")
         if pi_updated:
@@ -478,3 +497,51 @@ def request_reboot_if_raspberry_pi() -> bool:
     command = ["systemctl", "reboot"] if shutil.which("systemctl") else ["sudo", "reboot"]
     subprocess.Popen(command, cwd=str(REPO_ROOT))
     return True
+
+
+def register_startup_attempt_or_rollback() -> bool:
+    """Rollback an unconfirmed Pi overlay after repeated failed runtime starts."""
+    if not PENDING_HEALTH_PATH.exists():
+        return False
+    try:
+        pending = json.loads(PENDING_HEALTH_PATH.read_text(encoding="utf-8"))
+        attempts = int(pending.get("startup_attempts", 0)) + 1
+        pending["startup_attempts"] = attempts
+        if attempts <= MAX_UNCONFIRMED_STARTS:
+            _write_json_atomic(PENDING_HEALTH_PATH, pending)
+            LOGGER.warning("Pi update health confirmation pending; startup attempt %s/%s", attempts, MAX_UNCONFIRMED_STARTS)
+            return False
+        backup_root = Path(str(pending["backup"]))
+        app_backup = backup_root / "app"
+        if not app_backup.is_dir():
+            raise FileNotFoundError(f"Rollback app backup missing: {app_backup}")
+        _copytree_overlay(app_backup, REPO_ROOT)
+        rollback_state = {
+            "rolled_back_at": datetime.now().isoformat(timespec="seconds"),
+            "failed_version": pending.get("version", "unknown"),
+            "backup": str(backup_root),
+            "startup_attempts": attempts,
+        }
+        _write_json_atomic(UPDATE_STATE_DIR / "last_rollback.json", rollback_state)
+        PENDING_HEALTH_PATH.unlink(missing_ok=True)
+        RESTART_REQUIRED_PATH.unlink(missing_ok=True)
+        LOGGER.error("Rolled back unconfirmed Pi update after %s failed starts", attempts - 1)
+        return True
+    except Exception:
+        LOGGER.exception("Unable to evaluate or rollback pending Pi update")
+        return False
+
+
+def confirm_pending_update_health() -> None:
+    """Mark a Pi overlay healthy after the HUD render loop remains alive."""
+    if not PENDING_HEALTH_PATH.exists():
+        return
+    try:
+        pending = json.loads(PENDING_HEALTH_PATH.read_text(encoding="utf-8"))
+        pending["confirmed_at"] = datetime.now().isoformat(timespec="seconds")
+        _write_json_atomic(UPDATE_STATE_DIR / "last_confirmed_update.json", pending)
+        PENDING_HEALTH_PATH.unlink(missing_ok=True)
+        RESTART_REQUIRED_PATH.unlink(missing_ok=True)
+        LOGGER.info("Confirmed Pi update health")
+    except Exception:
+        LOGGER.exception("Unable to confirm Pi update health")

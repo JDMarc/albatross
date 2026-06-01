@@ -253,6 +253,14 @@ class HUDRenderer:
         self._flame_callback = None
         self._air_shot_callback = None
         self._fault_log_callback: Callable[[tuple[str, ...], StateSnapshot], None] | None = None
+        self._snapshot_log_callback: Callable[[StateSnapshot], None] | None = None
+        self._can_freshness_callback: Callable[[], float] | None = None
+        self._ecu_can_freshness_callback: Callable[[], float] | None = None
+        self._controller_can_freshness_callback: Callable[[], float] | None = None
+        self._runtime_heartbeat_callback: Callable[[], None] | None = None
+        self._runtime_health_callback: Callable[[], None] | None = None
+        self._runtime_health_confirmed = False
+        self._runtime_started_monotonic = time.monotonic()
         self._log_export_callback: Callable[[], str] | None = None
         self._update_install_callback: Callable[[StateSnapshot], str] | None = None
         self._online_update_callback: Callable[[StateSnapshot, Callable[[str, int, int], None]], str] | None = None
@@ -325,7 +333,6 @@ class HUDRenderer:
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
         active: set[str] = set()
-        can_age_s = max(0.0, now_s - self._last_can_fresh_monotonic)
         engine = state.engine
         temps = state.temps
         wmi = state.wmi
@@ -334,8 +341,10 @@ class HUDRenderer:
         in_drive = gear not in {"N", "?", ""}
         high_load = engine.throttle_pct > 55 or engine.engine_load_pct > 60
 
-        if can_age_s > 1.5:
+        if self._controller_can_age_s(now_s) > 1.5:
             active.add("CAN STALE")
+        if self._ecu_can_age_s(now_s) > 1.5:
+            active.add("ECU STALE")
         if temps.oil_pressure_psi < 5 and engine.rpm > 1200:
             active.add("CRITICAL OIL PRESS")
         elif temps.oil_pressure_psi < 12 and engine.rpm > 1800:
@@ -675,6 +684,54 @@ class HUDRenderer:
     def configure_fault_log_callback(self, callback: Callable[[tuple[str, ...], StateSnapshot], None]) -> None:
         self._fault_log_callback = callback
 
+    def configure_snapshot_log_callback(self, callback: Callable[[StateSnapshot], None]) -> None:
+        self._snapshot_log_callback = callback
+
+    def configure_can_freshness_callback(
+        self,
+        callback: Callable[[], float],
+        *,
+        ecu_callback: Callable[[], float] | None = None,
+        controller_callback: Callable[[], float] | None = None,
+    ) -> None:
+        self._can_freshness_callback = callback
+        self._ecu_can_freshness_callback = ecu_callback
+        self._controller_can_freshness_callback = controller_callback
+
+    def configure_runtime_heartbeat_callback(self, callback: Callable[[], None]) -> None:
+        self._runtime_heartbeat_callback = callback
+
+    def configure_runtime_health_callback(self, callback: Callable[[], None]) -> None:
+        self._runtime_health_callback = callback
+
+    def _can_age_s(self, now_s: float | None = None) -> float:
+        if self._can_freshness_callback is not None:
+            try:
+                return max(0.0, float(self._can_freshness_callback()))
+            except Exception:
+                LOGGER.exception("CAN freshness callback failed")
+                return float("inf")
+        current = time.monotonic() if now_s is None else now_s
+        return max(0.0, current - self._last_can_fresh_monotonic)
+
+    def _ecu_can_age_s(self, now_s: float | None = None) -> float:
+        if self._ecu_can_freshness_callback is not None:
+            try:
+                return max(0.0, float(self._ecu_can_freshness_callback()))
+            except Exception:
+                LOGGER.exception("ECU CAN freshness callback failed")
+                return float("inf")
+        return self._can_age_s(now_s)
+
+    def _controller_can_age_s(self, now_s: float | None = None) -> float:
+        if self._controller_can_freshness_callback is not None:
+            try:
+                return max(0.0, float(self._controller_can_freshness_callback()))
+            except Exception:
+                LOGGER.exception("Controller CAN freshness callback failed")
+                return float("inf")
+        return self._can_age_s(now_s)
+
     def configure_log_export_callback(self, callback: Callable[[], str]) -> None:
         self._log_export_callback = callback
 
@@ -980,7 +1037,7 @@ class HUDRenderer:
                 abs(state.traction.wheelie_pitch_deg) > 0.01,
             )
         )
-        age_s = max(0.0, (datetime.now() - state.environment.time).total_seconds())
+        age_s = self._can_age_s()
         has_can_signal = (has_ecu_signal or has_arduino_signal or state.engine.speed_mph > 0 or state.engine.boost_psi > 0) and age_s <= 1.5
 
         checks = [
@@ -992,7 +1049,7 @@ class HUDRenderer:
             ("BATTERY VOLT", state.temps.battery_voltage >= 0.0 or has_can_signal),
             ("GEAR INPUT", has_can_signal and state.engine.gear in {"1", "2", "3", "4", "5", "6", "N"}),
             ("TRACTION INPUT", has_can_signal and state.traction.intervention_level != ""),
-            ("CAN LINK", has_can_signal or bool(state.environment.message_line)),
+            ("CAN LINK", has_can_signal),
             ("USB INPUT", pygame.joystick.get_count() > 0),
         ]
         self._post_lines = [(f"TEST {name:<18} {'OK' if ok else 'FAULT'}", ok) for name, ok in checks]
@@ -1097,6 +1154,11 @@ class HUDRenderer:
             state = replace(state, faults=self._runtime_faults(state, now_s))
             state = self._economy_tracker.update(state, now_s)
             state = replace(state, advisories=self._predictive_advisories(state, now_s))
+            if self._snapshot_log_callback:
+                try:
+                    self._snapshot_log_callback(state)
+                except Exception:
+                    LOGGER.exception("Snapshot logging callback failed")
             previous_mode_index = self._mode_index
             if state.environment.mode in self._modes:
                 self._mode_index = self._modes.index(state.environment.mode)
@@ -1154,6 +1216,16 @@ class HUDRenderer:
                 allow_playback=self._post_complete and not self._post_fault_active,
             )
             self._render_frame(state)
+            if self._runtime_heartbeat_callback:
+                self._runtime_heartbeat_callback()
+            if (
+                not self._runtime_health_confirmed
+                and self._runtime_health_callback
+                and self._post_complete
+                and (now_s - self._runtime_started_monotonic) >= 15.0
+            ):
+                self._runtime_health_callback()
+                self._runtime_health_confirmed = True
             self.clock.tick(TARGET_FPS)
 
             now = time.perf_counter()
@@ -2050,15 +2122,16 @@ class HUDRenderer:
         self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 16, panel.bottom - 22))
 
     def _sensor_confidence_rows(self, state: StateSnapshot) -> list[tuple[str, str, str]]:
-        now_s = time.monotonic()
-        can_age_s = max(0.0, now_s - self._last_can_fresh_monotonic)
+        ecu_can_age_s = self._ecu_can_age_s()
+        controller_can_age_s = self._controller_can_age_s()
 
         rows: list[tuple[str, str, str]] = []
 
         def add(name: str, value: str, status: str) -> None:
             rows.append((name, value, status))
 
-        add("CAN freshness", f"{can_age_s:.1f}s", "OK" if can_age_s <= 0.5 else ("WARN" if can_age_s <= 1.5 else "ERR"))
+        add("ECU CAN", f"{ecu_can_age_s:.1f}s", "OK" if ecu_can_age_s <= 0.5 else ("WARN" if ecu_can_age_s <= 1.5 else "ERR"))
+        add("Control CAN", f"{controller_can_age_s:.1f}s", "OK" if controller_can_age_s <= 0.5 else ("WARN" if controller_can_age_s <= 1.5 else "ERR"))
         add("RPM", f"{state.engine.rpm}", "OK" if 0 <= state.engine.rpm <= 16000 else "ERR")
         add("TPS", f"{state.engine.throttle_pct:.0f}%", "OK" if 0 <= state.engine.throttle_pct <= 100 else "ERR")
         add("Boost/MAP", f"{state.engine.boost_psi:.1f} psi", "OK" if -2.0 <= state.engine.boost_psi <= 45.0 else "ERR")

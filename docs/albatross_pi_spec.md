@@ -13,7 +13,7 @@
 - **CAN RX/TX thread**: SocketCAN interface with 1 kHz receive loop and prioritized transmit queue.
 - **State machine thread**: runs at 50–100 Hz for evaluating modes, limits, and requests.
 - **HUD renderer thread**: Pygame loop targeting 60 FPS with double buffering and vsync off.
-- **Logger thread**: asynchronous SD logging with 30 s ring buffer and batch writes every 100–250 ms.
+- **Fault logger**: readable summaries, complete JSONL snapshots, and a 30 s rolling pre-fault timeline sampled at 10 Hz.
 - **Audio thread**: non-blocking mixer for sound effects and prompts.
 - **IO inputs thread**: handles buttons/NFC/touch with 200 Hz debouncing.
 - **OTA updater**: on-demand signed update verifier/applicator.
@@ -41,8 +41,8 @@
 - **Updated ID map**: canonical enumerations captured in ``albatross_pi/canbus/ids.py`` cover ECU telemetry (`0x100`-`0x10F`), Pi HUD commands, Pi-to-ECU map requests, Teensy supervisory status/service frames (`0x130`-`0x13F`, `0x145`-`0x147`), and bidirectional POST/test utility frames (`0x1F0`-`0x1F1`). Run `py -3.12 tools/audit_can_pins.py` after CAN or pin changes.
 - **MS3Pro Mini build note**: oil pressure, oil temperature, flex fuel, and injector pulse width/duty are MS3-owned inputs. The current HUD extension adds `0x10D` for flex-fuel ethanol percentage, `0x10E` for injector status, and optional `0x10F` for left/right boost pressure; wheel speed and WMI status remain Teensy-owned.
 - **Timeouts & fallbacks**:
-  - Loss of MS3 data > 200 ms: HUD banner “ECU LINK LOST”, Pi stops performance requests, commands Safe Mode to Teensy.
-  - Loss of Teensy heartbeat > 200 ms: HUD banner “CONTROL LINK LOST”, Pi orders MS3 conservative boost ceiling and shows Limp overlay.
+  - Loss of MS3 data: independently tracked from real `0x100`-`0x10F` RX timestamps; Pi safety supervisor derates after 500 ms and HUD reports stale after 1.5 s.
+  - Loss of Teensy heartbeat: independently tracked from real controller status RX timestamps; Pi safety supervisor derates after 500 ms and HUD reports stale after 1.5 s.
   - WMI requested but flow low for 250 ms: drop requested boost and display fault banner.
 
 ## 3. State Machines (Brains)
@@ -84,8 +84,8 @@
 - **Fuel prompts**: detect refuel events (GPS + fuel level change) and prompt for fuel type updates.
 
 ## 7. Logging & Black Box
-- **Realtime logs**: to SD (CSV/binary) capturing all CAN channels at 20–50 Hz with per-ride rotation and fsync cadence.
-- **Black box**: 30 s RAM ring buffer at 100 Hz for critical channels, persisted on faults/shutdown.
+- **Fault logs**: daily JSONL event log plus readable daily summary.
+- **Black box**: 30 s RAM ring buffer at 10 Hz for critical channels, persisted as a readable tab-separated timeline whenever a fault is thrown.
 - **Fields**: comprehensive engine, traction, intervention, electrical, fuel, mode, and command data.
 - **Export**: USB mass-storage or Wi-Fi share on demand.
 
@@ -153,9 +153,10 @@
 - Hardware-in-the-loop bench with CAN USB dongle and Teensy simulator.
 
 ## 14. OTA & Security
-- Signed `.tar.zst` update bundles; signature verification prior to apply.
-- Config backups for rollback; optional PIN for Settings/Flame mode.
-- Reject unsigned firmware over BLE/Wi-Fi.
+- USB and GitHub Release update bundles verify SHA-256 payload hashes before install.
+- Pi app overlays preserve a versioned backup and automatically restore it after repeated unconfirmed starts.
+- A line-oriented USB NFC reader gates engine-run authority for each power cycle. The MS3 run/start inhibit and a separate hardwired kill path remain required.
+- Full signed-bundle verification and full filesystem A/B OS images remain future hardening work.
 
 ## 15. Done-Done Checklist
 - SocketCAN scripts; verified scaling; state machine/mode enforcement; POST exchange with HUD feedback; WMI fail-safe; Air Shot gating/logging; TCS selection; shift banner; brightness control; black box dump; audio cues; bench sim achieving 60 FPS and <40% CPU.

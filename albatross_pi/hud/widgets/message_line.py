@@ -15,27 +15,9 @@ class MessageLine(Widget):
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)
-        has_ecu = (
-            state.engine.rpm > 0
-            or state.engine.throttle_pct > 0
-            or state.temps.coolant_temp_f > 0
-            or state.temps.oil_temp_f > 0
-        )
-        has_arduino = (
-            state.air_shot.pressure_psi > 0
-            or state.air_shot.charges_remaining > 0
-            or state.wmi.commanded_flow_cc_min > 0
-            or state.wmi.actual_flow_cc_min > 0
-            or state.traction.slip_pct > 0
-            or abs(state.traction.wheelie_pitch_deg) > 0.01
-        )
-        has_can = (
-            has_ecu
-            or has_arduino
-            or state.engine.speed_mph > 0
-            or state.engine.boost_psi > 0
-            or state.environment.message_line != ""
-        )
+        has_ecu = "ECU STALE" not in state.faults
+        has_arduino = "CAN STALE" not in state.faults
+        has_can = has_ecu and has_arduino
 
         comm_line = " | ".join(
             [

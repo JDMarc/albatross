@@ -10,6 +10,7 @@ Legacy controller target: **Arduino Mega 2560 Rev3 + MCP2515**, retained under
 - Main sketch:
   `arduino/teensy41/albatross_controller_teensy41/albatross_controller_teensy41.ino`
 - CAN library: `FlexCAN_T4`
+- Hardware watchdog library: `Watchdog_t4`
 - CAN bus: Teensy native `CAN1` at 500 kbit/s.
 - CAN wiring: Teensy pin `22` = CAN1 RX, Teensy pin `23` = CAN1 TX, through an
   external 3.3 V CAN transceiver.
@@ -78,6 +79,20 @@ the CAN bus quiet while still giving the HUD fresh data.
 If ECU telemetry or Pi command traffic goes stale, Teensy forces a no-boost
 limp state, disables flame/WMI/Air Shot outputs, and keeps publishing status
 frames so the HUD can report the fault.
+
+The Teensy hardware watchdog resets the controller if the main loop stalls for
+two seconds. Install `Watchdog_t4` alongside `FlexCAN_T4` before compiling.
+External output drivers still require physical pulldowns so reset and unplugged
+controller states default inactive.
+
+## Automatic WMI
+
+WMI does not require a rider arm switch. The pump is demand-driven when NFC is
+authorized, links are fresh, limp mode is inactive, requested or measured boost
+is at least 6 psi, RPM is above 3300, and TPS is above 38%. Pump PWM scales
+with boost, target boost, load, RPM, and the selected fuel's WMI dependence.
+The legacy Pi `0x128` WMI-arm command remains decoded for old bench tools but
+does not gate normal operation.
 
 ## Air Shot Behavior
 
