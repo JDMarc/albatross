@@ -15,8 +15,10 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 DEFAULT_ROUTER_URL = "https://router.project-osrm.org/route/v1/driving"
+DEFAULT_GEOCODER_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "AlbatrossMotorcycleHUD/1.0 (+https://github.com/JDMarc/albatross)"
 TILE_SIZE = 256
+ARRIVAL_RADIUS_M = 45.72
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,15 @@ class Waypoint:
 class Maneuver:
     instruction: str
     road_name: str
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True)
+class AddressSearchResult:
+    result_id: str
+    name: str
+    display_name: str
     latitude: float
     longitude: float
 
@@ -81,15 +92,22 @@ class NavigationManager:
         self.zoom = 15
         self.tile_url = DEFAULT_TILE_URL
         self.router_url = DEFAULT_ROUTER_URL
+        self.geocoder_url = DEFAULT_GEOCODER_URL
         self.current_latitude: float | None = None
         self.current_longitude: float | None = None
         self.waypoints: list[Waypoint] = []
         self.active_waypoint_id: str | None = None
+        self._temporary_destination: Waypoint | None = None
         self.route_coordinates: tuple[tuple[float, float], ...] = ()
         self.maneuvers: tuple[Maneuver, ...] = ()
         self.route_distance_m = 0.0
         self.route_duration_s = 0.0
         self.route_status = "STANDBY"
+        self.search_results: list[AddressSearchResult] = []
+        self.search_status = "STANDBY"
+        self._search_generation = 0
+        self.arrival_prompt_pending = False
+        self._arrival_prompt_destination: Waypoint | None = None
         self._maneuver_index = 0
         self._tile_downloads: set[tuple[int, int, int]] = set()
         self._tile_retry_after: dict[tuple[int, int, int], float] = {}
@@ -104,7 +122,12 @@ class NavigationManager:
 
     @property
     def active_waypoint(self) -> Waypoint | None:
-        return next((waypoint for waypoint in self.waypoints if waypoint.waypoint_id == self.active_waypoint_id), None)
+        saved = next((waypoint for waypoint in self.waypoints if waypoint.waypoint_id == self.active_waypoint_id), None)
+        if saved is not None:
+            return saved
+        if self._temporary_destination and self._temporary_destination.waypoint_id == self.active_waypoint_id:
+            return self._temporary_destination
+        return None
 
     @property
     def active(self) -> bool:
@@ -130,6 +153,7 @@ class NavigationManager:
         self.zoom = max(12, min(18, int(data.get("zoom", self.zoom))))
         self.tile_url = str(data.get("tile_url", self.tile_url))
         self.router_url = str(data.get("router_url", self.router_url)).rstrip("/")
+        self.geocoder_url = str(data.get("geocoder_url", self.geocoder_url))
         rows = data.get("waypoints", [])
         if isinstance(rows, list):
             for row in rows:
@@ -158,6 +182,7 @@ class NavigationManager:
             "zoom": self.zoom,
             "tile_url": self.tile_url,
             "router_url": self.router_url,
+            "geocoder_url": self.geocoder_url,
             "active_waypoint_id": self.active_waypoint_id,
             "waypoints": [asdict(waypoint) for waypoint in self.waypoints],
         }
@@ -175,15 +200,22 @@ class NavigationManager:
         self.current_latitude = float(latitude)
         self.current_longitude = float(longitude)
         self._advance_maneuver()
+        self._check_arrival()
 
     def add_current_waypoint(self, name: str) -> Waypoint | None:
         location = self.current_location
         if location is None:
             self.route_status = "GPS REQUIRED"
             return None
+        return self.add_waypoint(name, location[0], location[1])
+
+    def add_waypoint(self, name: str, latitude: float, longitude: float) -> Waypoint | None:
+        if not valid_location(latitude, longitude):
+            self.route_status = "GPS REQUIRED"
+            return None
         cleaned_name = " ".join(name.strip().upper().split())[:20] or f"WAYPOINT {len(self.waypoints) + 1}"
         waypoint_id = f"wp-{max([int(row.waypoint_id.split('-')[-1]) for row in self.waypoints if row.waypoint_id.startswith('wp-') and row.waypoint_id.split('-')[-1].isdigit()] or [0]) + 1}"
-        waypoint = Waypoint(waypoint_id, cleaned_name, location[0], location[1])
+        waypoint = Waypoint(waypoint_id, cleaned_name, float(latitude), float(longitude))
         self.waypoints.append(waypoint)
         self.save()
         self.route_status = f"SAVED {cleaned_name}"
@@ -210,12 +242,15 @@ class NavigationManager:
     def stop_navigation(self) -> None:
         with self._lock:
             self.active_waypoint_id = None
+            self._temporary_destination = None
             self.route_coordinates = ()
             self.maneuvers = ()
             self.route_distance_m = 0.0
             self.route_duration_s = 0.0
             self._maneuver_index = 0
             self.route_status = "STANDBY"
+            self.arrival_prompt_pending = False
+            self._arrival_prompt_destination = None
             self.save()
 
     def start_navigation(self, waypoint_id: str) -> None:
@@ -223,10 +258,30 @@ class NavigationManager:
         if waypoint is None:
             self.route_status = "WAYPOINT MISSING"
             return
+        self._temporary_destination = None
+        self._start_navigation_to(waypoint)
+
+    def start_navigation_to_search_result(self, result_id: str) -> None:
+        result = next((row for row in self.search_results if row.result_id == result_id), None)
+        if result is None:
+            self.route_status = "SEARCH RESULT MISSING"
+            return
+        waypoint = Waypoint(
+            waypoint_id=f"search-{int(time.time() * 1000)}",
+            name=result.name[:20],
+            latitude=result.latitude,
+            longitude=result.longitude,
+        )
+        self._temporary_destination = waypoint
+        self._start_navigation_to(waypoint)
+
+    def _start_navigation_to(self, waypoint: Waypoint) -> None:
         if self.current_location is None:
             self.route_status = "GPS REQUIRED"
             return
         self.active_waypoint_id = waypoint.waypoint_id
+        self.arrival_prompt_pending = False
+        self._arrival_prompt_destination = None
         self.save()
         self.route_coordinates = ()
         self.maneuvers = ()
@@ -237,6 +292,97 @@ class NavigationManager:
             return
         self.route_status = "ROUTE REQUEST"
         threading.Thread(target=self._download_route, args=(waypoint,), daemon=True, name="navigation-route").start()
+
+    def request_address_search(self, query: str) -> None:
+        cleaned_query = " ".join(query.strip().split())
+        if not cleaned_query:
+            self.search_results = []
+            self.search_status = "ENTER AN ADDRESS"
+            return
+        if not self.online_enabled:
+            self.search_results = []
+            self.search_status = "ONLINE SEARCH DISABLED"
+            return
+        with self._lock:
+            self._search_generation += 1
+            generation = self._search_generation
+            self.search_results = []
+            self.search_status = "SEARCHING"
+        threading.Thread(
+            target=self._download_address_search,
+            args=(cleaned_query, generation),
+            daemon=True,
+            name="navigation-address-search",
+        ).start()
+
+    def _download_address_search(self, query: str, generation: int) -> None:
+        params = urllib.parse.urlencode({"q": query, "format": "jsonv2", "limit": 5})
+        url = f"{self.geocoder_url}?{params}"
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=7.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            results: list[AddressSearchResult] = []
+            for index, raw_result in enumerate(payload):
+                latitude = float(raw_result["lat"])
+                longitude = float(raw_result["lon"])
+                if not valid_location(latitude, longitude):
+                    continue
+                display_name = " ".join(str(raw_result.get("display_name", "")).strip().split())
+                short_name = display_name.split(",", 1)[0].strip().upper() or "SEARCH RESULT"
+                results.append(
+                    AddressSearchResult(
+                        result_id=f"result-{generation}-{index}",
+                        name=short_name[:20],
+                        display_name=display_name[:96],
+                        latitude=latitude,
+                        longitude=longitude,
+                    )
+                )
+        except Exception as exc:
+            LOGGER.warning("Address search failed: %s", exc)
+            results = []
+        with self._lock:
+            if generation != self._search_generation:
+                return
+            self.search_results = results
+            self.search_status = "SELECT DESTINATION" if results else "SEARCH UNAVAILABLE"
+
+    @property
+    def arrival_prompt_destination(self) -> Waypoint | None:
+        return self._arrival_prompt_destination
+
+    def save_arrival_waypoint(self) -> Waypoint | None:
+        destination = self._arrival_prompt_destination
+        if destination is None:
+            return None
+        existing = next(
+            (
+                waypoint
+                for waypoint in self.waypoints
+                if haversine_m(waypoint.latitude, waypoint.longitude, destination.latitude, destination.longitude)
+                <= ARRIVAL_RADIUS_M
+            ),
+            None,
+        )
+        self.stop_navigation()
+        return existing or self.add_waypoint(destination.name, destination.latitude, destination.longitude)
+
+    def dismiss_arrival_prompt(self) -> None:
+        self.stop_navigation()
+
+    def _check_arrival(self) -> None:
+        destination = self.active_waypoint
+        location = self.current_location
+        if destination is None or location is None:
+            return
+        if haversine_m(location[0], location[1], destination.latitude, destination.longitude) > ARRIVAL_RADIUS_M:
+            return
+        self.route_status = "ARRIVED"
+        if destination in self.waypoints:
+            return
+        self.arrival_prompt_pending = True
+        self._arrival_prompt_destination = destination
 
     def _download_route(self, waypoint: Waypoint) -> None:
         location = self.current_location

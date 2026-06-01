@@ -65,8 +65,12 @@
 - **Service mode**: settings-accessible diagnostic overlay for raw recent CAN frames, sensor voltage/status, digital pin states, relay/output states, and firmware versions.
 - **Navigation**: ECO/NORMAL replace the large temperature grid with a themed
   road map and compact safety strip. SPORT/RACE/ALBATROSS show a next-turn
-  banner. Persistent named waypoints, D-pad text entry, cached visible raster
-  tiles, and OSRM-compatible road routes are documented in `docs/navigation.md`.
+  banner and split two-column vitals grid. Persistent named waypoints, online
+  address search, 50-yard arrival waypoint prompts, D-pad text entry, cached
+  visible raster tiles, and OSRM-compatible road routes are documented in
+  `docs/navigation.md`.
+- **Network settings**: settings-accessible NetworkManager Wi-Fi radio, scan,
+  signal/security list, and D-pad hotspot password entry via `nmcli`.
 - **Brightness/night modes**: auto-dim via ambient sensor/time with manual override; night adds subtle starfield.
 - **Performance**: pre-render static grids/labels; cache text by value buckets; use integer scaling and dirty rectangles where applicable.
 

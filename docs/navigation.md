@@ -12,7 +12,11 @@ waypoints, and OSRM-compatible road routing.
   next-turn banner.
 - Select `NAV` from the home focus cycle to open the waypoint menu.
 - `SAVE CURRENT LOCATION` opens a D-pad keyboard.
+- `SEARCH ADDRESS` opens the same bike-usable keyboard and, while online,
+  returns selectable address matches that route over roads.
 - Existing waypoints can be routed to over roads or deleted.
+- Arriving within 50 yards of a searched destination opens a themed prompt to
+  save that location as a permanent waypoint.
 - Waypoints persist in `settings/navigation.json`.
 - The last downloaded route is cached in
   `settings/navigation_route_cache.json` as a fallback if connectivity drops.
@@ -71,6 +75,7 @@ Example configuration:
   "zoom": 15,
   "tile_url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   "router_url": "https://router.project-osrm.org/route/v1/driving",
+  "geocoder_url": "https://nominatim.openstreetmap.org/search",
   "waypoints": []
 }
 ```
@@ -87,6 +92,34 @@ network service or choose a managed routing provider. Fully offline routing on
 the bike can be added by pointing `router_url` at a local OSRM-compatible
 service running on the Pi or a companion computer with the required regional
 map extract.
+
+## Address Search
+
+Address search uses a configurable Nominatim-compatible endpoint. The default
+public OpenStreetMap Nominatim service is appropriate for light interactive
+bench testing only. It is not an autocomplete service, and the HUD performs a
+single lookup only after the rider selects `SEARCH`.
+
+API reference: <https://nominatim.org/release-docs/latest/api/Search/>
+
+Usage policy: <https://operations.osmfoundation.org/policies/nominatim/>
+
+For regular road use, set `geocoder_url` in `settings/navigation.json` to a
+managed or self-hosted Nominatim-compatible service.
+
+## Pi Network Settings
+
+The HUD `SETTINGS -> NETWORK` overlay controls the Pi Wi-Fi radio, rescans
+nearby networks, shows signal strength and security, and connects to a selected
+network through a D-pad password keyboard. Blank passwords allow reconnecting
+to a saved profile or joining an open network.
+
+The adapter uses Raspberry Pi OS NetworkManager through `nmcli`. On a Windows
+demo or a Pi image without NetworkManager, the overlay stays usable and reports
+`NMCLI UNAVAILABLE` instead of failing.
+
+NetworkManager CLI reference:
+<https://networkmanager.pages.freedesktop.org/NetworkManager/NetworkManager/nmcli.html>
 
 ## Updates
 

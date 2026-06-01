@@ -19,6 +19,7 @@ import pygame
 from ..diagnostics.fault_logger import engine_status, fault_action, fault_reason
 from ..economy import EconomyTracker
 from ..navigation import NavigationManager
+from ..networking import PiNetworkManager
 from .widgets.airshot_panel import AirShotPanel
 from .widgets.alert_panel import AlertPanel
 from .widgets.boost_panel import BoostPanel
@@ -282,7 +283,7 @@ class HUDRenderer:
         self._media_index = 0
         self._media_device_cursor = 0
         self._media_device_menu_open = False
-        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "NAV MAP", "NAV ONLINE", "NAV ZOOM", "NAV CACHE", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE", "SENSOR CONF"]
+        self._setting_items = ["TRACTION", "FUEL TYPE", "FLAME MODE", "BRIGHTNESS", "PHONE LINK", "THEME", "AUTO DIM", "NETWORK", "NAV MAP", "NAV ONLINE", "NAV ZOOM", "NAV CACHE", "EXPORT LOGS", "INSTALL UPDATE", "ONLINE UPDATE", "SERVICE MODE", "SENSOR CONF"]
         self._phone_link_enabled = False
         self._flame_mode_manual_enabled = False
         self._brightness_levels = [25, 40, 55, 70, 85, 100]
@@ -296,12 +297,22 @@ class HUDRenderer:
         self._load_preferences()
         navigation_settings = Path(preferences_path).parent / "navigation.json" if preferences_path is not None else Path("settings/navigation.json")
         self._navigation = NavigationManager(settings_path=navigation_settings)
+        self._network = PiNetworkManager()
         self._nav_cursor = 0
         self._nav_action_cursor = 0
+        self._nav_search_cursor = 0
+        self._nav_arrival_cursor = 0
         self._nav_selected_waypoint_id: str | None = None
         self._nav_keyboard_text = ""
+        self._nav_keyboard_purpose = "waypoint"
         self._nav_keyboard_row = 0
         self._nav_keyboard_col = 0
+        self._network_cursor = 0
+        self._network_password_text = ""
+        self._network_password_uppercase = True
+        self._network_password_row = 0
+        self._network_password_col = 0
+        self._network_selected_ssid = ""
         self._mode_layout_anim_until = time.monotonic() + 0.9
         apply_theme(self._themes[self._theme_index])
         self._phone_track = ""
@@ -1000,7 +1011,7 @@ class HUDRenderer:
             AirShotPanel(airshot_rect),
         ]
         if temps_rect is not None:
-            widgets.insert(7, TempsGrid(temps_rect))
+            widgets.insert(7, TempsGrid(temps_rect, split=True))
             widgets.insert(7, NavigationPanel(navigation_rect, self._navigation, compact=True))
         else:
             widgets.insert(7, NavigationPanel(navigation_rect, self._navigation))
@@ -1250,6 +1261,9 @@ class HUDRenderer:
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
         self._navigation.update_position(state.environment.gps_latitude, state.environment.gps_longitude)
+        if self._navigation.arrival_prompt_pending and self._active_menu == "home":
+            self._nav_arrival_cursor = 0
+            self._active_menu = "nav_arrival"
         previous_focus_target = self._home_focus_target() if self._active_menu == "home" else ""
         previous_had_faults = bool(self._visible_faults)
         self._visible_faults = tuple(state.faults)
@@ -1286,6 +1300,18 @@ class HUDRenderer:
         elif self._active_menu == "nav_keyboard":
             self._render_modal_dimmer()
             self._render_navigation_keyboard_overlay()
+        elif self._active_menu == "nav_search_results":
+            self._render_modal_dimmer()
+            self._render_navigation_search_results_overlay()
+        elif self._active_menu == "nav_arrival":
+            self._render_modal_dimmer()
+            self._render_navigation_arrival_overlay()
+        elif self._active_menu == "network":
+            self._render_modal_dimmer()
+            self._render_network_overlay()
+        elif self._active_menu == "network_password":
+            self._render_modal_dimmer()
+            self._render_network_password_overlay()
         self._render_global_hints()
         self._apply_brightness_overlay(state)
         if (not self._post_complete) or self._post_fault_active:
@@ -1342,13 +1368,19 @@ class HUDRenderer:
         self._fault_detail_index = (self._fault_detail_index + delta) % count
 
     def _handle_dpad_right(self) -> None:
+        if self._active_menu == "nav_arrival":
+            self._nav_arrival_cursor = (self._nav_arrival_cursor + 1) % 2
+            return
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(1)
             return
         if self._active_menu == "nav_keyboard":
             self._move_nav_keyboard(0, 1)
             return
-        if self._active_menu in {"nav_waypoints", "nav_actions"}:
+        if self._active_menu == "network_password":
+            self._move_network_password_keyboard(0, 1)
+            return
+        if self._active_menu in {"nav_waypoints", "nav_actions", "nav_search_results", "network"}:
             self._handle_down()
             return
         if self._active_menu == "settings":
@@ -1388,6 +1420,10 @@ class HUDRenderer:
                 self._active_menu = "service"
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
+            elif item == "NETWORK":
+                self._network_cursor = 0
+                self._network.refresh_async()
+                self._active_menu = "network"
             elif item == "NAV MAP":
                 self._navigation.set_map_enabled(True)
             elif item == "NAV ONLINE":
@@ -1404,13 +1440,19 @@ class HUDRenderer:
         self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu == "nav_arrival":
+            self._nav_arrival_cursor = (self._nav_arrival_cursor - 1) % 2
+            return
         if self._active_menu == "fault_detail":
             self._cycle_fault_detail(-1)
             return
         if self._active_menu == "nav_keyboard":
             self._move_nav_keyboard(0, -1)
             return
-        if self._active_menu in {"nav_waypoints", "nav_actions"}:
+        if self._active_menu == "network_password":
+            self._move_network_password_keyboard(0, -1)
+            return
+        if self._active_menu in {"nav_waypoints", "nav_actions", "nav_search_results", "network"}:
             self._handle_up()
             return
         if self._active_menu == "settings":
@@ -1450,6 +1492,10 @@ class HUDRenderer:
                 self._active_menu = "service"
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
+            elif item == "NETWORK":
+                self._network_cursor = 0
+                self._network.refresh_async()
+                self._active_menu = "network"
             elif item == "NAV MAP":
                 self._navigation.set_map_enabled(False)
             elif item == "NAV ONLINE":
@@ -1466,7 +1512,9 @@ class HUDRenderer:
         self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_up(self) -> None:
-        if self._active_menu == "fault_detail":
+        if self._active_menu == "nav_arrival":
+            self._nav_arrival_cursor = (self._nav_arrival_cursor - 1) % 2
+        elif self._active_menu == "fault_detail":
             self._cycle_fault_detail(-1)
         elif self._active_menu == "nav_waypoints":
             self._nav_cursor = (self._nav_cursor - 1) % max(1, len(self._navigation_menu_items()))
@@ -1474,6 +1522,12 @@ class HUDRenderer:
             self._nav_action_cursor = (self._nav_action_cursor - 1) % len(self._navigation_action_items())
         elif self._active_menu == "nav_keyboard":
             self._move_nav_keyboard(-1, 0)
+        elif self._active_menu == "nav_search_results":
+            self._nav_search_cursor = (self._nav_search_cursor - 1) % max(1, len(self._navigation_search_items()))
+        elif self._active_menu == "network":
+            self._network_cursor = (self._network_cursor - 1) % max(1, len(self._network_menu_items()))
+        elif self._active_menu == "network_password":
+            self._move_network_password_keyboard(-1, 0)
         elif self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor - 1) % len(self._setting_items)
         elif self._active_menu == "media":
@@ -1485,7 +1539,9 @@ class HUDRenderer:
             self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_down(self) -> None:
-        if self._active_menu == "fault_detail":
+        if self._active_menu == "nav_arrival":
+            self._nav_arrival_cursor = (self._nav_arrival_cursor + 1) % 2
+        elif self._active_menu == "fault_detail":
             self._cycle_fault_detail(1)
         elif self._active_menu == "nav_waypoints":
             self._nav_cursor = (self._nav_cursor + 1) % max(1, len(self._navigation_menu_items()))
@@ -1493,6 +1549,12 @@ class HUDRenderer:
             self._nav_action_cursor = (self._nav_action_cursor + 1) % len(self._navigation_action_items())
         elif self._active_menu == "nav_keyboard":
             self._move_nav_keyboard(1, 0)
+        elif self._active_menu == "nav_search_results":
+            self._nav_search_cursor = (self._nav_search_cursor + 1) % max(1, len(self._navigation_search_items()))
+        elif self._active_menu == "network":
+            self._network_cursor = (self._network_cursor + 1) % max(1, len(self._network_menu_items()))
+        elif self._active_menu == "network_password":
+            self._move_network_password_keyboard(1, 0)
         elif self._active_menu == "settings":
             self._settings_cursor = (self._settings_cursor + 1) % len(self._setting_items)
         elif self._active_menu == "media":
@@ -1504,6 +1566,13 @@ class HUDRenderer:
             self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_select(self) -> None:
+        if self._active_menu == "nav_arrival":
+            if self._nav_arrival_cursor == 0:
+                self._navigation.save_arrival_waypoint()
+            else:
+                self._navigation.dismiss_arrival_prompt()
+            self._active_menu = "home"
+            return
         if self._active_menu == "home":
             target = self._home_focus_target()
             if target.startswith("MODE:"):
@@ -1542,6 +1611,15 @@ class HUDRenderer:
         if self._active_menu == "nav_keyboard":
             self._activate_nav_keyboard_key()
             return
+        if self._active_menu == "nav_search_results":
+            self._activate_navigation_search_result()
+            return
+        if self._active_menu == "network":
+            self._activate_network_menu_item()
+            return
+        if self._active_menu == "network_password":
+            self._activate_network_password_key()
+            return
         if self._active_menu == "settings":
             item = self._setting_items[self._settings_cursor]
             if item == "PHONE LINK":
@@ -1563,6 +1641,10 @@ class HUDRenderer:
                 self._active_menu = "service"
             elif item == "SENSOR CONF":
                 self._active_menu = "sensor_confidence"
+            elif item == "NETWORK":
+                self._network_cursor = 0
+                self._network.refresh_async()
+                self._active_menu = "network"
             elif item == "NAV MAP":
                 self._navigation.set_map_enabled(not self._navigation.map_enabled)
             elif item == "NAV ONLINE":
@@ -1577,7 +1659,7 @@ class HUDRenderer:
                 LOGGER.exception("Air Shot request callback failed")
 
     def _navigation_menu_items(self) -> list[tuple[str, str | None]]:
-        items: list[tuple[str, str | None]] = [("SAVE CURRENT LOCATION", None)]
+        items: list[tuple[str, str | None]] = [("SAVE CURRENT LOCATION", None), ("SEARCH ADDRESS", None)]
         if self._navigation.active:
             items.append(("STOP NAVIGATION", None))
         items.extend((waypoint.name, waypoint.waypoint_id) for waypoint in self._navigation.waypoints)
@@ -1587,14 +1669,14 @@ class HUDRenderer:
     def _navigation_action_items() -> tuple[str, ...]:
         return ("NAVIGATE", "DELETE", "BACK")
 
-    @staticmethod
-    def _navigation_keyboard_rows() -> tuple[tuple[str, ...], ...]:
+    def _navigation_keyboard_rows(self) -> tuple[tuple[str, ...], ...]:
+        action = "SEARCH" if self._nav_keyboard_purpose == "address" else "SAVE"
         return (
             tuple("ABCDEFGH"),
             tuple("IJKLMNOP"),
             tuple("QRSTUVWX"),
             ("Y", "Z", "0", "1", "2", "3", "4", "5"),
-            ("6", "7", "8", "9", "-", "SPACE", "DEL", "SAVE"),
+            ("6", "7", "8", "9", "-", "SPACE", "DEL", action),
             ("CANCEL",),
         )
 
@@ -1605,6 +1687,14 @@ class HUDRenderer:
         self._nav_cursor %= len(items)
         label, waypoint_id = items[self._nav_cursor]
         if label == "SAVE CURRENT LOCATION":
+            self._nav_keyboard_purpose = "waypoint"
+            self._nav_keyboard_text = ""
+            self._nav_keyboard_row = 0
+            self._nav_keyboard_col = 0
+            self._active_menu = "nav_keyboard"
+            return
+        if label == "SEARCH ADDRESS":
+            self._nav_keyboard_purpose = "address"
             self._nav_keyboard_text = ""
             self._nav_keyboard_row = 0
             self._nav_keyboard_col = 0
@@ -1647,21 +1737,103 @@ class HUDRenderer:
         row = rows[self._nav_keyboard_row]
         key = row[self._nav_keyboard_col % len(row)]
         if key == "SPACE":
-            if self._nav_keyboard_text and len(self._nav_keyboard_text) < 20:
+            if self._nav_keyboard_text and len(self._nav_keyboard_text) < (42 if self._nav_keyboard_purpose == "address" else 20):
                 self._nav_keyboard_text += " "
         elif key == "DEL":
             self._nav_keyboard_text = self._nav_keyboard_text[:-1]
-        elif key == "SAVE":
-            if self._navigation.add_current_waypoint(self._nav_keyboard_text) is not None:
+        elif key in {"SAVE", "SEARCH"}:
+            if self._nav_keyboard_purpose == "address":
+                self._navigation.request_address_search(self._nav_keyboard_text)
+                self._nav_search_cursor = 0
+                self._active_menu = "nav_search_results"
+            elif self._navigation.add_current_waypoint(self._nav_keyboard_text) is not None:
                 self._active_menu = "nav_waypoints"
                 self._nav_cursor = max(0, len(self._navigation_menu_items()) - 1)
         elif key == "CANCEL":
             self._active_menu = "nav_waypoints"
-        elif len(self._nav_keyboard_text) < 20:
+        elif len(self._nav_keyboard_text) < (42 if self._nav_keyboard_purpose == "address" else 20):
             self._nav_keyboard_text += key
+
+    def _navigation_search_items(self) -> list[tuple[str, str | None]]:
+        items = [(row.display_name, row.result_id) for row in self._navigation.search_results]
+        items.append(("BACK", None))
+        return items
+
+    def _activate_navigation_search_result(self) -> None:
+        items = self._navigation_search_items()
+        self._nav_search_cursor %= len(items)
+        label, result_id = items[self._nav_search_cursor]
+        if label == "BACK" or result_id is None:
+            self._active_menu = "nav_waypoints"
+            return
+        self._navigation.start_navigation_to_search_result(result_id)
+        self._active_menu = "home"
+
+    def _network_menu_items(self) -> list[tuple[str, str | None]]:
+        toggle = "WIFI RADIO ON" if self._network.wifi_enabled else "WIFI RADIO OFF"
+        items: list[tuple[str, str | None]] = [(toggle, "toggle"), ("RESCAN NETWORKS", "rescan")]
+        items.extend((network.ssid, network.ssid) for network in self._network.networks)
+        return items
+
+    def _activate_network_menu_item(self) -> None:
+        items = self._network_menu_items()
+        self._network_cursor %= max(1, len(items))
+        _label, action = items[self._network_cursor]
+        if action == "toggle":
+            self._network.set_wifi_enabled_async(not self._network.wifi_enabled)
+        elif action == "rescan":
+            self._network.refresh_async()
+        elif action:
+            self._network_selected_ssid = action
+            self._network_password_text = ""
+            self._network_password_uppercase = True
+            self._network_password_row = 0
+            self._network_password_col = 0
+            self._active_menu = "network_password"
+
+    def _network_password_keyboard_rows(self) -> tuple[tuple[str, ...], ...]:
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if self._network_password_uppercase else "abcdefghijklmnopqrstuvwxyz"
+        return (
+            tuple(letters[0:8]),
+            tuple(letters[8:16]),
+            tuple(letters[16:24]),
+            (letters[24], letters[25], "0", "1", "2", "3", "4", "5"),
+            ("6", "7", "8", "9", "-", "_", "@", "."),
+            ("!", "#", "SPACE", "CASE", "DEL", "CONNECT"),
+            ("CANCEL",),
+        )
+
+    def _move_network_password_keyboard(self, row_delta: int, col_delta: int) -> None:
+        rows = self._network_password_keyboard_rows()
+        self._network_password_row = (self._network_password_row + row_delta) % len(rows)
+        row = rows[self._network_password_row]
+        self._network_password_col = (self._network_password_col + col_delta) % len(row)
+
+    def _activate_network_password_key(self) -> None:
+        rows = self._network_password_keyboard_rows()
+        row = rows[self._network_password_row]
+        key = row[self._network_password_col % len(row)]
+        if key == "SPACE":
+            if len(self._network_password_text) < 63:
+                self._network_password_text += " "
+        elif key == "CASE":
+            self._network_password_uppercase = not self._network_password_uppercase
+        elif key == "DEL":
+            self._network_password_text = self._network_password_text[:-1]
+        elif key == "CONNECT":
+            self._network.connect_async(self._network_selected_ssid, self._network_password_text)
+            self._active_menu = "network"
+        elif key == "CANCEL":
+            self._active_menu = "network"
+        elif len(self._network_password_text) < 63:
+            self._network_password_text += key
 
     def _handle_back(self) -> None:
         if self._active_menu != "home":
+            if self._active_menu == "nav_arrival":
+                self._navigation.dismiss_arrival_prompt()
+                self._active_menu = "home"
+                return
             if self._active_menu == "media" and self._media_device_menu_open:
                 self._media_device_menu_open = False
                 return
@@ -1673,6 +1845,15 @@ class HUDRenderer:
                     self._nav_keyboard_text = self._nav_keyboard_text[:-1]
                 else:
                     self._active_menu = "nav_waypoints"
+                return
+            if self._active_menu == "nav_search_results":
+                self._active_menu = "nav_waypoints"
+                return
+            if self._active_menu == "network_password":
+                if self._network_password_text:
+                    self._network_password_text = self._network_password_text[:-1]
+                else:
+                    self._active_menu = "network"
                 return
             self._active_menu = "home"
 
@@ -1899,12 +2080,14 @@ class HUDRenderer:
         sw, sh = self.screen.get_size()
         panel = pygame.Rect(0, 0, min(760, sw - 72), min(520, sh - 56))
         panel.center = (sw // 2, sh // 2)
-        self._draw_navigation_panel_shell(panel, "NAME WAYPOINT")
+        title = "SEARCH ADDRESS" if self._nav_keyboard_purpose == "address" else "NAME WAYPOINT"
+        self._draw_navigation_panel_shell(panel, title)
         entry_rect = pygame.Rect(panel.x + 18, panel.y + 50, panel.width - 36, 42)
         pygame.draw.rect(self.screen, (5, 4, 0), entry_rect)
         pygame.draw.rect(self.screen, glow, entry_rect, 1)
         entry_text = self._nav_keyboard_text or "_"
-        self.screen.blit(font(20, bold=True).render(entry_text, True, bright), (entry_rect.x + 10, entry_rect.y + 8))
+        entry_size = fit_font_size(entry_text, entry_rect.width - 20, entry_rect.height - 12, start_size=20, bold=True)
+        self.screen.blit(font(entry_size, bold=True).render(entry_text, True, bright), (entry_rect.x + 10, entry_rect.y + 8))
         rows = self._navigation_keyboard_rows()
         top = panel.y + 104
         gap = 6
@@ -1920,6 +2103,118 @@ class HUDRenderer:
                 pygame.draw.rect(self.screen, (22, 14, 0), key_rect)
                 pygame.draw.rect(self.screen, bright if active else glow, key_rect, 2 if active else 1)
                 label_size = fit_font_size(key, key_rect.width - 10, key_rect.height - 8, start_size=15, bold=active)
+                label = font(label_size, bold=active).render(key, True, bright if active else glow)
+                self.screen.blit(label, (key_rect.centerx - label.get_width() // 2, key_rect.centery - label.get_height() // 2))
+        hint = font(12).render("ARROWS: MOVE  |  ENTER: TYPE  |  ESC: DELETE/BACK", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 22))
+
+    def _render_navigation_search_results_overlay(self) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(920, sw - 72), min(500, sh - 64))
+        panel.center = (sw // 2, sh // 2)
+        self._draw_navigation_panel_shell(panel, "ADDRESS SEARCH")
+        self.screen.blit(font(13, bold=True).render(self._navigation.search_status[:56], True, glow), (panel.x + 18, panel.y + 46))
+        items = self._navigation_search_items()
+        self._nav_search_cursor %= len(items)
+        start_y = panel.y + 84
+        row_h = 54
+        for idx, (label, _result_id) in enumerate(items[:7]):
+            active = idx == self._nav_search_cursor
+            color = bright if active else glow
+            row_y = start_y + idx * row_h
+            clipped = label
+            while font(14, bold=active).size(clipped)[0] > panel.width - 62 and len(clipped) > 4:
+                clipped = f"{clipped[:-4]}..."
+            self.screen.blit(font(14, bold=active).render(f"{'>' if active else ' '} {clipped}", True, color), (panel.x + 18, row_y))
+            if active:
+                pygame.draw.line(self.screen, color, (panel.x + 18, row_y + 22), (panel.right - 18, row_y + 22), 1)
+        hint = font(12).render("ARROWS: MOVE  |  ENTER: ROUTE  |  ESC: BACK", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 24))
+
+    def _render_navigation_arrival_overlay(self) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(620, sw - 72), min(260, sh - 72))
+        panel.center = (sw // 2, sh // 2)
+        self._draw_navigation_panel_shell(panel, "DESTINATION REACHED")
+        destination = self._navigation.arrival_prompt_destination
+        name = destination.name if destination else "CURRENT LOCATION"
+        self.screen.blit(font(17, bold=True).render(name[:32], True, bright), (panel.x + 18, panel.y + 62))
+        self.screen.blit(font(15, bold=True).render("SAVE THIS LOCATION AS A WAYPOINT?", True, glow), (panel.x + 18, panel.y + 102))
+        choices = ("YES", "NO")
+        button_w = 128
+        gap = 18
+        left = panel.centerx - (button_w * 2 + gap) // 2
+        for index, label in enumerate(choices):
+            active = index == self._nav_arrival_cursor
+            rect = pygame.Rect(left + index * (button_w + gap), panel.y + 150, button_w, 42)
+            pygame.draw.rect(self.screen, (22, 14, 0), rect)
+            pygame.draw.rect(self.screen, bright if active else glow, rect, 2 if active else 1)
+            text = font(16, bold=active).render(label, True, bright if active else glow)
+            self.screen.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
+        hint = font(12).render("ARROWS: CHOOSE  |  ENTER: SELECT  |  ESC: DISMISS", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 22))
+
+    def _render_network_overlay(self) -> None:
+        _bg, bright, glow, fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(760, sw - 72), min(560, sh - 56))
+        panel.center = (sw // 2, sh // 2)
+        self._draw_navigation_panel_shell(panel, "NETWORK SETTINGS")
+        status_color = glow if self._network.available else fault
+        status = f"{self._network.status}  {self._network.active_ssid}".strip()
+        self.screen.blit(font(13, bold=True).render(status[:64], True, status_color), (panel.x + 18, panel.y + 44))
+        items = self._network_menu_items()
+        self._network_cursor %= max(1, len(items))
+        row_h = 30
+        start_y = panel.y + 78
+        visible_rows = max(1, (panel.height - 120) // row_h)
+        first = min(max(0, self._network_cursor - visible_rows // 2), max(0, len(items) - visible_rows))
+        networks = {network.ssid: network for network in self._network.networks}
+        for row, (label, action) in enumerate(items[first:first + visible_rows]):
+            idx = first + row
+            active = idx == self._network_cursor
+            color = bright if active else glow
+            suffix = ""
+            network = networks.get(action or "")
+            if network:
+                suffix = f"  {network.signal:>3}%  {network.security[:18]}"
+                if network.active:
+                    suffix += "  [ACTIVE]"
+            self.screen.blit(font(14, bold=active).render(f"{'>' if active else ' '} {label[:34]}{suffix}", True, color), (panel.x + 18, start_y + row * row_h))
+            if active:
+                pygame.draw.line(self.screen, color, (panel.x + 18, start_y + row * row_h + 22), (panel.right - 18, start_y + row * row_h + 22), 1)
+        hint = font(12).render("ARROWS: MOVE  |  ENTER: SELECT  |  ESC: BACK", True, glow)
+        self.screen.blit(hint, (panel.right - hint.get_width() - 18, panel.bottom - 22))
+
+    def _render_network_password_overlay(self) -> None:
+        _bg, bright, glow, _fault = self._theme_colors()
+        sw, sh = self.screen.get_size()
+        panel = pygame.Rect(0, 0, min(840, sw - 72), min(620, sh - 48))
+        panel.center = (sw // 2, sh // 2)
+        self._draw_navigation_panel_shell(panel, f"CONNECT / {self._network_selected_ssid[:36]}")
+        entry_rect = pygame.Rect(panel.x + 18, panel.y + 50, panel.width - 36, 42)
+        pygame.draw.rect(self.screen, (5, 4, 0), entry_rect)
+        pygame.draw.rect(self.screen, glow, entry_rect, 1)
+        hidden = "*" * len(self._network_password_text) or "BLANK USES SAVED OR OPEN NETWORK"
+        hidden_size = fit_font_size(hidden, entry_rect.width - 20, entry_rect.height - 12, start_size=18, bold=True)
+        self.screen.blit(font(hidden_size, bold=True).render(hidden, True, bright), (entry_rect.x + 10, entry_rect.y + 9))
+        rows = self._network_password_keyboard_rows()
+        top = panel.y + 104
+        gap = 6
+        row_h = 34
+        for row_idx, keys in enumerate(rows):
+            key_w = max(60, (panel.width - 36 - gap * (len(keys) - 1)) // len(keys))
+            total_w = key_w * len(keys) + gap * (len(keys) - 1)
+            x = panel.centerx - total_w // 2
+            y = top + row_idx * (row_h + gap)
+            for col_idx, key in enumerate(keys):
+                active = row_idx == self._network_password_row and col_idx == self._network_password_col % len(keys)
+                key_rect = pygame.Rect(x + col_idx * (key_w + gap), y, key_w, row_h)
+                pygame.draw.rect(self.screen, (22, 14, 0), key_rect)
+                pygame.draw.rect(self.screen, bright if active else glow, key_rect, 2 if active else 1)
+                label_size = fit_font_size(key, key_rect.width - 10, key_rect.height - 8, start_size=14, bold=active)
                 label = font(label_size, bold=active).render(key, True, bright if active else glow)
                 self.screen.blit(label, (key_rect.centerx - label.get_width() // 2, key_rect.centery - label.get_height() // 2))
         hint = font(12).render("ARROWS: MOVE  |  ENTER: TYPE  |  ESC: DELETE/BACK", True, glow)
@@ -2277,6 +2572,8 @@ class HUDRenderer:
             return "OPEN"
         if item == "SENSOR CONF":
             return "OPEN"
+        if item == "NETWORK":
+            return self._network.active_ssid[:18] or self._network.status
         if item == "NAV MAP":
             return "ON" if self._navigation.map_enabled else "OFF"
         if item == "NAV ONLINE":
