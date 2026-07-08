@@ -19,7 +19,7 @@ from typing import Iterable, Iterator
 import pygame
 
 from albatross_pi.boost_strategy import calculate_boost_target
-from albatross_pi.canbus import ArduinoToHudID, CANStateAggregator, ECUToHudID, PiToArduinoID, PiToEcuID, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame
+from albatross_pi.canbus import ArduinoToHudID, CANStateAggregator, ECUToHudID, PiToArduinoID, PiToEcuID, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame, python_can_available
 from albatross_pi.canbus.encode import (
     build_air_shot_request_frame,
     build_boost_target_frame,
@@ -186,6 +186,7 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--can-interface", help="SocketCAN interface name (e.g., can0)")
+    parser.add_argument("--require-can", action="store_true", help="Exit if the requested CAN interface cannot be opened")
     parser.add_argument("--simulator", action="store_true", help="Use built-in simulator when CAN is not provided")
     parser.add_argument("--demo-udp-listen", default="127.0.0.1:5005", help="listen host:port for demo control UDP")
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
@@ -237,6 +238,22 @@ def main() -> None:
             logging.warning("Unknown key binding '%s'; using F", airshot_name)
             airshot_key = pygame.K_f
         renderer.configure_input_bindings(ack_key, airshot_key)
+
+    if args.can_interface and not python_can_available():
+        message = "python-can is missing; SocketCAN disabled and HUD will run with stale/default telemetry"
+        if args.require_can:
+            logging.error("%s. Install python3-can or python-can on the Pi runtime.", message)
+            sys.exit(1)
+        logging.error("%s. Install python3-can or python-can on the Pi runtime.", message)
+        renderer.update_state(
+            replace(
+                renderer.state,
+                faults=tuple(sorted(set(renderer.state.faults + ("CAN STALE",)))),
+                environment=replace(renderer.state.environment, message_line="PYTHON-CAN MISSING"),
+            )
+        )
+        args.can_interface = None
+
     def _record_faults(faults: tuple[str, ...], snapshot: StateSnapshot) -> None:
         for fault in faults:
             fault_logger.log_fault(fault, snapshot)

@@ -16,6 +16,11 @@ LOGGER = logging.getLogger(__name__)
 _GS_USB_LIBUSB_PATCHED = False
 
 
+def python_can_available() -> bool:
+    """Return whether the optional python-can package imported successfully."""
+    return can is not None
+
+
 class SocketCANInterface:
     """Thin wrapper around python-can for SocketCAN access."""
 

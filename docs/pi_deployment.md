@@ -17,8 +17,8 @@ Lite, but only after the OS image, permissions, and pygame build all support it.
 
 ```sh
 sudo apt update
-sudo apt install -y git python3-pip python3-venv python3-pygame can-utils
-python3 -m pip install --break-system-packages python-can pyserial
+sudo apt install -y git python3-pip python3-venv python3-pygame python3-can can-utils
+python3 -m pip install --break-system-packages pyserial
 ```
 
 Clone or update the repo at:
@@ -124,6 +124,15 @@ journalctl -u albatross-hud.service -n 120 --no-pager
 
 The service retries failures three times over two minutes, then stops so a bad
 HUD build does not trap the Pi in a restart loop.
+
+If the journal says `python-can is required for SocketCAN interaction`, install
+the Pi package and restart the HUD:
+
+```sh
+sudo apt update
+sudo apt install -y python3-can
+sudo systemctl restart albatross-hud.service
+```
 
 The bundled service uses the Desktop display:
 
