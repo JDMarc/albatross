@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 
 def _print_serial_ports() -> None:
@@ -98,12 +99,27 @@ def _print_python_can_configs() -> None:
         print(f"  {config}")
 
 
+def _open_gs_usb_bus(channel: int, bitrate: int, *, receive_own_messages: bool = False):
+    import can
+
+    kwargs = {
+        "interface": "gs_usb",
+        "channel": channel,
+        "bitrate": bitrate,
+    }
+    if receive_own_messages:
+        kwargs["receive_own_messages"] = True
+    try:
+        return can.Bus(**kwargs)
+    except TypeError:
+        kwargs["bustype"] = kwargs.pop("interface")
+        return can.Bus(**kwargs)
+
+
 def _try_open_gs_usb(channel: int, bitrate: int) -> None:
     print(f"\nOpening gs_usb channel {channel} at {bitrate}")
     try:
-        import can
-
-        bus = can.Bus(interface="gs_usb", channel=channel, bitrate=bitrate)
+        bus = _open_gs_usb_bus(channel, bitrate)
     except Exception as exc:
         print(f"  open failed: {exc}")
         return
@@ -113,11 +129,44 @@ def _try_open_gs_usb(channel: int, bitrate: int) -> None:
         bus.shutdown()
 
 
+def _tx_test_gs_usb(channel: int, bitrate: int, count: int, interval_s: float) -> None:
+    print(f"\nTX test on gs_usb channel {channel} at {bitrate}")
+    try:
+        import can
+
+        bus = _open_gs_usb_bus(channel, bitrate, receive_own_messages=True)
+    except Exception as exc:
+        print(f"  open failed: {exc}")
+        return
+    try:
+        message = can.Message(arbitration_id=0x100, data=bytes.fromhex("07D0"), is_extended_id=False)
+        for index in range(max(1, count)):
+            try:
+                bus.send(message, timeout=0.5)
+                print(f"  TX {index + 1}/{count}: 0x100 07 D0")
+            except Exception as exc:
+                print(f"  TX failed on frame {index + 1}: {exc}")
+                break
+            try:
+                echo = bus.recv(timeout=0.1)
+            except Exception as exc:
+                print(f"  RX/echo check failed: {exc}")
+                echo = None
+            if echo is not None:
+                print(f"    echo/RX 0x{echo.arbitration_id:03X} {bytes(echo.data).hex(' ').upper()}")
+            time.sleep(max(0.0, interval_s))
+    finally:
+        bus.shutdown()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Diagnose USB-CAN adapter visibility")
     parser.add_argument("--open-gs-usb", action="store_true", help="try opening gs_usb channel 0")
+    parser.add_argument("--tx-test-gs-usb", action="store_true", help="transmit 0x100#07D0 frames over gs_usb")
     parser.add_argument("--channel", type=int, default=0)
     parser.add_argument("--bitrate", type=int, default=500_000)
+    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--interval", type=float, default=0.1)
     args = parser.parse_args()
 
     print(f"Python: {sys.version.split()[0]}  {sys.executable}")
@@ -126,6 +175,8 @@ def main() -> None:
     _print_python_can_configs()
     if args.open_gs_usb:
         _try_open_gs_usb(args.channel, args.bitrate)
+    if args.tx_test_gs_usb:
+        _tx_test_gs_usb(args.channel, args.bitrate, args.count, args.interval)
 
 
 if __name__ == "__main__":
