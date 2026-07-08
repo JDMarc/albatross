@@ -65,16 +65,21 @@ Typical Raspberry Pi OS setup:
 
 ```ini
 dtparam=spi=on
-dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=25
+dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23
+dtoverlay=mcp2515-can1,oscillator=16000000,interrupt=25
 ```
 
 Then bring the interface up:
 
 ```sh
 sudo ip link set can0 up type can bitrate 500000
+sudo ip link set can1 up type can bitrate 500000
 ```
 
-Use the oscillator value printed for the exact HAT. Many Pi HATs are 16 MHz.
+Use the oscillator value printed for the exact HAT. The Waveshare 2-CH CAN HAT
+uses 16 MHz MCP2515 oscillators and defaults CAN0 INT to GPIO23 and CAN1 INT to
+GPIO25. See `deploy/config.txt.waveshare-2ch-can.fragment` and
+`docs/pi_deployment.md`.
 
 ## Raspberry Pi Controlled Shutdown
 

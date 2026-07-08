@@ -117,12 +117,19 @@ Repository layout
 - deploy/albatross-hud.service  
   Example systemd unit for power-on auto-launch on Raspberry Pi.
 
+- deploy/can@.service
+  SocketCAN systemd unit for can0/can1 bring-up at 500 kbit/s.
+
+- deploy/config.txt.waveshare-2ch-can.fragment
+  Raspberry Pi boot config fragment for the Waveshare 2-CH MCP2515 CAN HAT.
+
 - deploy/config.txt.power.fragment
   Raspberry Pi GPIO overlay fragment for controlled key-off shutdown and
   external power-latch handoff. See `docs/power_nfc_watchdogs.md`.
 
 - docs/  
-  Project spec and ECU setup notes.
+  Project spec, ECU setup notes, and Raspberry Pi deployment notes. See
+  `docs/pi_deployment.md` for the CAN HAT and fast autostart path.
 
 - updates/
   Created by USB and GitHub Release update installs. Update bundles can install

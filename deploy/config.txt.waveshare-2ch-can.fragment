@@ -1,0 +1,8 @@
+# Waveshare 2-CH CAN HAT: MCP2515 + SN65HVD230/SI65HVD230.
+# Merge into /boot/firmware/config.txt on Raspberry Pi OS Bookworm/Trixie.
+# The Waveshare defaults are INT_0=GPIO23, INT_1=GPIO25, CS0=CE0, CS1=CE1,
+# 16 MHz oscillators.
+
+dtparam=spi=on
+dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23
+dtoverlay=mcp2515-can1,oscillator=16000000,interrupt=25

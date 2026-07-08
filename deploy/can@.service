@@ -1,0 +1,14 @@
+[Unit]
+Description=Bring up SocketCAN interface %i
+After=network-pre.target
+Before=albatross-hud.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/ip link set %i up type can bitrate 500000 restart-ms 100 berr-reporting on
+ExecStartPost=/usr/sbin/ip link set %i txqueuelen 256
+ExecStop=/usr/sbin/ip link set %i down
+
+[Install]
+WantedBy=multi-user.target
