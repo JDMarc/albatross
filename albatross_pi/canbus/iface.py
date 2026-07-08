@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from functools import wraps
 from typing import Callable, Optional
 
 try:
@@ -12,6 +13,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 LOGGER = logging.getLogger(__name__)
+_GS_USB_LIBUSB_PATCHED = False
 
 
 class SocketCANInterface:
@@ -117,6 +119,8 @@ class PythonCANInterface:
             raise RuntimeError("python-can is required for CAN interaction. Install it with: py -3.12 -m pip install python-can")
         if self._bus is not None:
             return
+        if self.interface == "gs_usb":
+            _prefer_libusb_package_backend()
         kwargs: dict[str, object] = {
             "interface": self.interface,
             "channel": self.channel,
@@ -164,3 +168,25 @@ class PythonCANInterface:
                 continue
             if self.rx_callback:
                 self.rx_callback(message.arbitration_id, bytes(message.data))
+
+
+def _prefer_libusb_package_backend() -> None:
+    """Make gs_usb use libusb-package on Windows when PyUSB has no default DLL."""
+
+    global _GS_USB_LIBUSB_PATCHED
+    if _GS_USB_LIBUSB_PATCHED:
+        return
+    try:
+        import libusb_package
+        import usb.backend.libusb1
+    except ImportError:
+        return
+    original_get_backend = usb.backend.libusb1.get_backend
+
+    @wraps(original_get_backend)
+    def get_backend_with_libusb_package(*args, **kwargs):
+        kwargs.setdefault("find_library", libusb_package.find_library)
+        return original_get_backend(*args, **kwargs)
+
+    usb.backend.libusb1.get_backend = get_backend_with_libusb_package
+    _GS_USB_LIBUSB_PATCHED = True
