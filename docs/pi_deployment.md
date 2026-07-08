@@ -77,7 +77,9 @@ sudo systemctl start can@can1.service
 ```
 
 The project default is 500 kbit/s. If the MS3 tune is changed to a different
-bitrate, update `deploy/can@.service` before copying it.
+bitrate, update `deploy/can@.service` before copying it. Some MCP2515 driver
+stacks reject `berr-reporting on`, so the service intentionally uses the
+widely-supported `bitrate 500000 restart-ms 100` form.
 
 Quick loopback test with only the Pi HAT:
 

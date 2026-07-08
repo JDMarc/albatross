@@ -6,7 +6,7 @@ Before=albatross-hud.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/sbin/ip link set %i up type can bitrate 500000 restart-ms 100 berr-reporting on
+ExecStart=/usr/sbin/ip link set %i up type can bitrate 500000 restart-ms 100
 ExecStartPost=/usr/sbin/ip link set %i txqueuelen 256
 ExecStop=/usr/sbin/ip link set %i down
 
