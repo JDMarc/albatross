@@ -8,9 +8,10 @@ the Waveshare 2-CH isolated CAN HAT.
 For first bring-up, use Raspberry Pi OS 64-bit with Desktop so you can debug
 the screen, network, and CAN tools easily.
 
-For the bike, move toward Raspberry Pi OS Lite and run the HUD from `systemd`
-with SDL's KMS/DRM backend. That avoids waiting for the desktop and usually
-boots faster.
+For the bike, move toward Raspberry Pi OS Lite once the display path is proven.
+The bundled service targets Raspberry Pi OS Desktop/X11 because it is the
+least surprising first bring-up path. SDL's KMS/DRM backend can boot faster on
+Lite, but only after the OS image, permissions, and pygame build all support it.
 
 ## Install Runtime Packages
 
@@ -114,23 +115,25 @@ systemctl status albatross-hud.service
 journalctl -u albatross-hud.service -f
 ```
 
-The production service uses:
+The bundled service uses the Desktop display:
+
+```ini
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/albatross/.Xauthority
+Environment=SDL_VIDEODRIVER=x11
+ExecStart=/usr/bin/python3 /home/albatross/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
+```
+
+For later Raspberry Pi OS Lite testing, try replacing the display environment
+with:
 
 ```ini
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_RENDER_DRIVER=opengles2
-ExecStart=/usr/bin/python3 /home/albatross/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
 ```
 
-If the HUD fails to open the display during early bring-up on Desktop, change
-the service to:
-
-```ini
-Environment=DISPLAY=:0
-```
-
-and remove `SDL_VIDEODRIVER=kmsdrm`. That starts later because it depends on the
-desktop session, but it is easier to debug.
+If that reports `kmsdrm not available`, go back to the Desktop/X11 service
+until the KMS/DRM stack is installed and accessible.
 
 ## Useful Commands
 

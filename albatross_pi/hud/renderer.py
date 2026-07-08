@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import threading
 import time
 import urllib.request
@@ -219,7 +220,7 @@ class HUDRenderer:
         self._use_display = use_display
         self._screen_size = screen_size
         if use_display:
-            self.screen = pygame.display.set_mode(screen_size, pygame.RESIZABLE)
+            self.screen = self._open_display(screen_size)
             pygame.display.set_caption("Albatross HUD")
         else:
             self.screen = pygame.Surface(screen_size)
@@ -340,6 +341,28 @@ class HUDRenderer:
         self._economy_tracker = EconomyTracker()
         self._audio = EvaAlertAudio()
         self._create_widgets()
+
+    @staticmethod
+    def _open_display(screen_size: tuple[int, int]) -> pygame.Surface:
+        preferred = os.environ.get("SDL_VIDEODRIVER")
+        candidates = [preferred, "x11", "wayland", "kmsdrm", None]
+        errors: list[str] = []
+        tried: set[str | None] = set()
+        for driver in candidates:
+            if driver in tried:
+                continue
+            tried.add(driver)
+            if driver:
+                os.environ["SDL_VIDEODRIVER"] = driver
+            else:
+                os.environ.pop("SDL_VIDEODRIVER", None)
+            try:
+                pygame.display.quit()
+                pygame.display.init()
+                return pygame.display.set_mode(screen_size, pygame.RESIZABLE)
+            except pygame.error as exc:
+                errors.append(f"{driver or 'auto'}: {exc}")
+        raise pygame.error("No usable SDL display backend (" + "; ".join(errors) + ")")
 
     def _persistent_fault(self, name: str, condition: bool, now_s: float, hold_s: float) -> bool:
         if not condition:
