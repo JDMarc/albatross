@@ -45,7 +45,10 @@ class SocketCANInterface:
         if self._bus is not None:
             return
         LOGGER.info("Opening SocketCAN channel %s", self.channel)
-        self._bus = can.ThreadSafeBus(channel=self.channel, bustype="socketcan")
+        try:
+            self._bus = can.ThreadSafeBus(channel=self.channel, interface="socketcan")
+        except TypeError:
+            self._bus = can.ThreadSafeBus(channel=self.channel, bustype="socketcan")
         if self.bitrate:
             try:
                 self._bus.set_filters([])
