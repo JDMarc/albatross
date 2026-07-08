@@ -38,7 +38,8 @@ Replace `COM5` with the port shown in Windows Device Manager. The shortcut is
 equivalent to `--interface slcan --channel COM5 --bitrate 500000`. If the
 adapter is running a different firmware/backend, use the lower-level python-can
 flags instead, for example `--interface pcan --channel PCAN_USBBUS1` for a PEAK
-adapter.
+adapter. If Device Manager names the CANable as `gs_usb`, use
+`py -3.12 can_demo_controls.py --candlelight` instead of a COM port.
 
 ## Raspberry Pi CAN
 

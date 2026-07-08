@@ -8,6 +8,7 @@ Usage:
   python can_demo_controls.py --channel can0
   python can_demo_controls.py --canable COM5
   python can_demo_controls.py --interface slcan --channel COM5 --bitrate 500000
+  python can_demo_controls.py --candlelight
   python can_demo_controls.py --dry-run
 """
 from __future__ import annotations
@@ -148,8 +149,12 @@ class App:
 
     @staticmethod
     def _open_can_interface(interface: str, channel: str, bitrate: int, tty_baudrate: int | None):
+        if interface == "candlelight":
+            interface = "gs_usb"
         if interface == "socketcan":
             return SocketCANInterface(channel=channel, bitrate=bitrate)
+        if interface == "gs_usb" and str(channel).isdigit():
+            channel = int(channel)  # type: ignore[assignment]
         return PythonCANInterface(interface=interface, channel=channel, bitrate=bitrate, tty_baudrate=tty_baudrate)
 
     def _build(self) -> None:
@@ -548,6 +553,7 @@ def main() -> None:
     p.add_argument("--bitrate", type=int, default=500_000, help="CAN bus bitrate; Albatross defaults to 500000")
     p.add_argument("--tty-baudrate", type=int, default=None, help="optional SLCAN serial baud rate, e.g. 115200 or 2000000")
     p.add_argument("--canable", metavar="COM_PORT", help="shortcut for CANable/CANtact SLCAN firmware, e.g. --canable COM5")
+    p.add_argument("--candlelight", action="store_true", help="shortcut for CANable/candleLight gs_usb firmware; does not use a COM port")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--udp-target", default="127.0.0.1:5005")
     p.add_argument("--send-hud-commands", action="store_true", help="also emit Pi/HUD-owned command frames")
@@ -555,6 +561,9 @@ def main() -> None:
     if args.canable:
         args.interface = "slcan"
         args.channel = args.canable
+    if args.candlelight:
+        args.interface = "gs_usb"
+        args.channel = "0"
 
     root = tk.Tk()
     app = App(
