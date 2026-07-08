@@ -2,6 +2,8 @@
 Description=Albatross Pi HUD
 After=graphical.target can@can0.service
 Wants=can@can0.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
 
 [Service]
 Type=notify
@@ -14,9 +16,9 @@ Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/albatross/.Xauthority
 Environment=SDL_VIDEODRIVER=x11
 ExecStart=/usr/bin/python3 /home/albatross/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
-Restart=always
-RestartSec=2
-WatchdogSec=5
+Restart=on-failure
+RestartSec=10
+WatchdogSec=30
 
 [Install]
 WantedBy=multi-user.target

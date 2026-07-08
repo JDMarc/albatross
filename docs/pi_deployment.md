@@ -115,6 +115,16 @@ systemctl status albatross-hud.service
 journalctl -u albatross-hud.service -f
 ```
 
+During first bring-up, stop the service before digging through crashes:
+
+```sh
+sudo systemctl stop albatross-hud.service
+journalctl -u albatross-hud.service -n 120 --no-pager
+```
+
+The service retries failures three times over two minutes, then stops so a bad
+HUD build does not trap the Pi in a restart loop.
+
 The bundled service uses the Desktop display:
 
 ```ini
