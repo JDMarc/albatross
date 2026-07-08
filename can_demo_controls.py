@@ -6,6 +6,8 @@ without fighting the real HUD controls.
 
 Usage:
   python can_demo_controls.py --channel can0
+  python can_demo_controls.py --canable COM5
+  python can_demo_controls.py --interface slcan --channel COM5 --bitrate 500000
   python can_demo_controls.py --dry-run
 """
 from __future__ import annotations
@@ -33,15 +35,29 @@ from albatross_pi.canbus.encode import (
     build_wmi_enable_frame,
 )
 from albatross_pi.canbus.ids import ArduinoToEcuID, ArduinoToHudID, ECUToHudID, LIMP_REASON_CODES
-from albatross_pi.canbus.iface import SocketCANInterface
+from albatross_pi.canbus.iface import PythonCANInterface, SocketCANInterface
 
 
 class App:
-    def __init__(self, root: tk.Tk, channel: str, dry_run: bool, udp_target: str, send_hud_commands: bool) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        *,
+        interface: str,
+        channel: str,
+        bitrate: int,
+        tty_baudrate: int | None,
+        dry_run: bool,
+        udp_target: str,
+        send_hud_commands: bool,
+    ) -> None:
         self.root = root
         self.root.title("Albatross CAN Demo Controls")
         self.dry_run = dry_run
-        self.iface = None if dry_run else SocketCANInterface(channel=channel)
+        self.can_interface_name = interface
+        self.can_channel_name = channel
+        self.can_bitrate = bitrate
+        self.iface = None if dry_run else self._open_can_interface(interface, channel, bitrate, tty_baudrate)
         self.udp_host, self.udp_port = udp_target.split(":")
         self.udp_port = int(self.udp_port)
         self.udp_ports = sorted({self.udp_port, 5505})
@@ -49,7 +65,7 @@ class App:
         if self.iface:
             try:
                 self.iface.start()
-            except RuntimeError as exc:
+            except Exception as exc:
                 print(f"[can-demo] {exc}")
                 print("[can-demo] Falling back to --dry-run (printing frames).")
                 self.iface = None
@@ -130,6 +146,12 @@ class App:
         self._build()
         self._tick()
 
+    @staticmethod
+    def _open_can_interface(interface: str, channel: str, bitrate: int, tty_baudrate: int | None):
+        if interface == "socketcan":
+            return SocketCANInterface(channel=channel, bitrate=bitrate)
+        return PythonCANInterface(interface=interface, channel=channel, bitrate=bitrate, tty_baudrate=tty_baudrate)
+
     def _build(self) -> None:
         shell = ttk.Frame(self.root)
         shell.grid(sticky="nsew")
@@ -164,12 +186,15 @@ class App:
         rootf.columnconfigure(0, weight=1)
         rootf.columnconfigure(1, weight=1)
 
+        status = "DRY RUN" if self.dry_run else f"{self.can_interface_name} / {self.can_channel_name} / {self.can_bitrate}"
+        ttk.Label(rootf, text=f"CAN output: {status}").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
         ecu = ttk.LabelFrame(rootf, text="ECU -> HUD", padding=8)
-        ecu.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        ecu.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
         ard = ttk.LabelFrame(rootf, text="Controller -> HUD", padding=8)
-        ard.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
+        ard.grid(row=1, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
         cmds = ttk.LabelFrame(rootf, text="Command Simulation / Misc", padding=8)
-        cmds.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        cmds.grid(row=2, column=0, columnspan=2, sticky="nsew")
 
         ecu_sliders = [
             ("RPM", "rpm", 0, 14000),
@@ -254,7 +279,7 @@ class App:
         ttk.Button(cmds, text="Quit", command=self.close).grid(row=7, column=1, sticky="w", pady=(6, 0))
 
         lighting = ttk.LabelFrame(rootf, text="Motorcycle Lighting -> HUD", padding=8)
-        lighting.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        lighting.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
         ttk.Checkbutton(lighting, text="Left Indicator", variable=self.vars["left_indicator"]).grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(lighting, text="Right Indicator", variable=self.vars["right_indicator"]).grid(row=0, column=1, sticky="w")
         ttk.Checkbutton(lighting, text="High Beam", variable=self.vars["high_beam"]).grid(row=0, column=2, sticky="w")
@@ -264,7 +289,7 @@ class App:
         ttk.Checkbutton(lighting, text="WMI Pressure OK", variable=self.vars["wmi_pressure_ok"]).grid(row=1, column=3, sticky="w")
 
         service = ttk.LabelFrame(rootf, text="Service Mode Data", padding=8)
-        service.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        service.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
         self._slider(service, "Oil Sensor V", "oil_sensor_v", 0.0, 5.0, 0)
         self._slider(service, "WMI Tank V", "wmi_tank_v", 0.0, 5.0, 1)
         self._slider(service, "Controller 3.3V", "arduino_5v", 3.0, 3.5, 2)
@@ -274,7 +299,7 @@ class App:
         ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=4, column=2, sticky="w")
 
         navigation = ttk.LabelFrame(rootf, text="Navigation GPS -> HUD", padding=8)
-        navigation.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        navigation.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
         ttk.Checkbutton(navigation, text="GPS Lock", variable=self.vars["gps_lock"]).grid(row=0, column=0, sticky="w")
         ttk.Label(navigation, text="Latitude").grid(row=0, column=1, sticky="e", padx=(16, 4))
         ttk.Entry(navigation, textvariable=self.vars["gps_lat"], width=16).grid(row=0, column=2, sticky="w")
@@ -518,14 +543,30 @@ class App:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--channel", default="can0")
+    p.add_argument("--interface", default="socketcan", help="python-can backend: socketcan, slcan, pcan, gs_usb/candlelight, etc.")
+    p.add_argument("--channel", default="can0", help="CAN channel, e.g. can0 on Linux or COM5 for CANable SLCAN on Windows")
+    p.add_argument("--bitrate", type=int, default=500_000, help="CAN bus bitrate; Albatross defaults to 500000")
+    p.add_argument("--tty-baudrate", type=int, default=None, help="optional SLCAN serial baud rate, e.g. 115200 or 2000000")
+    p.add_argument("--canable", metavar="COM_PORT", help="shortcut for CANable/CANtact SLCAN firmware, e.g. --canable COM5")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--udp-target", default="127.0.0.1:5005")
     p.add_argument("--send-hud-commands", action="store_true", help="also emit Pi/HUD-owned command frames")
     args = p.parse_args()
+    if args.canable:
+        args.interface = "slcan"
+        args.channel = args.canable
 
     root = tk.Tk()
-    app = App(root, args.channel, args.dry_run, args.udp_target, args.send_hud_commands)
+    app = App(
+        root,
+        interface=args.interface,
+        channel=args.channel,
+        bitrate=args.bitrate,
+        tty_baudrate=args.tty_baudrate,
+        dry_run=args.dry_run,
+        udp_target=args.udp_target,
+        send_hud_commands=args.send_hud_commands,
+    )
     root.protocol("WM_DELETE_WINDOW", app.close)
     root.mainloop()
 

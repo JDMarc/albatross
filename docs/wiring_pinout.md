@@ -27,6 +27,19 @@ Only two devices on the entire bus should have termination enabled. Many CAN
 HATs and transceiver breakout boards include a 120 ohm resistor or jumper;
 remove/disable extras once the final physical bus ends are known.
 
+For Windows bench testing with a CANable running SLCAN firmware, connect the
+CANable to the same CANH/CANL backbone and run:
+
+```text
+py -3.12 can_demo_controls.py --canable COM5
+```
+
+Replace `COM5` with the port shown in Windows Device Manager. The shortcut is
+equivalent to `--interface slcan --channel COM5 --bitrate 500000`. If the
+adapter is running a different firmware/backend, use the lower-level python-can
+flags instead, for example `--interface pcan --channel PCAN_USBBUS1` for a PEAK
+adapter.
+
 ## Raspberry Pi CAN
 
 The Pi has no native CAN controller, so use SocketCAN through one of these:

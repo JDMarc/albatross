@@ -84,3 +84,83 @@ class SocketCANInterface:
             if self.rx_callback:
                 self.rx_callback(message.arbitration_id, bytes(message.data))
         LOGGER.info("CAN RX loop stopped")
+
+
+class PythonCANInterface:
+    """Generic python-can TX/RX wrapper for bench adapters.
+
+    This is intentionally separate from ``SocketCANInterface`` so the Pi runtime
+    keeps its small SocketCAN path, while Windows bench tools can use SLCAN,
+    PCAN, candleLight/gs_usb, or any other python-can backend.
+    """
+
+    def __init__(
+        self,
+        *,
+        interface: str,
+        channel: str,
+        bitrate: int = 500_000,
+        tty_baudrate: Optional[int] = None,
+        rx_callback: Optional[Callable[[int, bytes], None]] = None,
+    ) -> None:
+        self.interface = interface
+        self.channel = channel
+        self.bitrate = bitrate
+        self.tty_baudrate = tty_baudrate
+        self.rx_callback = rx_callback
+        self._bus: Optional["can.BusABC"] = None
+        self._rx_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+
+    def start(self) -> None:
+        if can is None:
+            raise RuntimeError("python-can is required for CAN interaction. Install it with: py -3.12 -m pip install python-can")
+        if self._bus is not None:
+            return
+        kwargs: dict[str, object] = {
+            "interface": self.interface,
+            "channel": self.channel,
+            "bitrate": self.bitrate,
+        }
+        if self.tty_baudrate is not None:
+            kwargs["tty_baudrate"] = self.tty_baudrate
+        LOGGER.info("Opening python-can %s channel %s at %s bit/s", self.interface, self.channel, self.bitrate)
+        try:
+            self._bus = can.ThreadSafeBus(**kwargs)
+        except TypeError:
+            kwargs["bustype"] = kwargs.pop("interface")
+            self._bus = can.ThreadSafeBus(**kwargs)
+        self._stop_event.clear()
+        if self.rx_callback is not None:
+            self._rx_thread = threading.Thread(target=self._rx_loop, name=f"can-rx-{self.interface}", daemon=True)
+            self._rx_thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._rx_thread and self._rx_thread.is_alive():
+            self._rx_thread.join(timeout=1.0)
+        self._rx_thread = None
+        if self._bus is not None:
+            LOGGER.info("Closing python-can %s channel %s", self.interface, self.channel)
+            self._bus.shutdown()
+            self._bus = None
+
+    def send(self, arbitration_id: int, data: bytes, timeout: Optional[float] = None) -> None:
+        if self._bus is None:
+            raise RuntimeError("PythonCANInterface.start() must be called before send().")
+        message = can.Message(arbitration_id=arbitration_id, data=data, is_extended_id=False)
+        LOGGER.debug("CAN TX 0x%03X %s", arbitration_id, data.hex())
+        self._bus.send(message, timeout=timeout)
+
+    def _rx_loop(self) -> None:
+        assert self._bus is not None
+        while not self._stop_event.is_set():
+            try:
+                message = self._bus.recv(timeout=0.1)
+            except can.CanError as exc:  # pragma: no cover - hardware specific
+                LOGGER.error("CAN receive error: %s", exc)
+                continue
+            if message is None:
+                continue
+            if self.rx_callback:
+                self.rx_callback(message.arbitration_id, bytes(message.data))
