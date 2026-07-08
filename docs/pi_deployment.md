@@ -23,8 +23,12 @@ python3 -m pip install --break-system-packages python-can pyserial
 Clone or update the repo at:
 
 ```sh
-/home/pi/albatross
+/home/albatross/albatross
 ```
+
+The service template assumes the Raspberry Pi login user is `albatross`. If
+your Pi user is different, edit `User=`, `WorkingDirectory=`, and `ExecStart=`
+in `/etc/systemd/system/albatross-hud.service`.
 
 ## Waveshare 2-CH CAN HAT Setup
 
@@ -115,7 +119,7 @@ The production service uses:
 ```ini
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_RENDER_DRIVER=opengles2
-ExecStart=/usr/bin/python3 /home/pi/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
+ExecStart=/usr/bin/python3 /home/albatross/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
 ```
 
 If the HUD fails to open the display during early bring-up on Desktop, change

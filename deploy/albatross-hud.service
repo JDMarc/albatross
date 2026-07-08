@@ -6,14 +6,14 @@ Wants=can@can0.service
 [Service]
 Type=notify
 NotifyAccess=all
-User=pi
-WorkingDirectory=/home/pi/albatross
+User=albatross
+WorkingDirectory=/home/albatross/albatross
 Environment=PYTHONUNBUFFERED=1
 # For fastest production boot on Raspberry Pi OS Lite, try the KMS/DRM backend.
 # For Desktop/X11 bring-up, replace with: Environment=DISPLAY=:0
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_RENDER_DRIVER=opengles2
-ExecStart=/usr/bin/python3 /home/pi/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
+ExecStart=/usr/bin/python3 /home/albatross/albatross/pi_main.py --can-interface can0 --width 1920 --height 720
 Restart=always
 RestartSec=2
 WatchdogSec=5
