@@ -3,18 +3,26 @@ from __future__ import annotations
 
 import logging
 import math
-import sunau
 import threading
 import time
 import urllib.request
 import wave
-import audioop
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, List
 
 import pygame
+
+try:
+    import audioop
+except ModuleNotFoundError:  # Python 3.13 removed audioop.
+    audioop = None
+
+try:
+    import sunau
+except ModuleNotFoundError:  # Python 3.13 removed sunau.
+    sunau = None
 
 from ..diagnostics.fault_logger import engine_status, fault_action, fault_reason
 from ..economy import EconomyTracker
@@ -147,6 +155,8 @@ class EvaAlertAudio:
 
     @staticmethod
     def _transcode_au_to_pcm_wav(source_path: Path, dest_path: Path) -> None:
+        if sunau is None or audioop is None:
+            raise RuntimeError("Python audio AU transcoding support is unavailable")
         with sunau.open(str(source_path), "rb") as src:
             nchannels = src.getnchannels()
             sampwidth = src.getsampwidth()
