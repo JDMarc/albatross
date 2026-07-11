@@ -191,7 +191,8 @@ class App:
         rootf.columnconfigure(0, weight=1)
         rootf.columnconfigure(1, weight=1)
 
-        status = "DRY RUN" if self.dry_run else f"{self.can_interface_name} / {self.can_channel_name} / {self.can_bitrate}"
+        tty_status = f" / serial {tty_baudrate}" if tty_baudrate else ""
+        status = "DRY RUN" if self.dry_run else f"{self.can_interface_name} / {self.can_channel_name} / {self.can_bitrate}{tty_status}"
         ttk.Label(rootf, text=f"CAN output: {status}").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         ecu = ttk.LabelFrame(rootf, text="ECU -> HUD", padding=8)
@@ -561,6 +562,8 @@ def main() -> None:
     if args.canable:
         args.interface = "slcan"
         args.channel = args.canable
+        if args.tty_baudrate is None:
+            args.tty_baudrate = 2_000_000
     if args.candlelight:
         args.interface = "gs_usb"
         args.channel = "0"
