@@ -608,6 +608,17 @@ class HUDRenderer:
         self._mode_callback = callback
 
     @staticmethod
+    def _invoke_control_callback(name: str, callback, *args) -> bool:
+        if callback is None:
+            return False
+        try:
+            callback(*args)
+            return True
+        except Exception:
+            LOGGER.exception("%s control callback failed", name)
+            return False
+
+    @staticmethod
     def _index_for_value(values: list, value, default: int) -> int:
         try:
             return values.index(value)
@@ -664,15 +675,16 @@ class HUDRenderer:
 
     def sync_persisted_controls(self) -> None:
         """Send persisted settings to connected controllers after callbacks attach."""
-        if self._mode_callback:
-            self._mode_callback(self._mode_index + 1)
-        if self._traction_callback:
-            self._traction_callback(self._traction_index + 1)
-        if self._fuel_type_callback:
-            self._fuel_type_callback(self._fuel_type_index)
+        self._invoke_control_callback("Mode", self._mode_callback, self._mode_index + 1)
+        self._invoke_control_callback("Traction", self._traction_callback, self._traction_index + 1)
+        self._invoke_control_callback("Fuel type", self._fuel_type_callback, self._fuel_type_index)
         self._notify_flame_mode()
-        if self._media_callback:
-            self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+        self._invoke_control_callback(
+            "Phone link",
+            self._media_callback,
+            "phone_link",
+            1 if self._phone_link_enabled else 0,
+        )
 
     def _effective_flame_mode_enabled(self, mode_index: int | None = None) -> bool:
         idx = self._mode_index if mode_index is None else mode_index
@@ -690,8 +702,7 @@ class HUDRenderer:
                     rev_limiter_strategy="IGNITION CUT" if enabled else "FUEL CUT",
                 ),
             )
-        if self._flame_callback:
-            self._flame_callback(enabled)
+        self._invoke_control_callback("Flame mode", self._flame_callback, enabled)
 
     def _apply_mode_selection(self, mode_index: int, *, notify: bool = True) -> None:
         if not self._modes:
@@ -704,8 +715,8 @@ class HUDRenderer:
                 self.state,
                 environment=replace(self.state.environment, mode=mode),
             )
-        if notify and self._mode_callback:
-            self._mode_callback(self._mode_index + 1)
+        if notify:
+            self._invoke_control_callback("Mode", self._mode_callback, self._mode_index + 1)
         if notify:
             self._notify_flame_mode()
         if notify:
@@ -1150,13 +1161,19 @@ class HUDRenderer:
                         self._handle_dpad_left()
                     elif event.key in (pygame.K_LEFTBRACKET, pygame.K_COMMA):
                         self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
-                        if self._traction_callback:
-                            self._traction_callback(self._traction_index + 1)
+                        self._invoke_control_callback(
+                            "Traction",
+                            self._traction_callback,
+                            self._traction_index + 1,
+                        )
                         self._save_preferences()
                     elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_PERIOD):
                         self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
-                        if self._traction_callback:
-                            self._traction_callback(self._traction_index + 1)
+                        self._invoke_control_callback(
+                            "Traction",
+                            self._traction_callback,
+                            self._traction_index + 1,
+                        )
                         self._save_preferences()
                 elif event.type == pygame.JOYBUTTONDOWN:
                     if (not self._post_complete) or self._post_fault_active:
@@ -1420,8 +1437,11 @@ class HUDRenderer:
             item = self._setting_items[self._settings_cursor]
             if item == "TRACTION":
                 self._traction_index = (self._traction_index + 1) % len(self._traction_levels)
-                if self._traction_callback:
-                    self._traction_callback(self._traction_index + 1)
+                self._invoke_control_callback(
+                    "Traction",
+                    self._traction_callback,
+                    self._traction_index + 1,
+                )
                 self._save_preferences()
             elif item == "FUEL TYPE":
                 self._apply_fuel_type_selection((self._fuel_type_index + 1) % len(self._fuel_types))
@@ -1434,8 +1454,7 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "PHONE LINK":
                 self._phone_link_enabled = True
-                if self._media_callback:
-                    self._media_callback("phone_link", 1)
+                self._invoke_control_callback("Phone link", self._media_callback, "phone_link", 1)
                 self._save_preferences()
             elif item == "THEME":
                 self._theme_index = (self._theme_index + 1) % len(self._themes)
@@ -1492,8 +1511,11 @@ class HUDRenderer:
             item = self._setting_items[self._settings_cursor]
             if item == "TRACTION":
                 self._traction_index = (self._traction_index - 1) % len(self._traction_levels)
-                if self._traction_callback:
-                    self._traction_callback(self._traction_index + 1)
+                self._invoke_control_callback(
+                    "Traction",
+                    self._traction_callback,
+                    self._traction_index + 1,
+                )
                 self._save_preferences()
             elif item == "FUEL TYPE":
                 self._apply_fuel_type_selection((self._fuel_type_index - 1) % len(self._fuel_types))
@@ -1506,8 +1528,7 @@ class HUDRenderer:
                 self._save_preferences()
             elif item == "PHONE LINK":
                 self._phone_link_enabled = False
-                if self._media_callback:
-                    self._media_callback("phone_link", 0)
+                self._invoke_control_callback("Phone link", self._media_callback, "phone_link", 0)
                 self._save_preferences()
             elif item == "THEME":
                 self._theme_index = (self._theme_index - 1) % len(self._themes)
@@ -1657,8 +1678,12 @@ class HUDRenderer:
             item = self._setting_items[self._settings_cursor]
             if item == "PHONE LINK":
                 self._phone_link_enabled = not self._phone_link_enabled
-                if self._media_callback:
-                    self._media_callback("phone_link", 1 if self._phone_link_enabled else 0)
+                self._invoke_control_callback(
+                    "Phone link",
+                    self._media_callback,
+                    "phone_link",
+                    1 if self._phone_link_enabled else 0,
+                )
                 self._save_preferences()
             elif item == "FLAME MODE":
                 self._flame_mode_manual_enabled = not self._flame_mode_manual_enabled
@@ -1685,11 +1710,7 @@ class HUDRenderer:
             return
 
     def _request_air_shot(self) -> None:
-        if self._air_shot_callback:
-            try:
-                self._air_shot_callback()
-            except Exception:
-                LOGGER.exception("Air Shot request callback failed")
+        self._invoke_control_callback("Air Shot request", self._air_shot_callback)
 
     def _navigation_menu_items(self) -> list[tuple[str, str | None]]:
         items: list[tuple[str, str | None]] = [("SAVE CURRENT LOCATION", None), ("SEARCH ADDRESS", None)]
@@ -1892,16 +1913,21 @@ class HUDRenderer:
 
     def _activate_media_action(self) -> None:
         action = self._media_items[self._media_index]
-        if action == "PREV" and self._media_callback:
-            self._media_callback("prev", 1)
-        elif action == "PLAY" and self._media_callback:
-            self._media_callback("play_pause", 1)
-        elif action == "NEXT" and self._media_callback:
-            self._media_callback("next", 1)
+        if action == "PREV":
+            self._invoke_control_callback("Media previous", self._media_callback, "prev", 1)
+        elif action == "PLAY":
+            self._invoke_control_callback("Media play/pause", self._media_callback, "play_pause", 1)
+        elif action == "NEXT":
+            self._invoke_control_callback("Media next", self._media_callback, "next", 1)
         elif action == "DEVICES":
-            if self._media_device_menu_open and self._available_devices and self._media_callback:
+            if self._media_device_menu_open and self._available_devices:
                 mac, _name = self._available_devices[self._media_device_cursor]
-                self._media_callback(f"connect:{mac}", 1)
+                self._invoke_control_callback(
+                    "Media device connect",
+                    self._media_callback,
+                    f"connect:{mac}",
+                    1,
+                )
                 self._media_device_menu_open = False
             else:
                 self._media_device_menu_open = True
@@ -2627,8 +2653,12 @@ class HUDRenderer:
                 self.state,
                 environment=replace(self.state.environment, fuel_type=fuel_type),
             )
-        if notify and self._fuel_type_callback:
-            self._fuel_type_callback(self._fuel_type_index)
+        if notify:
+            self._invoke_control_callback(
+                "Fuel type",
+                self._fuel_type_callback,
+                self._fuel_type_index,
+            )
         if notify:
             self._save_preferences()
 
