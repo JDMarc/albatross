@@ -1116,7 +1116,24 @@ class HUDRenderer:
         timed_out = elapsed >= 2.5
         self._post_complete = all_passed or timed_out
 
+    def _with_hud_owned_controls(self, snapshot: StateSnapshot) -> StateSnapshot:
+        flame_enabled = self._effective_flame_mode_enabled()
+        environment = replace(
+            snapshot.environment,
+            mode=self._modes[self._mode_index],
+            fuel_type=self._fuel_types[self._fuel_type_index],
+            flame_mode_enabled=flame_enabled,
+            rev_limiter_strategy="IGNITION CUT" if flame_enabled else "FUEL CUT",
+            brightness_pct=float(self._brightness_levels[self._brightness_index]),
+        )
+        traction = replace(
+            snapshot.traction,
+            intervention_level=self._traction_levels[self._traction_index],
+        )
+        return replace(snapshot, environment=environment, traction=traction)
+
     def update_state(self, snapshot: StateSnapshot) -> None:
+        snapshot = self._with_hud_owned_controls(snapshot)
         with self.state_lock:
             self.state = snapshot
             self._last_can_fresh_monotonic = time.monotonic()
@@ -1220,15 +1237,6 @@ class HUDRenderer:
                     self._snapshot_log_callback(state)
                 except Exception:
                     LOGGER.exception("Snapshot logging callback failed")
-            previous_mode_index = self._mode_index
-            if state.environment.mode in self._modes:
-                self._mode_index = self._modes.index(state.environment.mode)
-                self._mode_selection_index = self._mode_index
-            if self._mode_index != previous_mode_index:
-                self._mode_layout_anim_until = now_s + 0.9
-            if state.environment.fuel_type in self._fuel_types:
-                self._fuel_type_index = self._fuel_types.index(state.environment.fuel_type)
-
             # Keep the HUD clock moving even when telemetry timestamps stop updating.
             display_time = self._display_time_anchor + timedelta(
                 seconds=max(0.0, now_s - self._display_time_anchor_monotonic)
@@ -1237,32 +1245,6 @@ class HUDRenderer:
 
             if now_s < self._mode_layout_anim_until:
                 self._create_widgets()
-            # Respect externally supplied mode telemetry.
-            desired_trac = self._traction_levels[self._traction_index]
-            if state.traction.intervention_level != desired_trac:
-                state = StateSnapshot(
-                    engine=state.engine,
-                    temps=state.temps,
-                    air_shot=state.air_shot,
-                    wmi=state.wmi,
-                    traction=state.traction.__class__(
-                        slip_pct=state.traction.slip_pct,
-                        wheelie_pitch_deg=state.traction.wheelie_pitch_deg,
-                        intervention_level=desired_trac,
-                        torque_cut_pct=state.traction.torque_cut_pct,
-                        active=state.traction.active,
-                        sensor_fault=state.traction.sensor_fault,
-                    ),
-                    clutch=state.clutch,
-                    lighting=state.lighting,
-                    environment=state.environment,
-                    economy=state.economy,
-                    service=state.service,
-                    system=state.system,
-                    shift_light=state.shift_light,
-                    faults=state.faults,
-                    advisories=state.advisories,
-                )
 
             if not self._post_complete:
                 self._run_post(state)
