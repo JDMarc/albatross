@@ -157,8 +157,9 @@
 - Hardware-in-the-loop bench with CAN USB dongle and Teensy simulator.
 
 ## 14. OTA & Security
-- USB and GitHub Release update bundles verify SHA-256 payload hashes before install.
-- Pi app overlays preserve a versioned backup and automatically restore it after repeated unconfirmed starts.
+- USB update bundles verify SHA-256 payload hashes before install.
+- Online updates fast-forward from the configured Git branch only when the tracked worktree is clean and repository history has not diverged.
+- Pi app overlays and repository updates preserve a versioned backup and automatically restore it after repeated unconfirmed starts.
 - A line-oriented USB NFC reader gates engine-run authority for each power cycle. The MS3 run/start inhibit and a separate hardwired kill path remain required.
 - Full signed-bundle verification and full filesystem A/B OS images remain future hardening work.
 

@@ -42,7 +42,7 @@ from albatross_pi.runtime import PiPowerSupervisor, SystemdNotifier
 from albatross_pi.security import NfcAuthorizer
 from albatross_pi.state.simulator import StateSimulator
 from albatross_pi.state.snapshot import CANFrameRecord, ClutchState, LightingState, ServiceFlag, ServiceReading, ServiceStatus, StateSnapshot, SystemStatus, WMIState
-from albatross_pi.updater import confirm_pending_update_health, install_update_from_github, install_update_from_usb, request_reboot_if_raspberry_pi
+from albatross_pi.updater import confirm_pending_update_health, install_update_from_repository, install_update_from_usb, request_reboot_if_raspberry_pi
 
 
 def _iter_can_snapshots(
@@ -270,7 +270,7 @@ def main() -> None:
     renderer.configure_update_install_callback(lambda snapshot: install_update_from_usb(snapshot).display())
 
     def _online_update(snapshot: StateSnapshot, progress_callback) -> str:
-        result = install_update_from_github(snapshot, progress_callback)
+        result = install_update_from_repository(snapshot, progress_callback)
         display = result.display()
         if "RESTART" in display:
             display = f"{display} REBOOTING" if request_reboot_if_raspberry_pi() else f"{display} REBOOT MANUAL"

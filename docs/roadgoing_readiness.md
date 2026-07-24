@@ -36,7 +36,7 @@ suited to the wastegate actuator current.
 | MS3 hard limits | Required | MS3 must enforce boost/fuel/ignition/overboost/AFR/oil/temperature safeties even if Pi or Teensy misbehaves. |
 | Sensor calibration | Required | Wheel circumference, magnet count, gear ratios, WMI flow pulses/L, tank sender scaling, oil/flex/fuel sensors, and boost/MAP scaling need measured calibration. |
 | Logging and recovery | Partial | Fault JSONL, readable summaries, USB export, and readable 30-second pre-fault timelines exist. Define the post-ride review workflow before relying on logs for diagnosis. |
-| Updates | Partial | USB/GitHub bundle flow and automatic application-overlay rollback exist. Verify rollback and "engine off, voltage OK" installs on the actual Pi. |
+| Updates | Partial | USB bundles, fast-forward repository updates, and automatic application rollback exist. Verify rollback and "engine off, voltage OK" installs on the actual Pi. |
 | EMI/grounding | Hardware | CAN twisted pair, shield strategy, star/sensor grounds, ignitor/injector noise separation, and alternator noise testing need validation. |
 | Human factors | Partial | HUD has indicator/high-beam icons and fault voice lines; verify sunlight readability, glove controls, startup time, and no critical text overlap on the real display. |
 | Battery/charging health | Partial | Voltage faults and low-voltage controlled Pi shutdown exist; add current draw budget, parasitic draw target, alternator capacity check, and external hold-up/latch validation. |

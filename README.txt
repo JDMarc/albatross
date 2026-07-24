@@ -132,8 +132,9 @@ Repository layout
   `docs/pi_deployment.md` for the CAN HAT and fast autostart path.
 
 - updates/
-  Created by USB and GitHub Release update installs. Update bundles can install
-  Pi app overlays and flash the USB-connected Teensy controller; see
+  Created by USB bundle and online repository update installs. USB bundles can
+  install Pi app overlays and flash the USB-connected Teensy controller; online
+  updates fast-forward the Pi application from the configured Git branch. See
   `docs/update_bundles.md`.
   Build bundles with `py -3.12 tools\make_update_bundle.py`.
 

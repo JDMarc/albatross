@@ -10,8 +10,6 @@ import tarfile
 import tempfile
 import zipfile
 import hashlib
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,8 +28,9 @@ MAX_UNCONFIRMED_STARTS = 2
 RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "maps", "settings", "updates"}
 DEFAULT_ARDUINO_FQBN = "teensy:avr:teensy41"
 DEFAULT_ARDUINO_BAUD = 115200
-DEFAULT_GITHUB_UPDATE_API = "https://api.github.com/repos/JDMarc/albatross/releases/latest"
-DOWNLOAD_CHUNK_SIZE = 1024 * 128
+DEFAULT_GITHUB_REMOTE = "origin"
+DEFAULT_GITHUB_BRANCH = "main"
+DEFAULT_ONLINE_MIN_BATTERY_VOLTAGE = 12.2
 ProgressCallback = Callable[[str, int, int], None]
 
 
@@ -55,30 +54,46 @@ def _progress(callback: ProgressCallback | None, stage: str, current: int = 0, t
         callback(stage, current, total)
 
 
-def _current_git_commit() -> str | None:
+def _run_git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(REPO_ROOT),
+        check=check,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _git_output(*args: str) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(REPO_ROOT),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        result = _run_git(*args)
         return result.stdout.strip() or None
     except Exception:
         return None
 
 
-def _last_installed_version() -> str | None:
-    state_path = UPDATE_STATE_DIR / "last_update.json"
-    if not state_path.exists():
-        return None
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    version = state.get("version")
-    return str(version) if version else None
+def _current_git_commit() -> str | None:
+    return _git_output("rev-parse", "HEAD")
+
+
+def _git_has_tracked_changes() -> bool:
+    result = _run_git("status", "--porcelain", "--untracked-files=no")
+    return bool(result.stdout.strip())
+
+
+def _git_is_ancestor(older: str, newer: str) -> bool:
+    result = _run_git("merge-base", "--is-ancestor", older, newer, check=False)
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.strip() or "Unable to compare repository history")
+    return result.returncode == 0
+
+
+def _restore_git_commit(commit: str) -> None:
+    normalized = commit.strip().lower()
+    if len(normalized) != 40 or any(ch not in "0123456789abcdef" for ch in normalized):
+        raise ValueError("Invalid rollback commit")
+    _run_git("reset", "--hard", normalized)
 
 
 def _copytree_overlay(source: Path, destination: Path) -> None:
@@ -193,79 +208,28 @@ def find_update_bundle() -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _github_api_url() -> str:
-    return os.environ.get("ALBATROSS_GITHUB_UPDATE_API", DEFAULT_GITHUB_UPDATE_API)
+def _github_remote() -> str:
+    return os.environ.get("ALBATROSS_GITHUB_REMOTE", DEFAULT_GITHUB_REMOTE).strip() or DEFAULT_GITHUB_REMOTE
 
 
-def _github_headers() -> dict[str, str]:
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "albatross-hud-updater",
-    }
-    token = os.environ.get("ALBATROSS_GITHUB_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+def _github_branch() -> str:
+    return os.environ.get("ALBATROSS_GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH).strip() or DEFAULT_GITHUB_BRANCH
 
 
-def _fetch_latest_github_release() -> dict[str, Any]:
-    request = urllib.request.Request(_github_api_url(), headers=_github_headers())
-    with urllib.request.urlopen(request, timeout=15) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def _select_release_bundle_asset(release: dict[str, Any]) -> dict[str, Any] | None:
-    assets = release.get("assets")
-    if not isinstance(assets, list):
-        return None
-    candidates: list[dict[str, Any]] = []
-    for asset in assets:
-        if not isinstance(asset, dict):
-            continue
-        name = str(asset.get("name", ""))
-        lower = name.lower()
-        if lower.endswith(".zip") and lower.startswith(("albatross_update", "albatross-update")):
-            candidates.append(asset)
-    if not candidates:
-        return None
-    return sorted(candidates, key=lambda item: str(item.get("updated_at", "")), reverse=True)[0]
-
-
-def _release_matches_current_install(release: dict[str, Any]) -> bool:
-    tag = str(release.get("tag_name") or release.get("name") or "").strip()
-    if not tag:
-        return False
-    installed = _last_installed_version()
-    if installed and installed == tag:
-        return True
-    commit = _current_git_commit()
-    target = str(release.get("target_commitish") or "").strip()
-    return bool(commit and target and (commit == target or commit.startswith(target) or target.startswith(commit[:12])))
-
-
-def _download_asset(asset: dict[str, Any], progress: ProgressCallback | None = None) -> Path:
-    url = str(asset.get("browser_download_url") or "")
-    if not url:
-        raise ValueError("GitHub release asset has no download URL")
-    name = _safe_name(str(asset.get("name") or "albatross_update.zip"))
-    download_dir = UPDATE_STATE_DIR / "downloads"
-    download_dir.mkdir(parents=True, exist_ok=True)
-    destination = download_dir / name
-    partial = destination.with_suffix(destination.suffix + ".part")
-    request = urllib.request.Request(url, headers=_github_headers())
-    _progress(progress, "DOWNLOADING", 0, int(asset.get("size") or 0))
-    with urllib.request.urlopen(request, timeout=30) as response, partial.open("wb") as fh:
-        total = int(response.headers.get("Content-Length") or asset.get("size") or 0)
-        current = 0
-        while True:
-            chunk = response.read(DOWNLOAD_CHUNK_SIZE)
-            if not chunk:
-                break
-            fh.write(chunk)
-            current += len(chunk)
-            _progress(progress, "DOWNLOADING", current, total)
-    partial.replace(destination)
-    return destination
+def _fetch_repository_head(progress: ProgressCallback | None = None) -> tuple[str, str, str]:
+    remote = _github_remote()
+    branch = _github_branch()
+    if not (REPO_ROOT / ".git").exists():
+        raise RuntimeError("HUD install is not a Git repository")
+    if _git_output("remote", "get-url", remote) is None:
+        raise RuntimeError(f"Git remote {remote!r} is not configured")
+    _progress(progress, "DOWNLOADING", 0, 1)
+    _run_git("fetch", "--quiet", "--no-tags", remote, branch)
+    _progress(progress, "DOWNLOADING", 1, 1)
+    target = _git_output("rev-parse", "FETCH_HEAD")
+    if not target:
+        raise RuntimeError("Fetched repository state has no commit")
+    return remote, branch, target
 
 
 def _manifest_pi_archive(manifest: dict[str, Any]) -> str | None:
@@ -455,33 +419,95 @@ def install_update_from_usb(snapshot: StateSnapshot) -> UpdateResult:
     return install_update_bundle(bundle, snapshot, source="usb")
 
 
-def install_update_from_github(snapshot: StateSnapshot, progress: ProgressCallback | None = None) -> UpdateResult:
+def install_update_from_repository(snapshot: StateSnapshot, progress: ProgressCallback | None = None) -> UpdateResult:
+    """Fast-forward the installed HUD to the configured repository branch."""
     try:
         _progress(progress, "CHECKING")
-        release = _fetch_latest_github_release()
-        if release.get("draft") or release.get("prerelease"):
-            return UpdateResult("NO STABLE RELEASE")
-        asset = _select_release_bundle_asset(release)
-        if asset is None:
-            return UpdateResult("NO BUNDLE")
-        if _release_matches_current_install(release):
+        current = _current_git_commit()
+        if not current:
+            return UpdateResult("NO GIT REPO")
+        try:
+            remote, branch, target = _fetch_repository_head(progress)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            LOGGER.exception("Repository update fetch failed")
+            return UpdateResult("NET FAIL", exc.__class__.__name__)
+
+        if _git_has_tracked_changes():
+            return UpdateResult("LOCAL CHANGES")
+        if current == target:
             return UpdateResult("UP TO DATE")
-        bundle = _download_asset(asset, progress)
+
+        if not _git_is_ancestor(current, target):
+            if _git_is_ancestor(target, current):
+                return UpdateResult("LOCAL AHEAD")
+            return UpdateResult("GIT DIVERGED")
+
+        blocked = _preflight(
+            {
+                "requires_engine_off": True,
+                "min_battery_voltage": DEFAULT_ONLINE_MIN_BATTERY_VOLTAGE,
+            },
+            snapshot,
+        )
+        if blocked:
+            return UpdateResult(blocked)
+
+        version = f"git_{target[:12]}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        UPDATE_STATE_DIR.mkdir(parents=True, exist_ok=True)
+        backup_root = UPDATE_STATE_DIR / "backups" / f"{timestamp}_{version}"
+        _progress(progress, "BACKUP")
+        _backup_runtime_dirs(backup_root)
+        _backup_current_app(backup_root)
+
         _progress(progress, "INSTALLING")
-        tag = str(release.get("tag_name") or "")
-        source = f"github:{tag}" if tag else "github"
-        return install_update_bundle(bundle, snapshot, source=source, progress=progress)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return UpdateResult("NO RELEASE")
-        LOGGER.exception("GitHub update check failed")
-        return UpdateResult("NET FAIL", f"HTTP {exc.code}")
-    except urllib.error.URLError as exc:
-        LOGGER.exception("GitHub update check failed")
-        return UpdateResult("NET FAIL", exc.__class__.__name__)
+        merge_completed = False
+        try:
+            _run_git("merge", "--ff-only", target)
+            merge_completed = True
+            installed_at = datetime.now().isoformat(timespec="seconds")
+            source = f"github:{remote}/{branch}"
+            state = {
+                "version": version,
+                "installed_at": installed_at,
+                "bundle": None,
+                "source": source,
+                "pi_updated": True,
+                "arduino_updated": False,
+                "backup": str(backup_root),
+                "restart_required": True,
+                "previous_git_commit": current,
+                "target_git_commit": target,
+            }
+            _write_json_atomic(UPDATE_STATE_DIR / "last_update.json", state)
+            _write_json_atomic(RESTART_REQUIRED_PATH, state)
+            _write_json_atomic(
+                PENDING_HEALTH_PATH,
+                {
+                    "version": version,
+                    "backup": str(backup_root),
+                    "installed_at": installed_at,
+                    "startup_attempts": 0,
+                    "previous_git_commit": current,
+                    "target_git_commit": target,
+                    "source": source,
+                },
+            )
+        except Exception:
+            if merge_completed:
+                LOGGER.exception("Repository update transaction failed; restoring previous commit")
+                _restore_git_commit(current)
+                _copytree_overlay(backup_root / "app", REPO_ROOT)
+            raise
+        return UpdateResult("PI OK", "RESTART")
     except Exception as exc:
-        LOGGER.exception("GitHub update failed")
+        LOGGER.exception("Repository update failed")
         return UpdateResult("UPDATE FAIL", exc.__class__.__name__)
+
+
+def install_update_from_github(snapshot: StateSnapshot, progress: ProgressCallback | None = None) -> UpdateResult:
+    """Backward-compatible name for repository-based online updates."""
+    return install_update_from_repository(snapshot, progress)
 
 
 def request_reboot_if_raspberry_pi() -> bool:
@@ -515,12 +541,16 @@ def register_startup_attempt_or_rollback() -> bool:
         app_backup = backup_root / "app"
         if not app_backup.is_dir():
             raise FileNotFoundError(f"Rollback app backup missing: {app_backup}")
+        previous_git_commit = str(pending.get("previous_git_commit") or "")
+        if previous_git_commit:
+            _restore_git_commit(previous_git_commit)
         _copytree_overlay(app_backup, REPO_ROOT)
         rollback_state = {
             "rolled_back_at": datetime.now().isoformat(timespec="seconds"),
             "failed_version": pending.get("version", "unknown"),
             "backup": str(backup_root),
             "startup_attempts": attempts,
+            "restored_git_commit": previous_git_commit or None,
         }
         _write_json_atomic(UPDATE_STATE_DIR / "last_rollback.json", rollback_state)
         PENDING_HEALTH_PATH.unlink(missing_ok=True)
