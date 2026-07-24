@@ -22,6 +22,17 @@ markers, and reboots automatically on a Raspberry Pi. A dirty worktree, local
 commits ahead of the remote, or divergent history is reported without
 overwriting anything.
 
+Automatic rebooting is delegated to the root-owned
+`albatross-update-reboot.path` unit. Install and enable the two reboot watcher
+units during Pi deployment:
+
+```sh
+sudo cp deploy/albatross-update-reboot.service /etc/systemd/system/
+sudo cp deploy/albatross-update-reboot.path /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now albatross-update-reboot.path
+```
+
 This path updates the Pi application only. Continue using a USB update bundle
 when a Teensy firmware image must be installed at the same time.
 

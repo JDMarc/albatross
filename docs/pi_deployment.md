@@ -103,8 +103,11 @@ Install the HUD service:
 
 ```sh
 sudo cp deploy/albatross-hud.service /etc/systemd/system/albatross-hud.service
+sudo cp deploy/albatross-update-reboot.service /etc/systemd/system/albatross-update-reboot.service
+sudo cp deploy/albatross-update-reboot.path /etc/systemd/system/albatross-update-reboot.path
 sudo systemctl daemon-reload
 sudo systemctl enable albatross-hud.service
+sudo systemctl enable --now albatross-update-reboot.path
 sudo systemctl start albatross-hud.service
 ```
 
@@ -113,7 +116,14 @@ Check it:
 ```sh
 systemctl status albatross-hud.service
 journalctl -u albatross-hud.service -f
+systemctl status albatross-update-reboot.path
 ```
+
+The reboot path unit is the privileged half of online updates. The HUD continues
+to run as the unprivileged `albatross` user; after a successful update it writes
+`updates/reboot_requested`, and the root-owned path unit consumes that marker
+and reboots the Pi. Without the path unit, the HUD reports `REBOOT MANUAL`
+unless passwordless noninteractive `sudo` is available.
 
 During first bring-up, stop the service before digging through crashes:
 

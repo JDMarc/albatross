@@ -1,0 +1,8 @@
+[Unit]
+Description=Reboot after an Albatross HUD update
+ConditionPathExists=/home/albatross/albatross/updates/reboot_requested
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rm -f /home/albatross/albatross/updates/reboot_requested
+ExecStart=/usr/bin/systemctl reboot

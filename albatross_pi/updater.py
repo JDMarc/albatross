@@ -24,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 UPDATE_STATE_DIR = REPO_ROOT / "updates"
 PENDING_HEALTH_PATH = UPDATE_STATE_DIR / "pending_health.json"
 RESTART_REQUIRED_PATH = UPDATE_STATE_DIR / "restart_required"
+REBOOT_REQUEST_PATH = UPDATE_STATE_DIR / "reboot_requested"
+REBOOT_WATCHER_UNIT = "albatross-update-reboot.path"
 MAX_UNCONFIRMED_STARTS = 2
 RUNTIME_DIR_NAMES = {".git", ".venv", "__pycache__", "logs", "maps", "settings", "updates"}
 DEFAULT_ARDUINO_FQBN = "teensy:avr:teensy41"
@@ -510,18 +512,56 @@ def install_update_from_github(snapshot: StateSnapshot, progress: ProgressCallba
     return install_update_from_repository(snapshot, progress)
 
 
-def request_reboot_if_raspberry_pi() -> bool:
-    if os.environ.get("ALBATROSS_SKIP_REBOOT"):
-        return False
+def _is_raspberry_pi() -> bool:
     model_path = Path("/proc/device-tree/model")
     try:
         model = model_path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         model = ""
-    if "raspberry pi" not in model.lower():
+    return "raspberry pi" in model.lower()
+
+
+def request_reboot_if_raspberry_pi() -> bool:
+    if os.environ.get("ALBATROSS_SKIP_REBOOT") or not _is_raspberry_pi():
         return False
-    command = ["systemctl", "reboot"] if shutil.which("systemctl") else ["sudo", "reboot"]
-    subprocess.Popen(command, cwd=str(REPO_ROOT))
+
+    systemctl = shutil.which("systemctl")
+    if systemctl:
+        try:
+            watcher = subprocess.run(
+                [systemctl, "is-active", "--quiet", REBOOT_WATCHER_UNIT],
+                check=False,
+                timeout=5,
+            )
+            if watcher.returncode == 0:
+                _write_json_atomic(
+                    REBOOT_REQUEST_PATH,
+                    {
+                        "requested_at": datetime.now().isoformat(timespec="seconds"),
+                        "reason": "online_update",
+                    },
+                )
+                return True
+        except Exception:
+            LOGGER.exception("Unable to signal the privileged update reboot watcher")
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        command = [systemctl, "reboot"] if systemctl else [shutil.which("reboot") or "/sbin/reboot"]
+    else:
+        sudo = shutil.which("sudo")
+        if sudo is None:
+            LOGGER.error("Automatic reboot unavailable: privileged reboot watcher is not active")
+            return False
+        reboot_command = [systemctl, "reboot"] if systemctl else [shutil.which("reboot") or "/sbin/reboot"]
+        command = [sudo, "-n", *reboot_command]
+    try:
+        result = subprocess.run(command, cwd=str(REPO_ROOT), check=False, timeout=10)
+    except Exception:
+        LOGGER.exception("Automatic reboot command failed")
+        return False
+    if result.returncode != 0:
+        LOGGER.error("Automatic reboot command exited with status %s", result.returncode)
+        return False
     return True
 
 
