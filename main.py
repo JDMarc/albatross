@@ -19,6 +19,7 @@ from typing import Iterable, Iterator
 import pygame
 
 from albatross_pi.boost_strategy import calculate_boost_target
+from albatross_pi.airshot import mode_frame as air_mode_frame, fire_frame as air_fire_frame
 from albatross_pi.canbus import ArduinoToHudID, CANStateAggregator, ECUToHudID, PiToArduinoID, PiToEcuID, SocketCANInterface, build_mode_selection_frame, build_traction_level_frame, python_can_available
 from albatross_pi.canbus.encode import (
     build_air_shot_request_frame,
@@ -319,6 +320,7 @@ def main() -> None:
         aggregator = CANStateAggregator(
             thermal_baseline_path=args.thermal_baseline,
             thermal_log_directory=args.thermal_log_dir,
+            airshot_log_directory=args.fault_log_dir / "airshot",
         )
         can_interface = SocketCANInterface(
             channel=args.can_interface,
@@ -377,11 +379,49 @@ def main() -> None:
                 aggregator.mark_sent_frame(*frame)
             _send_boost_request()
 
-        def _send_air_shot_request() -> None:
+        air_sequence = 0
+        def _send_air_shot_request(pressed: bool = True) -> None:
+            nonlocal air_sequence
             assert can_interface is not None and aggregator is not None
-            frame = build_air_shot_request_frame()
+            air_sequence = (air_sequence+1) & 0xffff
+            frame = air_fire_frame(pressed,air_sequence)
             can_interface.send(*frame)
             aggregator.mark_sent_frame(*frame)
+
+        def _send_air_mode(mode: str) -> None:
+            frame = air_mode_frame(mode)
+            can_interface.send(*frame)
+            aggregator.mark_sent_frame(*frame)
+        renderer._air_mode_callback = _send_air_mode
+        def _apply_air_calibration(editor) -> None:
+            if editor.busy:return
+            frames=list(editor.frames())
+            editor.busy=True
+            editor.status="SENDING CALIBRATION"
+            def transmit():
+                try:
+                    commit_at=0.0
+                    for frame in frames:
+                        if frame[0]==0x19e: commit_at=time.monotonic()
+                        can_interface.send(*frame)
+                        aggregator.mark_sent_frame(*frame)
+                        time.sleep(0.004)
+                    editor.status="SENT / WAITING FOR CONTROLLER ACK"
+                    deadline=time.monotonic()+3
+                    while time.monotonic()<deadline:
+                        ack=aggregator.airshot_service.config_ack
+                        if ack in (2,3,4,5) and aggregator.airshot_service.config_ack_at>=commit_at and aggregator.airshot_service.config_ack_token==editor.token:
+                            editor.status={2:"APPLIED / SAVED ON TEENSY",3:"REFUSED: STOP ENGINE",4:"REFUSED: INVALID CALIBRATION",5:"REFUSED: PIN ASSIGNMENT"}[ack]
+                            return
+                        time.sleep(0.05)
+                    editor.status="NO CONTROLLER ACK"
+                except Exception as exc:
+                    editor.status="TRANSFER FAILED: "+type(exc).__name__
+                finally:
+                    editor.busy=False
+            aggregator.airshot_service.config_ack=0
+            threading.Thread(target=transmit,daemon=True,name="airshot-calibration").start()
+        renderer._air_calibration.send_callback = _apply_air_calibration
 
         def _send_media_control(command: str, value: int) -> None:
             assert can_interface is not None
@@ -949,6 +989,8 @@ def main() -> None:
         systemd_notifier.stopping()
         if can_interface:
             can_interface.stop()
+        if aggregator:
+            aggregator.airshot_service.close()
 
 
 if __name__ == "__main__":

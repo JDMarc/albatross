@@ -21,6 +21,7 @@ from .ids import (
     ThermalNodeToNetworkID,
 )
 from ..thermal import ThermalService
+from ..airshot import AirShotService
 from ..state.snapshot import (
     AirShotState,
     CANFrameRecord,
@@ -78,6 +79,7 @@ class CANStateAggregator:
         thermal_config_path: Path | str | None = None,
         thermal_baseline_path: Path | str | None = None,
         thermal_log_directory: Path | str | None = None,
+        airshot_log_directory: Path | str | None = None,
     ) -> None:
         self._lock = Lock()
         self._condition = Condition(self._lock)
@@ -110,6 +112,7 @@ class CANStateAggregator:
             "alternator_temp_f": 0.0,
         }
         self._airshot = AirShotState()
+        self.airshot_service = AirShotService(airshot_log_directory)
         self._wmi = WMIState()
         self._traction = TractionState()
         self._clutch = ClutchState()
@@ -153,6 +156,7 @@ class CANStateAggregator:
                 if arbitration_id in self._thermal.can_ids:
                     self._last_thermal_rx_monotonic = received_at
             self._record_can_frame(arbitration_id, data, direction)
+            self.airshot_service.ingest(arbitration_id,data,direction.upper())
             thermal_handled = self._thermal.apply_can_frame(arbitration_id, data) if direction.upper() == "RX" else False
             if handler is not None and not thermal_handled:
                 handler(self, data)
@@ -175,6 +179,8 @@ class CANStateAggregator:
                 "speed_mph": float(self._engine_data.get("speed_mph", 0.0)),
             })
             thermal_snapshot = self._thermal.snapshot()
+            air_v2 = self.airshot_service.snapshot()
+            self._airshot = replace(self._airshot, v2=air_v2)
             self._last_snapshot = StateSnapshot(
                 engine=EngineState(**self._engine_data),
                 temps=TemperaturesState(
@@ -199,7 +205,7 @@ class CANStateAggregator:
                 system=self._system,
                 thermal=thermal_snapshot,
                 shift_light=self._shift_light,
-                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts))),
+                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts) | set(air_v2.alerts))),
             )
             self._dirty = True
             self._condition.notify_all()
@@ -213,11 +219,19 @@ class CANStateAggregator:
             if not self._dirty:
                 self._condition.wait(timeout)
             self._dirty = False
-            return self._last_snapshot
+            return self._refresh_ages()
 
     def current_snapshot(self) -> StateSnapshot:
         with self._lock:
-            return self._last_snapshot
+            return self._refresh_ages()
+
+    def _refresh_ages(self) -> StateSnapshot:
+        thermal = self._thermal.snapshot()
+        air = self.airshot_service.snapshot()
+        previous = set(self._last_snapshot.thermal.alerts) | set(self._last_snapshot.air_shot.v2.alerts)
+        faults = (set(self._last_snapshot.faults) - previous) | set(thermal.alerts) | set(air.alerts)
+        return replace(self._last_snapshot, thermal=thermal,
+            air_shot=replace(self._last_snapshot.air_shot,v2=air), faults=tuple(sorted(faults)))
 
     def rx_age_s(self) -> float:
         """Return the worst required-source age without counting local TX echoes."""

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Tuple
 
 from ..thermal.model import ThermalSnapshot
+from ..airshot import AirShotV2
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class AirShotState:
     pressure_psi: float = 0.0
     charges_remaining: int = 0
     is_firing: bool = False
+    v2: AirShotV2 = field(default_factory=AirShotV2)
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,12 @@
 #include <FlexCAN_T4.h>
 #include <Watchdog_t4.h>
 #include <math.h>
+#include "airshot_io.h"
+airshot::IO AIR_V2;
+static uint32_t g_air_required_rx[8]={0};
+static uint32_t g_thermal_values_rx[8]={0}, g_thermal_status_rx[4]={0};
+static float g_boost_banks[2]={0,0};
+static uint32_t g_boost_banks_rx=0;
 
 // Target board: Teensy 4.1
 // CAN1 uses Teensy pins 22 (RX) and 23 (TX) through an external 3.3 V CAN transceiver.
@@ -154,7 +160,6 @@ ThermalInputs g_thermal;
 static uint32_t g_last_ecu_frame_ms = 0;
 static uint32_t g_last_pi_command_ms = 0;
 static uint32_t g_last_thermal_heartbeat_ms = 0;
-static uint32_t g_airshot_request_until_ms = 0;
 static bool g_limp_active = false;
 static uint8_t g_limp_reason = 0x00;
 
@@ -321,6 +326,11 @@ bool isPiCommandFrame(uint16_t id) {
 
 void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
   const uint32_t now = millis();
+  AIR_V2.receive(id,len,data,now);
+  const uint16_t required_ids[8]={0x100,0x101,0x102,0x105,0x106,0x104,0x108,0x10C};
+  const uint8_t required_len[8]={2,1,2,4,2,1,1,2};
+  for(int k=0;k<8;k++) if(id==required_ids[k] && len>=required_len[k]) g_air_required_rx[k]=now;
+  if(id==0x10F && len==4) {g_boost_banks[0]=((uint16_t(data[0])<<8)|data[1])/10.0f;g_boost_banks[1]=((uint16_t(data[2])<<8)|data[3])/10.0f;g_boost_banks_rx=now;}
   if (isEcuFrame(id)) {
     g_last_ecu_frame_ms = now;
   } else if (isPiCommandFrame(id)) {
@@ -335,11 +345,13 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
     return;
   }
   if (id >= CanId::THERMAL_VALUE_BASE && id < CanId::THERMAL_VALUE_BASE + 8 && len >= 8) {
+    g_thermal_values_rx[id-CanId::THERMAL_VALUE_BASE]=now;
     const uint8_t offset = (id - CanId::THERMAL_VALUE_BASE) * 4;
     for (uint8_t i = 0; i < 4; ++i) g_thermal.temperature_c_x10[offset + i] = int16_t((uint16_t(data[i * 2]) << 8) | data[i * 2 + 1]);
     return;
   }
   if (id >= CanId::THERMAL_STATUS_BASE && id < CanId::THERMAL_STATUS_BASE + 4 && len >= 4) {
+    g_thermal_status_rx[id-CanId::THERMAL_STATUS_BASE]=now;
     const uint8_t offset = (id - CanId::THERMAL_STATUS_BASE) * 8;
     for (uint8_t i = 0; i < 4; ++i) { g_thermal.status[offset + i * 2] = data[i] >> 4; g_thermal.status[offset + i * 2 + 1] = data[i] & 0x0F; }
     return;
@@ -419,7 +431,7 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       if (len >= 1) g_commands.traction_level = static_cast<TractionLevel>(data[0]);
       break;
     case CanId::PI_AIR_SHOT_REQUEST:
-      if (len >= 1 && data[0] != 0) g_airshot_request_until_ms = now + 350;
+      // Legacy one-byte pulse has no hold/release semantics. V2 uses 0x191.
       break;
     case CanId::PI_ENGINE_RUN_SWITCH:
       if (len >= 1) g_commands.engine_run_enabled = data[0] != 0;
@@ -452,7 +464,6 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
 
 
 static bool g_airshot_latched = false;
-static bool g_airshot_rearm_ready = true;
 static uint32_t g_airshot_latched_since_ms = 0;
 static uint32_t g_airshot_wastegate_decouple_until_ms = 0;
 static bool g_air_compressor_latched = false;
@@ -667,26 +678,7 @@ uint8_t calculateShotsRemaining(uint16_t tank_psi_x10) {
   return 3;
 }
 
-bool airShotPressureDeltaOk() {
-  const uint32_t required_tank_pressure = static_cast<uint32_t>(g_inputs.boost_psi_x10) + AIRSHOT_MIN_DELTA_PSI_X10;
-  return g_outputs.tank_psi_x10 >= AIRSHOT_MIN_TANK_PSI_X10 &&
-      static_cast<uint32_t>(g_outputs.tank_psi_x10) > required_tank_pressure;
-}
-
-bool shouldTriggerAirShot(bool manual_request) {
-  const bool mode_ok = (g_commands.mode == MODE_RACE) || (g_commands.mode == MODE_ALBATROSS);
-  const uint16_t requested_limit = requestedBoostLimitForAirShot();
-  const bool boost_needed = requested_limit > 0 && (g_inputs.boost_psi_x10 + AIRSHOT_TRIGGER_GAP_PSI_X10 < requested_limit);
-  const bool base_ok = mode_ok && boost_needed && g_airshot_rearm_ready && !g_airshot_latched &&
-      g_inputs.gear >= 2 && calculateShotsRemaining(g_outputs.tank_psi_x10) > 0 && airShotPressureDeltaOk();
-  const bool auto_ok = g_inputs.tps_pct > 90 && g_inputs.rpm > 5500;
-  const bool manual_ok = manual_request && g_inputs.tps_pct > 70 && g_inputs.rpm > 3000;
-  return base_ok && (auto_ok || manual_ok);
-}
-
-bool isAirShotRequestActive(uint32_t now) {
-  return g_airshot_request_until_ms != 0 && static_cast<int32_t>(g_airshot_request_until_ms - now) >= 0;
-}
+bool isAirShotRequestActive(uint32_t now) { return AIR_V2.inputs.manual; }
 
 bool isCompressorRestartDelayActive(uint32_t now) {
   return g_air_compressor_restart_block_until_ms != 0 &&
@@ -706,7 +698,11 @@ bool isBatteryUndervoltageReported() {
 
 void updateAirCompressorRelay(uint32_t now, bool bike_stationary, bool low_throttle, bool limp) {
   const bool restart_delay_active = isCompressorRestartDelayActive(now);
+  const uint16_t raw=analogRead(AIR_TANK_PRESSURE_SENSOR_PIN);
+  const bool pressure_fault=raw<AIR_TANK_SENSOR_MIN_RAW || raw>AIR_TANK_SENSOR_MAX_RAW;
   const bool inhibited =
+      pressure_fault ||
+      !AIR_V2.inputs.can_valid ||
       limp ||
       g_airshot_latched ||
       isEngineCranking() ||
@@ -726,6 +722,7 @@ void updateAirCompressorRelay(uint32_t now, bool bike_stationary, bool low_throt
   }
 
   digitalWrite(AIR_COMPRESSOR_RELAY_PIN, g_air_compressor_latched ? HIGH : LOW);
+  AIR_V2.compressor=pressure_fault?airshot::CompressorState::FAULT:(g_air_compressor_latched?airshot::CompressorState::FILLING:(isCompressorRestartDelayActive(now)?airshot::CompressorState::COOLDOWN:airshot::CompressorState::OFF));
 }
 
 void updateControllers() {
@@ -793,45 +790,8 @@ void updateControllers() {
     g_airshot_latched = false;
   }
 
-  if (g_inputs.tps_pct < 50) {
-    g_airshot_rearm_ready = true;
-  }
-
-  const bool manual_airshot_request = isAirShotRequestActive(now);
-  if (!manual_airshot_request) {
-    g_airshot_request_until_ms = 0;
-  }
-  if (!thermal_node_offline && shouldTriggerAirShot(manual_airshot_request)) {
-    g_airshot_latched = true;
-    g_airshot_rearm_ready = false;
-    g_airshot_latched_since_ms = now;
-    g_airshot_wastegate_decouple_until_ms = 0;
-    g_airshot_request_until_ms = 0;
-  }
-
-  const uint16_t airshot_limit = requestedBoostLimitForAirShot();
-  const bool airshot_timed_out = g_airshot_latched_since_ms != 0 && (now - g_airshot_latched_since_ms) >= AIRSHOT_MAX_LATCH_MS;
-  const bool intake_pressure_at_or_above_tank = g_inputs.boost_psi_x10 >= g_outputs.tank_psi_x10;
-  if (
-      g_airshot_latched &&
-      (g_inputs.boost_psi_x10 >= airshot_limit || intake_pressure_at_or_above_tank || airshot_timed_out || limp || airshot_limit == 0)
-  ) {
-    if (!limp && airshot_limit > 0 && (g_inputs.boost_psi_x10 >= airshot_limit || intake_pressure_at_or_above_tank)) {
-      g_airshot_wastegate_decouple_until_ms = now + AIRSHOT_WASTEGATE_DECOUPLE_MS;
-    }
-    g_airshot_latched = false;
-    g_airshot_latched_since_ms = 0;
-  }
-
-  digitalWrite(AIRSHOT_SOL_PIN, g_airshot_latched ? HIGH : LOW);
-  g_outputs.air_shot_remaining = calculateShotsRemaining(g_outputs.tank_psi_x10);
-
-  const bool airshot_decoupling_wastegate =
-      target > 0 &&
-      !limp &&
-      (g_airshot_latched || static_cast<int32_t>(g_airshot_wastegate_decouple_until_ms - now) >= 0) &&
-      static_cast<uint32_t>(g_inputs.boost_psi_x10) <= static_cast<uint32_t>(target) + AIRSHOT_WASTEGATE_GUARD_PSI_X10;
-  const uint16_t boost_for_wastegate = airshot_decoupling_wastegate ? min(g_inputs.boost_psi_x10, target) : g_inputs.boost_psi_x10;
+  // V2 never masks measured boost from wastegate protection.
+  const uint16_t boost_for_wastegate = g_inputs.boost_psi_x10;
   g_outputs.wg1_duty = computeWastegatePosition(target, boost_for_wastegate, g_inputs.tps_pct, knock);
   g_outputs.wg2_duty = g_outputs.wg1_duty; // mirrored for twin control output frame.
 
@@ -879,7 +839,6 @@ void updateControllers() {
   const float vehicle_speed_mps = max(g_front_wheel_mps, g_rear_wheel_mps);
   const bool bike_stationary = vehicle_speed_mps < AIRSHOT_COMPRESSOR_MAX_SPEED_MPS;
   const bool low_throttle = g_inputs.tps_pct < 5;
-  updateAirCompressorRelay(now, bike_stationary, low_throttle, limp);
   static float filtered_slip_ratio = 0.0f;
   static bool tc_latched = false;
   const float front_speed = g_front_wheel_mps;
@@ -912,6 +871,41 @@ void updateControllers() {
   g_outputs.traction_slip_pct_x10 = static_cast<int16_t>(constrain(static_cast<int>(roundf(filtered_slip_ratio * 1000.0f)), -1000, 1000));
   g_outputs.traction_active = tc_active || g_outputs.traction_torque_cut_pct > 0;
   g_outputs.traction_sensor_fault = wheel_speed_sensor_fault;
+  // Air Shot runs after this tick's TCS/AWC and WMI decisions.
+  auto& ai=AIR_V2.inputs;
+  ai.rpm=g_inputs.rpm;ai.gear=g_inputs.gear;ai.fuel=g_inputs.fuel_code;ai.ride_mode=uint8_t(g_commands.mode);
+  ai.speed=max(g_front_wheel_mps,g_rear_wheel_mps)*2.236936f;
+  ai.boost[0]=g_boost_banks[0];ai.boost[1]=g_boost_banks[1];
+  ai.tank=g_outputs.tank_psi_x10/10.0f;
+  ai.coolant=g_inputs.coolant_c_x10/10.0f;ai.oil=g_inputs.oil_temp_c_x10/10.0f;
+  ai.can_valid=g_boost_banks_rx && now-g_boost_banks_rx<=AIR_V2.c.timeout_ms;
+  for(uint32_t stamp:g_air_required_rx) if(!stamp || now-stamp>AIR_V2.c.timeout_ms) ai.can_valid=false;
+  const uint16_t tank_raw=analogRead(AIR_TANK_PRESSURE_SENSOR_PIN);
+  ai.pressure_valid=ai.pressure_valid && tank_raw>=AIR_TANK_SENSOR_MIN_RAW && tank_raw<=AIR_TANK_SENSOR_MAX_RAW;
+  ai.thermal_valid=!thermal_node_offline;
+  const uint8_t indices[]={0,1,2,3,6,7,10,11,19,20};
+  for(uint8_t idx:indices) {
+    if(g_thermal.status[idx]!=0 || g_thermal.temperature_c_x10[idx]==INT16_MIN ||
+       !g_thermal_values_rx[idx/4] || now-g_thermal_values_rx[idx/4]>750 ||
+       !g_thermal_status_rx[idx/8] || now-g_thermal_status_rx[idx/8]>750) ai.thermal_valid=false;
+  }
+  for(int n=0;n<2;n++) {
+    ai.egt[n]=g_thermal.temperature_c_x10[n]/10.0f;
+    ai.turbine[n]=g_thermal.temperature_c_x10[2+n]/10.0f;
+    ai.charge[n]=g_thermal.temperature_c_x10[6+n]/10.0f;
+    ai.ic[n]=g_thermal.temperature_c_x10[10+n]/10.0f;
+    ai.head[n]=g_thermal.temperature_c_x10[19+n]/10.0f;
+  }
+  ai.tcs=g_outputs.traction_active;ai.traction_fault=g_outputs.traction_sensor_fault;
+  ai.ecu_protection=ai.ecu_protection || limp || knock;
+  ai.wmi_fault=g_outputs.wmi_fault;
+  ai.wmi_verified=g_outputs.wmi_commanded_flow_cc_min>0 && !ai.wmi_fault &&
+      g_outputs.wmi_actual_flow_cc_min>=g_outputs.wmi_commanded_flow_cc_min*0.75f && readWmiPressureOk();
+  AIR_V2.update(now);
+  g_airshot_latched=false;
+  for(float valve:AIR_V2.controller.output().valve) if(valve>0) g_airshot_latched=true;
+  updateAirCompressorRelay(now, bike_stationary, low_throttle, limp);
+  g_outputs.air_shot_remaining=calculateShotsRemaining(g_outputs.tank_psi_x10);
   const uint8_t torque_cut_pct = !g_commands.engine_run_enabled ? 100 : (g_outputs.traction_sensor_fault ? 0 : g_outputs.traction_torque_cut_pct);
   uint8_t torque_cut_payload[1] = {torque_cut_pct};
   publishFrame(CanId::ARD_TO_ECU_TORQUE_CUT, torque_cut_payload, 1);
@@ -945,6 +939,7 @@ void updateControllers() {
 }
 
 void publishStatusFrames() {
+  AIR_V2.publish(publishFrame);
   uint8_t airshot[2] = {g_outputs.air_shot_remaining, static_cast<uint8_t>(g_airshot_latched ? 1 : 0)};
   publishFrame(CanId::ARD_AIR_SHOT_STATUS, airshot, 2);
 
@@ -1071,6 +1066,7 @@ void publishStatusFrames() {
 }
 
 void setup() {
+  AIR_V2.begin();
   analogReadResolution(12);
   for (uint8_t i = 0; i < 32; ++i) g_thermal.status[i] = 6; // STALE until an explicit thermal status arrives
   pinMode(WG1_PWM_PIN, OUTPUT);

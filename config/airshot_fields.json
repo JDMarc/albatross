@@ -1,0 +1,667 @@
+[
+  {
+    "path": "parameters.validated",
+    "cpp": "validated",
+    "type": "bool"
+  },
+  {
+    "path": "parameters.stage",
+    "cpp": "stage",
+    "type": "uint32_t"
+  },
+  {
+    "path": "parameters.auto_shadow",
+    "cpp": "auto_shadow",
+    "type": "bool"
+  },
+  {
+    "path": "parameters.require_wmi",
+    "cpp": "require_wmi",
+    "type": "bool"
+  },
+  {
+    "path": "parameters.fire_pin",
+    "cpp": "fire_pin",
+    "type": "int"
+  },
+  {
+    "path": "parameters.service_pin",
+    "cpp": "service_pin",
+    "type": "int"
+  },
+  {
+    "path": "parameters.recovery_ms",
+    "cpp": "recovery_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "parameters.budget_window_ms",
+    "cpp": "budget_window_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "parameters.budget_ms",
+    "cpp": "budget_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "parameters.taper_ms",
+    "cpp": "taper_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "parameters.rpm_min",
+    "cpp": "rpm_min",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_max",
+    "cpp": "rpm_max",
+    "type": "float"
+  },
+  {
+    "path": "parameters.launch_rpm",
+    "cpp": "launch_rpm",
+    "type": "float"
+  },
+  {
+    "path": "parameters.high_rpm",
+    "cpp": "high_rpm",
+    "type": "float"
+  },
+  {
+    "path": "parameters.min_tank",
+    "cpp": "min_tank",
+    "type": "float"
+  },
+  {
+    "path": "parameters.full_tank",
+    "cpp": "full_tank",
+    "type": "float"
+  },
+  {
+    "path": "parameters.min_regulated",
+    "cpp": "min_regulated",
+    "type": "float"
+  },
+  {
+    "path": "parameters.max_regulated",
+    "cpp": "max_regulated",
+    "type": "float"
+  },
+  {
+    "path": "parameters.min_headroom",
+    "cpp": "min_headroom",
+    "type": "float"
+  },
+  {
+    "path": "parameters.min_torque",
+    "cpp": "min_torque",
+    "type": "float"
+  },
+  {
+    "path": "parameters.dbw_tolerance",
+    "cpp": "dbw_tolerance",
+    "type": "float"
+  },
+  {
+    "path": "parameters.min_coolant",
+    "cpp": "min_coolant",
+    "type": "float"
+  },
+  {
+    "path": "parameters.min_oil",
+    "cpp": "min_oil",
+    "type": "float"
+  },
+  {
+    "path": "parameters.boost_start",
+    "cpp": "boost_start",
+    "type": "float"
+  },
+  {
+    "path": "parameters.boost_done",
+    "cpp": "boost_done",
+    "type": "float"
+  },
+  {
+    "path": "parameters.boost_full",
+    "cpp": "boost_full",
+    "type": "float"
+  },
+  {
+    "path": "parameters.spool_rate",
+    "cpp": "spool_rate",
+    "type": "float"
+  },
+  {
+    "path": "parameters.overboost_margin",
+    "cpp": "overboost_margin",
+    "type": "float"
+  },
+  {
+    "path": "parameters.transient_rate",
+    "cpp": "transient_rate",
+    "type": "float"
+  },
+  {
+    "path": "parameters.auto_start",
+    "cpp": "auto_start",
+    "type": "float"
+  },
+  {
+    "path": "parameters.auto_reset",
+    "cpp": "auto_reset",
+    "type": "float"
+  },
+  {
+    "path": "parameters.wg_open_limit",
+    "cpp": "wg_open_limit",
+    "type": "float"
+  },
+  {
+    "path": "parameters.balance_limit",
+    "cpp": "balance_limit",
+    "type": "float"
+  },
+  {
+    "path": "parameters.thermal_egt",
+    "cpp": "thermal_egt",
+    "type": "float"
+  },
+  {
+    "path": "parameters.thermal_turbine",
+    "cpp": "thermal_turbine",
+    "type": "float"
+  },
+  {
+    "path": "parameters.thermal_charge",
+    "cpp": "thermal_charge",
+    "type": "float"
+  },
+  {
+    "path": "parameters.thermal_ic",
+    "cpp": "thermal_ic",
+    "type": "float"
+  },
+  {
+    "path": "parameters.thermal_head",
+    "cpp": "thermal_head",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.0",
+    "cpp": "gear[0]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.1",
+    "cpp": "gear[1]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.2",
+    "cpp": "gear[2]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.3",
+    "cpp": "gear[3]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.4",
+    "cpp": "gear[4]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.5",
+    "cpp": "gear[5]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.gear.6",
+    "cpp": "gear[6]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.fuel.0",
+    "cpp": "fuel[0]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.fuel.1",
+    "cpp": "fuel[1]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.fuel.2",
+    "cpp": "fuel[2]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.fuel.3",
+    "cpp": "fuel[3]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.fuel.4",
+    "cpp": "fuel[4]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.fuel.5",
+    "cpp": "fuel[5]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.ride.0",
+    "cpp": "ride[0]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.ride.1",
+    "cpp": "ride[1]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.ride.2",
+    "cpp": "ride[2]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.ride.3",
+    "cpp": "ride[3]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.ride.4",
+    "cpp": "ride[4]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.ride.5",
+    "cpp": "ride[5]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_axis.0",
+    "cpp": "rpm_axis[0]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_axis.1",
+    "cpp": "rpm_axis[1]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_axis.2",
+    "cpp": "rpm_axis[2]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_axis.3",
+    "cpp": "rpm_axis[3]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_gain.0",
+    "cpp": "rpm_gain[0]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_gain.1",
+    "cpp": "rpm_gain[1]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_gain.2",
+    "cpp": "rpm_gain[2]",
+    "type": "float"
+  },
+  {
+    "path": "parameters.rpm_gain.3",
+    "cpp": "rpm_gain[3]",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.pin",
+    "cpp": "valves[0].pin",
+    "type": "int"
+  },
+  {
+    "path": "valves.0.pwm_hz",
+    "cpp": "valves[0].pwm_hz",
+    "type": "uint32_t"
+  },
+  {
+    "path": "valves.0.minimum",
+    "cpp": "valves[0].minimum",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.maximum",
+    "cpp": "valves[0].maximum",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.trim",
+    "cpp": "valves[0].trim",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.opening_ms",
+    "cpp": "valves[0].opening_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.closing_ms",
+    "cpp": "valves[0].closing_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.flow_coefficient",
+    "cpp": "valves[0].flow_coefficient",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.min_current",
+    "cpp": "valves[0].min_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.max_current",
+    "cpp": "valves[0].max_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.0.pressure_reference",
+    "cpp": "valves[0].pressure_reference",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.pin",
+    "cpp": "valves[1].pin",
+    "type": "int"
+  },
+  {
+    "path": "valves.1.pwm_hz",
+    "cpp": "valves[1].pwm_hz",
+    "type": "uint32_t"
+  },
+  {
+    "path": "valves.1.minimum",
+    "cpp": "valves[1].minimum",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.maximum",
+    "cpp": "valves[1].maximum",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.trim",
+    "cpp": "valves[1].trim",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.opening_ms",
+    "cpp": "valves[1].opening_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.closing_ms",
+    "cpp": "valves[1].closing_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.flow_coefficient",
+    "cpp": "valves[1].flow_coefficient",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.min_current",
+    "cpp": "valves[1].min_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.max_current",
+    "cpp": "valves[1].max_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.1.pressure_reference",
+    "cpp": "valves[1].pressure_reference",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.pin",
+    "cpp": "valves[2].pin",
+    "type": "int"
+  },
+  {
+    "path": "valves.2.pwm_hz",
+    "cpp": "valves[2].pwm_hz",
+    "type": "uint32_t"
+  },
+  {
+    "path": "valves.2.minimum",
+    "cpp": "valves[2].minimum",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.maximum",
+    "cpp": "valves[2].maximum",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.trim",
+    "cpp": "valves[2].trim",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.opening_ms",
+    "cpp": "valves[2].opening_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.closing_ms",
+    "cpp": "valves[2].closing_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.flow_coefficient",
+    "cpp": "valves[2].flow_coefficient",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.min_current",
+    "cpp": "valves[2].min_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.max_current",
+    "cpp": "valves[2].max_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.2.pressure_reference",
+    "cpp": "valves[2].pressure_reference",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.pin",
+    "cpp": "valves[3].pin",
+    "type": "int"
+  },
+  {
+    "path": "valves.3.pwm_hz",
+    "cpp": "valves[3].pwm_hz",
+    "type": "uint32_t"
+  },
+  {
+    "path": "valves.3.minimum",
+    "cpp": "valves[3].minimum",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.maximum",
+    "cpp": "valves[3].maximum",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.trim",
+    "cpp": "valves[3].trim",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.opening_ms",
+    "cpp": "valves[3].opening_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.closing_ms",
+    "cpp": "valves[3].closing_ms",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.flow_coefficient",
+    "cpp": "valves[3].flow_coefficient",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.min_current",
+    "cpp": "valves[3].min_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.max_current",
+    "cpp": "valves[3].max_current",
+    "type": "float"
+  },
+  {
+    "path": "valves.3.pressure_reference",
+    "cpp": "valves[3].pressure_reference",
+    "type": "float"
+  },
+  {
+    "path": "profiles.0.intake",
+    "cpp": "profiles[0].intake",
+    "type": "float"
+  },
+  {
+    "path": "profiles.0.turbine",
+    "cpp": "profiles[0].turbine",
+    "type": "float"
+  },
+  {
+    "path": "profiles.0.intake_decay",
+    "cpp": "profiles[0].intake_decay",
+    "type": "float"
+  },
+  {
+    "path": "profiles.0.maximum_ms",
+    "cpp": "profiles[0].maximum_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "profiles.1.intake",
+    "cpp": "profiles[1].intake",
+    "type": "float"
+  },
+  {
+    "path": "profiles.1.turbine",
+    "cpp": "profiles[1].turbine",
+    "type": "float"
+  },
+  {
+    "path": "profiles.1.intake_decay",
+    "cpp": "profiles[1].intake_decay",
+    "type": "float"
+  },
+  {
+    "path": "profiles.1.maximum_ms",
+    "cpp": "profiles[1].maximum_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "profiles.2.intake",
+    "cpp": "profiles[2].intake",
+    "type": "float"
+  },
+  {
+    "path": "profiles.2.turbine",
+    "cpp": "profiles[2].turbine",
+    "type": "float"
+  },
+  {
+    "path": "profiles.2.intake_decay",
+    "cpp": "profiles[2].intake_decay",
+    "type": "float"
+  },
+  {
+    "path": "profiles.2.maximum_ms",
+    "cpp": "profiles[2].maximum_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "profiles.3.intake",
+    "cpp": "profiles[3].intake",
+    "type": "float"
+  },
+  {
+    "path": "profiles.3.turbine",
+    "cpp": "profiles[3].turbine",
+    "type": "float"
+  },
+  {
+    "path": "profiles.3.intake_decay",
+    "cpp": "profiles[3].intake_decay",
+    "type": "float"
+  },
+  {
+    "path": "profiles.3.maximum_ms",
+    "cpp": "profiles[3].maximum_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "profiles.4.intake",
+    "cpp": "profiles[4].intake",
+    "type": "float"
+  },
+  {
+    "path": "profiles.4.turbine",
+    "cpp": "profiles[4].turbine",
+    "type": "float"
+  },
+  {
+    "path": "profiles.4.intake_decay",
+    "cpp": "profiles[4].intake_decay",
+    "type": "float"
+  },
+  {
+    "path": "profiles.4.maximum_ms",
+    "cpp": "profiles[4].maximum_ms",
+    "type": "uint32_t"
+  },
+  {
+    "path": "profiles.5.intake",
+    "cpp": "profiles[5].intake",
+    "type": "float"
+  },
+  {
+    "path": "profiles.5.turbine",
+    "cpp": "profiles[5].turbine",
+    "type": "float"
+  },
+  {
+    "path": "profiles.5.intake_decay",
+    "cpp": "profiles[5].intake_decay",
+    "type": "float"
+  },
+  {
+    "path": "profiles.5.maximum_ms",
+    "cpp": "profiles[5].maximum_ms",
+    "type": "uint32_t"
+  }
+]

@@ -1,0 +1,184 @@
+{
+  "schema_version": 2,
+  "calibration_version": "airshot-v2-uncommissioned",
+  "note": "Runtime editable through Settings > Air Shot calibration. Missing hardware measurements remain null and are reported by name. Apply stores complete validated settings on Teensy; OFF/MANUAL/AUTO remain rider selectable.",
+  "parameters": {
+    "validated": true,
+    "stage": 4,
+    "auto_shadow": false,
+    "require_wmi": true,
+    "fire_pin": -1,
+    "service_pin": -1,
+    "recovery_ms": null,
+    "budget_window_ms": null,
+    "budget_ms": null,
+    "taper_ms": null,
+    "rpm_min": null,
+    "rpm_max": null,
+    "launch_rpm": null,
+    "high_rpm": null,
+    "min_tank": null,
+    "full_tank": null,
+    "min_regulated": null,
+    "max_regulated": null,
+    "min_headroom": null,
+    "min_torque": null,
+    "dbw_tolerance": null,
+    "min_coolant": null,
+    "min_oil": null,
+    "boost_start": null,
+    "boost_done": null,
+    "boost_full": null,
+    "spool_rate": null,
+    "overboost_margin": null,
+    "transient_rate": null,
+    "auto_start": null,
+    "auto_reset": null,
+    "wg_open_limit": null,
+    "balance_limit": null,
+    "thermal_egt": null,
+    "thermal_turbine": null,
+    "thermal_charge": null,
+    "thermal_ic": null,
+    "thermal_head": null,
+    "gear": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "fuel": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "ride": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "rpm_axis": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "rpm_gain": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "valves": [
+    {
+      "name": "INTAKE_LEFT",
+      "pin": null,
+      "pwm_hz": null,
+      "minimum": null,
+      "maximum": null,
+      "trim": null,
+      "opening_ms": null,
+      "closing_ms": null,
+      "flow_coefficient": null,
+      "min_current": null,
+      "max_current": null,
+      "pressure_reference": null
+    },
+    {
+      "name": "INTAKE_RIGHT",
+      "pin": null,
+      "pwm_hz": null,
+      "minimum": null,
+      "maximum": null,
+      "trim": null,
+      "opening_ms": null,
+      "closing_ms": null,
+      "flow_coefficient": null,
+      "min_current": null,
+      "max_current": null,
+      "pressure_reference": null
+    },
+    {
+      "name": "TURBINE_LEFT",
+      "pin": null,
+      "pwm_hz": null,
+      "minimum": null,
+      "maximum": null,
+      "trim": null,
+      "opening_ms": null,
+      "closing_ms": null,
+      "flow_coefficient": null,
+      "min_current": null,
+      "max_current": null,
+      "pressure_reference": null
+    },
+    {
+      "name": "TURBINE_RIGHT",
+      "pin": null,
+      "pwm_hz": null,
+      "minimum": null,
+      "maximum": null,
+      "trim": null,
+      "opening_ms": null,
+      "closing_ms": null,
+      "flow_coefficient": null,
+      "min_current": null,
+      "max_current": null,
+      "pressure_reference": null
+    }
+  ],
+  "profiles": [
+    {
+      "name": "LAUNCH",
+      "intake": null,
+      "turbine": null,
+      "intake_decay": null,
+      "maximum_ms": null
+    },
+    {
+      "name": "MID_TRANSIENT",
+      "intake": null,
+      "turbine": null,
+      "intake_decay": null,
+      "maximum_ms": null
+    },
+    {
+      "name": "RECOVERY",
+      "intake": null,
+      "turbine": null,
+      "intake_decay": null,
+      "maximum_ms": null
+    },
+    {
+      "name": "HIGH_RPM",
+      "intake": null,
+      "turbine": null,
+      "intake_decay": null,
+      "maximum_ms": null
+    },
+    {
+      "name": "LEFT_LAG",
+      "intake": null,
+      "turbine": null,
+      "intake_decay": null,
+      "maximum_ms": null
+    },
+    {
+      "name": "RIGHT_LAG",
+      "intake": null,
+      "turbine": null,
+      "intake_decay": null,
+      "maximum_ms": null
+    }
+  ]
+}
