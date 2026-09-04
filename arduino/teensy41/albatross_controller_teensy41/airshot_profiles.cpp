@@ -9,7 +9,7 @@ Profile selectProfile(const Config& c,const Inputs& i,bool recovery) {
 }
 void mix(const Config& c,const Inputs& i,Profile id,float demand,float progress,float* commands) {
   const auto& p=c.profiles[uint8_t(id)];
-  float scale=demand*rpmGain(c,i.rpm)*c.gear[i.gear]*c.fuel[i.fuel]*c.ride[i.ride_mode];
+  float scale=demand*rpmGain(c,i.rpm)*c.gear[i.gear]*c.fuel[i.fuel]*c.ride[i.ride_mode]*(i.vdc_valid?clamp(i.vdc_margin,0,1):1);
   float balance=clamp((i.boost[1]-i.boost[0])/c.boost_full,-c.balance_limit,c.balance_limit);
   for(int n=0;n<4;n++) {
     const auto& v=c.valves[n];

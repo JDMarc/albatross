@@ -2,6 +2,9 @@
 #include <Watchdog_t4.h>
 #include <math.h>
 #include "airshot_io.h"
+#include "vdc_io.h"
+vdc::IO VDC;
+static volatile uint32_t g_front_pulse_at=0,g_rear_pulse_at=0;
 airshot::IO AIR_V2;
 static uint32_t g_air_required_rx[8]={0};
 static uint32_t g_thermal_values_rx[8]={0}, g_thermal_status_rx[4]={0};
@@ -311,6 +314,12 @@ void publishFrame(uint16_t id, const uint8_t *data, uint8_t len) {
   CANBUS.write(msg);
 }
 
+void publishExtendedFrame(uint32_t id, const uint8_t *data, uint8_t len) {
+  CAN_message_t msg = {};
+  msg.id = id; msg.len = min(len, uint8_t(8)); msg.flags.extended = 1;
+  memcpy(msg.buf, data, msg.len); CANBUS.write(msg);
+}
+
 bool elapsedSince(uint32_t last_ms, uint32_t timeout_ms, uint32_t now_ms) {
   return last_ms == 0 || static_cast<uint32_t>(now_ms - last_ms) > timeout_ms;
 }
@@ -327,6 +336,7 @@ bool isPiCommandFrame(uint16_t id) {
 void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
   const uint32_t now = millis();
   AIR_V2.receive(id,len,data,now);
+  VDC.receive(id,len,data,now);
   const uint16_t required_ids[8]={0x100,0x101,0x102,0x105,0x106,0x104,0x108,0x10C};
   const uint8_t required_len[8]={2,1,2,4,2,1,1,2};
   for(int k=0;k<8;k++) if(id==required_ids[k] && len>=required_len[k]) g_air_required_rx[k]=now;
@@ -558,8 +568,8 @@ uint8_t computeGearFromSpeedRpm(float speed_mph, uint16_t rpm, bool neutral_swit
   return best;
 }
 
-void frontWheelPulseISR() { g_front_pulses++; }
-void rearWheelPulseISR() { g_rear_pulses++; }
+void frontWheelPulseISR() { g_front_pulses++; g_front_pulse_at=millis(); }
+void rearWheelPulseISR() { g_rear_pulses++; g_rear_pulse_at=millis(); }
 void wmiFlowPulseISR() { g_wmi_flow_pulses++; }
 
 float tcSlipLimitForLevel(TractionLevel level) {
@@ -790,6 +800,18 @@ void updateControllers() {
     g_airshot_latched = false;
   }
 
+  auto& vi=VDC.inputs;
+  vi.rpm=g_inputs.rpm;vi.gear=g_inputs.gear;vi.boost=g_inputs.boost_psi_x10/10.0f;
+  vi.boost_request=target/10.0f;vi.engine_limit=limp?0:1;vi.mode_limit=1;
+  vi.front=g_front_wheel_mps;vi.rear=g_rear_wheel_mps;
+  bool near_stop=isfinite(VDC.c.speed_floor)&&max(vi.front,vi.rear)<VDC.c.speed_floor;
+  vi.front_valid=near_stop||VDC.controller.out.front_airborne||(g_front_pulse_at&&now-g_front_pulse_at<=VDC.c.timeout_ms);
+  vi.rear_valid=near_stop||(g_rear_pulse_at&&now-g_rear_pulse_at<=VDC.c.timeout_ms);
+  vi.engine_valid=!ecu_can_stale;
+  for(uint32_t stamp:g_air_required_rx)if(!stamp||now-stamp>VDC.c.timeout_ms)vi.engine_valid=false;
+  const auto& vo=VDC.update(now);
+  target=min(target,uint16_t(max(0.0f,vo.boost_target)*10));
+  VDC.command(publishFrame);
   // V2 never masks measured boost from wastegate protection.
   const uint16_t boost_for_wastegate = g_inputs.boost_psi_x10;
   g_outputs.wg1_duty = computeWastegatePosition(target, boost_for_wastegate, g_inputs.tps_pct, knock);
@@ -839,38 +861,11 @@ void updateControllers() {
   const float vehicle_speed_mps = max(g_front_wheel_mps, g_rear_wheel_mps);
   const bool bike_stationary = vehicle_speed_mps < AIRSHOT_COMPRESSOR_MAX_SPEED_MPS;
   const bool low_throttle = g_inputs.tps_pct < 5;
-  static float filtered_slip_ratio = 0.0f;
-  static bool tc_latched = false;
-  const float front_speed = g_front_wheel_mps;
-  const float rear_speed = g_rear_wheel_mps;
-  const float base_speed = max(1.0f, front_speed);
-  const float raw_slip_ratio = (rear_speed - front_speed) / base_speed;
-  filtered_slip_ratio = (filtered_slip_ratio * 0.65f) + (raw_slip_ratio * 0.35f);
-  const float vehicle_speed = max(front_speed, rear_speed);
-  const bool wheel_speed_ok = vehicle_speed >= TC_MIN_SPEED_MPS;
-  const bool wheel_speed_sensor_fault = wheel_speed_ok && ((front_speed < 0.5f && rear_speed > 5.0f) || (rear_speed < 0.5f && front_speed > 5.0f));
-  const float tc_limit = tcSlipLimitForLevel(g_commands.traction_level);
-  const bool tc_allowed = !wheel_speed_sensor_fault && (g_commands.traction_level != TC_OFF) && (g_inputs.tps_pct > 20) && (g_inputs.gear >= 2) && wheel_speed_ok;
-  if (tc_allowed && filtered_slip_ratio > tc_limit) {
-    tc_latched = true;
-  } else if (!tc_allowed || filtered_slip_ratio < (tc_limit - TC_EXIT_HYSTERESIS)) {
-    tc_latched = false;
-  }
-  const bool tc_active = tc_latched && tc_allowed;
-  const uint8_t requested_torque_cut_pct = tc_active ? torqueCutForSlip(filtered_slip_ratio, tc_limit) : 0;
-  if (requested_torque_cut_pct > g_outputs.traction_torque_cut_pct) {
-    g_outputs.traction_torque_cut_pct =
-        (requested_torque_cut_pct < g_outputs.traction_torque_cut_pct + 4)
-            ? requested_torque_cut_pct
-            : static_cast<uint8_t>(g_outputs.traction_torque_cut_pct + 4);
-  } else if (g_outputs.traction_torque_cut_pct > requested_torque_cut_pct) {
-    const uint8_t delta = g_outputs.traction_torque_cut_pct - requested_torque_cut_pct;
-    const uint8_t step = (delta < 8) ? delta : 8;
-    g_outputs.traction_torque_cut_pct -= step;
-  }
-  g_outputs.traction_slip_pct_x10 = static_cast<int16_t>(constrain(static_cast<int>(roundf(filtered_slip_ratio * 1000.0f)), -1000, 1000));
-  g_outputs.traction_active = tc_active || g_outputs.traction_torque_cut_pct > 0;
-  g_outputs.traction_sensor_fault = wheel_speed_sensor_fault;
+  // Shared VDC is evaluated before actuators, not independently by each rider aid.
+  g_outputs.traction_torque_cut_pct=VDC.controller.out.rider>0?uint8_t(vdc::clamp(1-VDC.controller.out.permitted/VDC.controller.out.rider)*100):0;
+  g_outputs.traction_slip_pct_x10=int16_t(vdc::clamp(VDC.controller.out.slip,-1,1)*1000);
+  g_outputs.traction_active=VDC.controller.out.tcs_active;
+  g_outputs.traction_sensor_fault=VDC.controller.out.faults!=0;
   // Air Shot runs after this tick's TCS/AWC and WMI decisions.
   auto& ai=AIR_V2.inputs;
   ai.rpm=g_inputs.rpm;ai.gear=g_inputs.gear;ai.fuel=g_inputs.fuel_code;ai.ride_mode=uint8_t(g_commands.mode);
@@ -896,8 +891,13 @@ void updateControllers() {
     ai.ic[n]=g_thermal.temperature_c_x10[10+n]/10.0f;
     ai.head[n]=g_thermal.temperature_c_x10[19+n]/10.0f;
   }
-  ai.tcs=g_outputs.traction_active;ai.traction_fault=g_outputs.traction_sensor_fault;
-  ai.ecu_protection=ai.ecu_protection || limp || knock;
+  ai.tcs=vo.tcs_active;ai.awc=vo.awc_active;ai.traction_fault=vo.faults!=0;
+  ai.vdc_valid=vo.dbw_enable;ai.vdc_permitted=vo.air_allowed;ai.vdc_margin=vo.air_margin;
+  ai.rider=vo.rider*100;ai.dbw_command=vo.permitted*100;
+  ai.dbw_actual=VDC.c.throttle_max>VDC.c.throttle_min?(vo.throttle_actual-VDC.c.throttle_min)/(VDC.c.throttle_max-VDC.c.throttle_min)*100:0;
+  ai.dbw_valid=vo.dbw_enable;AIR_V2.dbw_at=now;
+  ai.target=vo.boost_target;
+  ai.ecu_protection=limp || knock || vo.engine_limit<=0;
   ai.wmi_fault=g_outputs.wmi_fault;
   ai.wmi_verified=g_outputs.wmi_commanded_flow_cc_min>0 && !ai.wmi_fault &&
       g_outputs.wmi_actual_flow_cc_min>=g_outputs.wmi_commanded_flow_cc_min*0.75f && readWmiPressureOk();
@@ -916,14 +916,14 @@ void updateControllers() {
   };
   publishFrame(CanId::ARD_TO_ECU_TRACTION_SLIP, slip_payload, 3);
 
-  g_outputs.awc_active = tc_active;
+  g_outputs.awc_active = vo.awc_active;
   g_outputs.turbo1_psi_x10 = g_inputs.boost_psi_x10;
   g_outputs.turbo2_psi_x10 = g_inputs.boost_psi_x10;
-  g_outputs.lean_deg = g_outputs.awc_active ? 8 : 3;
+  g_outputs.lean_deg = int8_t(vdc::clamp(vo.lean,-90,90));
 
   const bool neutral_active = (digitalRead(NEUTRAL_SWITCH_PIN) == LOW);
   const float speed_mph = max(g_front_wheel_mps, g_rear_wheel_mps) * 2.236936f;
-  g_inputs.gear = computeGearFromSpeedRpm(speed_mph, g_inputs.rpm, neutral_active);
+  // Keep the ECU's gear signal: wheelspin/front lift invalidate RPM/speed inference.
 
   g_outputs.clutch_slip_pct = 0;
   g_outputs.clutch_slip_severity = 0;
@@ -940,6 +940,7 @@ void updateControllers() {
 
 void publishStatusFrames() {
   AIR_V2.publish(publishFrame);
+  VDC.publish(publishFrame);
   uint8_t airshot[2] = {g_outputs.air_shot_remaining, static_cast<uint8_t>(g_airshot_latched ? 1 : 0)};
   publishFrame(CanId::ARD_AIR_SHOT_STATUS, airshot, 2);
 
@@ -1120,12 +1121,14 @@ void loop() {
   while (CANBUS.read(msg)) {
     if (!msg.flags.extended) {
       handleFrame(static_cast<uint16_t>(msg.id), msg.len, msg.buf);
-    }
+    } else VDC.receiveExtended(msg.id, msg.len, msg.buf, millis());
   }
 
   static uint32_t lastControlMs = 0;
   static uint32_t lastPublishMs = 0;
   const uint32_t now = millis();
+
+  VDC.poll(now, publishExtendedFrame);
 
   if (now - lastControlMs >= CONTROL_UPDATE_INTERVAL_MS) {
     lastControlMs = now;

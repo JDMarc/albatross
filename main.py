@@ -39,6 +39,7 @@ from albatross_pi.canbus.ids import LIMP_REASON_CODES
 from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
+from albatross_pi.dynamics_weather import WeatherService
 from albatross_pi.runtime import PiPowerSupervisor, SystemdNotifier
 from albatross_pi.security import NfcAuthorizer
 from albatross_pi.state.simulator import StateSimulator
@@ -282,8 +283,10 @@ def main() -> None:
 
     renderer.configure_online_update_callback(_online_update)
     phone_bridge: PhoneBridge | None = None
+    weather_service: WeatherService | None = None
 
     def _apply_phone_status(status: PhoneStatus) -> None:
+        if weather_service:weather_service.phone_status(status)
         snap = renderer.state
         env = replace(
             snap.environment,
@@ -336,12 +339,19 @@ def main() -> None:
             stream = _iter_can_snapshots(aggregator, args.can_rate)
 
         def _send_traction_level(level_code: int) -> None:
-            frame_id, payload = build_traction_level_frame(level_code)
-            assert can_interface is not None
-            can_interface.send(frame_id, payload)
-            aggregator.mark_sent_frame(frame_id, payload)
+            renderer._dynamics_menu.values["tcs"]=0 if level_code==4 else level_code
+            renderer._dynamics_menu.send()
 
         renderer.configure_traction_callback(_send_traction_level)
+        def _send_dynamics(frame_id,payload):
+            can_interface.send(frame_id,payload)
+            aggregator.mark_sent_frame(frame_id,payload)
+        renderer._dynamics_menu.callback=_send_dynamics
+        def _weather_context(context):
+            aggregator.dynamics_service.recorder.context["weather_context"] = dict(state=context.state,rain=context.rain,temperature=context.temperature,humidity=context.humidity,precipitation=context.precipitation,monotonic_s=context.at)
+            _send_dynamics(0x207,bytes((1,context.state,int(context.rain),0)))
+        weather_service=WeatherService(_weather_context)
+        weather_service.start()
 
         def _send_boost_request() -> None:
             assert can_interface is not None and aggregator is not None
@@ -957,6 +967,7 @@ def main() -> None:
         if nfc_authorizer:
             nfc_authorizer.stop()
         systemd_notifier.stopping()
+        if weather_service:weather_service.close()
         if can_interface:
             can_interface.stop()
         pygame.quit()
@@ -991,6 +1002,7 @@ def main() -> None:
             can_interface.stop()
         if aggregator:
             aggregator.airshot_service.close()
+            aggregator.dynamics_service.close()
 
 
 if __name__ == "__main__":

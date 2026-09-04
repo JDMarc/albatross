@@ -10,6 +10,7 @@ Reason permissive(const Config& c,const Inputs& i) {
   if(i.ecu_protection) return Reason::ECU_PROTECTION;
   if(i.traction_fault || i.tcs) return Reason::TRACTION;
   if(i.awc) return Reason::WHEELIE;
+  if(i.vdc_valid && (!i.vdc_permitted || i.vdc_margin<=0)) return Reason::TRACTION;
   if(!i.thermal_valid) return Reason::THERMAL;
   for(int n=0;n<2;n++) {
     if(!isfinite(i.boost[n]) || !isfinite(i.head[n]) || !isfinite(i.egt[n]) || !isfinite(i.turbine[n]) ||
@@ -26,7 +27,7 @@ Reason permissive(const Config& c,const Inputs& i) {
   if(i.rider<c.min_torque) return Reason::TORQUE_LOW;
   // Permitted torque dominates rider grip, including after-throttle air injection.
   if(i.dbw_command<c.min_torque || i.dbw_command+c.dbw_tolerance<i.rider ||
-     fabsf(i.dbw_actual-i.dbw_command)>c.dbw_tolerance) return Reason::DBW;
+     (!i.vdc_valid && fabsf(i.dbw_actual-i.dbw_command)>c.dbw_tolerance)) return Reason::DBW;
   if(!i.wg_valid || !isfinite(i.wg_position[0]) || !isfinite(i.wg_position[1]) || !isfinite(i.wg_command[0]) || !isfinite(i.wg_command[1]) || i.wg_position[0]>c.wg_open_limit || i.wg_position[1]>c.wg_open_limit ||
      i.wg_command[0]>c.wg_open_limit || i.wg_command[1]>c.wg_open_limit) return Reason::WASTEGATE;
   if(c.require_wmi && (!i.wmi_verified || i.wmi_fault)) return Reason::WMI;

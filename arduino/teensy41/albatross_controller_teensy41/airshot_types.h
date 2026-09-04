@@ -18,6 +18,7 @@ struct Inputs {
   bool can_valid=false, pressure_valid=false, dbw_valid=false, wg_valid=false, thermal_valid=false;
   bool driver_valid=false, tcs=false, awc=false, traction_fault=false, ecu_protection=true;
   bool wmi_verified=false, wmi_fault=false, manual=false, service_key=false;
+  bool vdc_valid=false,vdc_permitted=true;float vdc_margin=1;
 };
 struct Outputs {
   State state=State::DISABLED;

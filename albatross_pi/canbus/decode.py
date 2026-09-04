@@ -22,6 +22,7 @@ from .ids import (
 )
 from ..thermal import ThermalService
 from ..airshot import AirShotService
+from ..dynamics import DynamicsService
 from ..state.snapshot import (
     AirShotState,
     CANFrameRecord,
@@ -113,6 +114,7 @@ class CANStateAggregator:
         }
         self._airshot = AirShotState()
         self.airshot_service = AirShotService(airshot_log_directory)
+        self.dynamics_service = DynamicsService(Path(airshot_log_directory).parent/"dynamics" if airshot_log_directory else None)
         self._wmi = WMIState()
         self._traction = TractionState()
         self._clutch = ClutchState()
@@ -157,6 +159,7 @@ class CANStateAggregator:
                     self._last_thermal_rx_monotonic = received_at
             self._record_can_frame(arbitration_id, data, direction)
             self.airshot_service.ingest(arbitration_id,data,direction.upper())
+            self.dynamics_service.ingest(arbitration_id,data,direction.upper())
             thermal_handled = self._thermal.apply_can_frame(arbitration_id, data) if direction.upper() == "RX" else False
             if handler is not None and not thermal_handled:
                 handler(self, data)
@@ -182,6 +185,7 @@ class CANStateAggregator:
             air_v2 = self.airshot_service.snapshot()
             self._airshot = replace(self._airshot, v2=air_v2)
             self._last_snapshot = StateSnapshot(
+                dynamics=self.dynamics_service.snapshot(),
                 engine=EngineState(**self._engine_data),
                 temps=TemperaturesState(
                     coolant_temp_f=self._temps_data.get("coolant_temp_f", -1.0),
@@ -205,7 +209,7 @@ class CANStateAggregator:
                 system=self._system,
                 thermal=thermal_snapshot,
                 shift_light=self._shift_light,
-                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts) | set(air_v2.alerts))),
+                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts) | set(air_v2.alerts) | set(self.dynamics_service.snapshot().alerts))),
             )
             self._dirty = True
             self._condition.notify_all()
@@ -228,9 +232,10 @@ class CANStateAggregator:
     def _refresh_ages(self) -> StateSnapshot:
         thermal = self._thermal.snapshot()
         air = self.airshot_service.snapshot()
-        previous = set(self._last_snapshot.thermal.alerts) | set(self._last_snapshot.air_shot.v2.alerts)
-        faults = (set(self._last_snapshot.faults) - previous) | set(thermal.alerts) | set(air.alerts)
-        return replace(self._last_snapshot, thermal=thermal,
+        dynamics = self.dynamics_service.snapshot()
+        previous = set(self._last_snapshot.thermal.alerts) | set(self._last_snapshot.air_shot.v2.alerts) | set(self._last_snapshot.dynamics.alerts)
+        faults = (set(self._last_snapshot.faults) - previous) | set(thermal.alerts) | set(air.alerts) | set(dynamics.alerts)
+        return replace(self._last_snapshot, thermal=thermal,dynamics=dynamics,
             air_shot=replace(self._last_snapshot.air_shot,v2=air), faults=tuple(sorted(faults)))
 
     def rx_age_s(self) -> float:

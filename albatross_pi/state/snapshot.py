@@ -7,6 +7,7 @@ from typing import Tuple
 
 from ..thermal.model import ThermalSnapshot
 from ..airshot import AirShotV2
+from ..dynamics import Dynamics
 
 
 @dataclass(frozen=True)
@@ -152,6 +153,7 @@ class SystemStatus:
 
 @dataclass(frozen=True)
 class StateSnapshot:
+    dynamics: Dynamics = field(default_factory=Dynamics)
     engine: EngineState = field(default_factory=EngineState)
     temps: TemperaturesState = field(default_factory=TemperaturesState)
     air_shot: AirShotState = field(default_factory=AirShotState)

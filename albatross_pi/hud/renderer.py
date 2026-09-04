@@ -48,6 +48,7 @@ from .airshot_view import draw_airshot
 from ..airshot import MODES as AIR_MODES
 from ..airshot_calibration import CalibrationEditor, draw_calibration
 from ..airshot_switch import AirModeSwitch
+from .dynamics_view import DynamicsMenu,draw_dynamics
 from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
@@ -272,6 +273,7 @@ class HUDRenderer:
         self._air_mode_callback = None
         self._air_calibration = CalibrationEditor()
         self._air_switch = AirModeSwitch()
+        self._dynamics_menu = DynamicsMenu()
         self._air_requested_mode = None
         self._air_mode_requested_at = 0.0
         self._air_fire_held = False
@@ -296,7 +298,7 @@ class HUDRenderer:
         self._online_update_progress = 0.0
         self._online_update_busy = False
         self._online_update_lock = threading.Lock()
-        self._focus_targets = ["TEMPS", "AIR", "NAV", "SETTINGS", "MEDIA", "FAULTS"]
+        self._focus_targets = ["TEMPS", "DYNAMICS", "AIR", "NAV", "SETTINGS", "MEDIA", "FAULTS"]
         self._focus_index = 0
         self._active_menu = "home"
         self._thermal_views = ThermalViews()
@@ -1331,6 +1333,7 @@ class HUDRenderer:
         return self.screen.copy()
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
+        self._dynamics_menu.sync(state.dynamics)
         if state.air_shot.v2.online and state.air_shot.v2.mode==self._air_requested_mode:
             self._air_requested_mode=None
         if self._air_fire_held and time.monotonic()-self._last_air_request >= 0.05:
@@ -1351,13 +1354,19 @@ class HUDRenderer:
         self._render_home_fault_focus_outline(state)
         self._render_home_navigation_focus_outline()
         self._render_home_thermal_focus()
+        if self._active_menu=="home" and self._home_focus_target()=="DYNAMICS":
+            rect=next((w.rect for w in self.widgets if isinstance(w,TractionPanel)),None)
+            if rect:pygame.draw.rect(self.screen,self._theme_colors()[1],rect.inflate(6,6),2)
         if self._active_menu == "air_selected" or (self._active_menu == "home" and self._home_focus_target() == "AIR"):
             air_rect = next((w.rect for w in self.widgets if isinstance(w, AirShotPanel)),None)
             if air_rect:
                 pygame.draw.rect(self.screen,self._theme_colors()[1],air_rect.inflate(6,6),2,border_radius=6)
         self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
-        if self._active_menu == "airshot_switch":
+        if self._active_menu == "dynamics":
+            self._render_modal_dimmer()
+            draw_dynamics(self.screen,state,self._dynamics_menu,self._theme_colors())
+        elif self._active_menu == "airshot_switch":
             self._air_switch.draw(self.screen,self._theme_colors())
         elif self._active_menu == "airshot_calibration":
             draw_calibration(self.screen,self._air_calibration,self._theme_colors())
@@ -1458,6 +1467,8 @@ class HUDRenderer:
         self._fault_detail_index = (self._fault_detail_index + delta) % count
 
     def _handle_dpad_right(self) -> None:
+        if self._active_menu=="dynamics":
+            self._dynamics_menu.adjust(1,self.state.engine.speed_mph<=1);return
         if self._active_menu == "airshot_calibration":
             self._air_calibration.adjust(1)
             return
@@ -1542,6 +1553,8 @@ class HUDRenderer:
         self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu=="dynamics":
+            self._dynamics_menu.adjust(-1,self.state.engine.speed_mph<=1);return
         if self._active_menu == "airshot_calibration":
             self._air_calibration.adjust(-1)
             return
@@ -1626,6 +1639,7 @@ class HUDRenderer:
         self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_up(self) -> None:
+        if self._active_menu=="dynamics":self._dynamics_menu.move(-1);return
         if self._active_menu == "airshot_switch":
             self._air_switch.cursor=(self._air_switch.cursor-1)%3
             return
@@ -1666,6 +1680,7 @@ class HUDRenderer:
             self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_down(self) -> None:
+        if self._active_menu=="dynamics":self._dynamics_menu.move(1);return
         if self._active_menu == "airshot_switch":
             self._air_switch.cursor=(self._air_switch.cursor+1)%3
             return
@@ -1706,6 +1721,9 @@ class HUDRenderer:
             self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_select(self) -> None:
+        if self._active_menu=="dynamics":self._dynamics_menu.select();return
+        if self._active_menu=="home" and self._home_focus_target()=="DYNAMICS":
+            self._active_menu="dynamics";self._dynamics_menu.page="controls";return
         if self._active_menu == "airshot_switch":
             self._air_switch.learn()
             return
@@ -2005,6 +2023,10 @@ class HUDRenderer:
             self._network_password_text += key
 
     def _handle_back(self) -> None:
+        if self._active_menu=="dynamics":
+            if self._dynamics_menu.page!="controls":self._dynamics_menu.page="controls"
+            else:self._active_menu="home"
+            return
         if self._active_menu == "airshot_switch":
             self._active_menu="settings"
             return
@@ -2826,7 +2848,7 @@ class HUDRenderer:
 
     def _home_focus_targets(self) -> list[str]:
         if self._visible_faults:
-            return ["TEMPS", "AIR", "NAV", "FAULTS", "SETTINGS", "MEDIA"]
+            return ["TEMPS", "DYNAMICS", "AIR", "NAV", "FAULTS", "SETTINGS", "MEDIA"]
         return list(self._focus_targets)
 
     def _set_home_focus_target(self, target: str) -> None:

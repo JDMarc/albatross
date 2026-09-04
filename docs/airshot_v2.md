@@ -62,6 +62,8 @@ independently. Permission, regulator, wastegate and four driver inputs also need
 fresh data. Thermal values/status groups expire independently of heartbeat.
 Missing feedback inhibits deployment; TPS is not treated as DBW torque permission.
 
+The integrated main sketch now gets DBW permission and physical feedback from the [unified VDC and native DBWX2 adapter](vehicle_dynamics.md), not external frame 192. AWC tracking alone does not inhibit Air Shot; active correction, faults, torque limits and remaining pitch margin do. The remaining external pneumatic/wastegate driver feedback is still required.
+
 Existing tank conversion and compressor settings are retained (95/145 psi,
 15-second restart delay). Filling is a separate state, prohibited during shots,
 movement, cranking, low voltage, stale ECU data or invalid tank ADC. Reported

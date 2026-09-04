@@ -1,5 +1,7 @@
 # Albatross Pi HUD & Control Specification
 
+The implemented DBW/TCS/AWC architecture and hardware requirements are now defined in [vehicle_dynamics.md](vehicle_dynamics.md), superseding legacy comparator/profile descriptions below. DBWX2 owns the servo loop; the main Teensy owns the shared dynamics supervisor.
+
 ## 0. High-Level Mission
 - Raspberry Pi is primary HUD brain and coordinator.
 - Drives 11″ display using Pygame with retro 80s aesthetic.

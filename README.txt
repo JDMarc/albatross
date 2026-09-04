@@ -8,6 +8,10 @@ this is done through liberal fault correction and tuning options controlled by 3
 What this repo is trying to accomplish
 --------------------------------------
 
+Current DBWX2 + RaceGrade unified DBW/TCS/AWC implementation and commissioning
+requirements: docs/vehicle_dynamics.md. This is not a road-qualified calibration.
+The Pi now provides a D-pad Dynamics menu with rider curves and event telemetry.
+
 At a practical level, this repository exists to do four things reliably:
 
 1) Render a useful rider HUD at speed
