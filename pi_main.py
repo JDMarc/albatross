@@ -25,6 +25,8 @@ def main() -> None:
     parser.add_argument("--can-bitrate", type=int, help="Bitrate hint for SocketCAN setup")
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument("--thermal-log-dir", type=Path, default=Path("logs/thermal"), help="thermal JSONL and exposure log directory")
+    parser.add_argument("--thermal-baseline", type=Path, default=Path("settings/thermal_baselines.json"), help="protected thermal baseline store")
     parser.add_argument("--bind-inputs", action="store_true", help="Prompt keyboard bindings for demo controls")
     parser.add_argument("--nfc-config", type=Path, default=Path("settings/nfc_auth.json"), help="USB NFC authorization configuration")
     parser.add_argument("--nfc-bypass", action="store_true", help="bench-only: permit engine run without an NFC scan")
@@ -46,6 +48,10 @@ def main() -> None:
         str(args.can_rate),
         "--log-level",
         args.log_level,
+        "--thermal-log-dir",
+        str(args.thermal_log_dir),
+        "--thermal-baseline",
+        str(args.thermal_baseline),
         "--nfc-config",
         str(args.nfc_config),
     ]

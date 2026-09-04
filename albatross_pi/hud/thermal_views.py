@@ -1,0 +1,239 @@
+"""Native Albatross HUD thermal pages and transverse V-twin schematic map."""
+from __future__ import annotations
+
+import math
+import pygame
+
+from .widgets.ui_utils import fit_font_size, font
+from ..state.snapshot import StateSnapshot
+from ..thermal.model import SensorStatus, ThermalReading
+
+
+THERMAL_MENU_ITEMS: tuple[tuple[str, str], ...] = (
+    ("OVERVIEW", "thermal_overview"),
+    ("THERMAL MAP", "thermal_abs"),
+    ("THERMAL Δ / DEV", "thermal_dev"),
+    ("INTAKE / TURBOS", "thermal_intake"),
+    ("ENGINE / COOLING", "thermal_engine"),
+    ("OIL SYSTEM", "thermal_oil"),
+    ("SENSOR STATUS", "thermal_status"),
+    ("HISTORY / LOGS", "thermal_history"),
+)
+
+
+MAP_KEYS = (
+    "AMBIENT_AIR", "COMP_IN_LEFT", "COMP_IN_RIGHT", "COMP_OUT_LEFT", "COMP_OUT_RIGHT",
+    "IC_IN_LEFT", "IC_IN_RIGHT", "IC_OUT_LEFT", "IC_OUT_RIGHT", "PRE_WMI", "POST_WMI",
+    "PLENUM_IAT", "RUNNER_IAT_LEFT", "RUNNER_IAT_RIGHT", "HEAD_METAL_LEFT", "HEAD_METAL_RIGHT",
+    "HEAD_COOLANT_LEFT", "HEAD_COOLANT_RIGHT", "EGT_LEFT", "EGT_RIGHT", "TURBINE_OUT_LEFT",
+    "TURBINE_OUT_RIGHT", "TURBO_OIL_DRAIN_LEFT", "TURBO_OIL_DRAIN_RIGHT", "OIL_GALLERY",
+    "RAD_IN", "RAD_OUT", "OIL_COOLER_IN", "OIL_COOLER_OUT",
+)
+
+
+class ThermalViews:
+    def __init__(self) -> None:
+        self.menu_cursor = 0
+        self.sensor_cursor = 0
+
+    def menu_move(self, delta: int) -> None:
+        self.menu_cursor = (self.menu_cursor + delta) % len(THERMAL_MENU_ITEMS)
+
+    def sensor_move(self, delta: int, state: StateSnapshot) -> None:
+        keys = self._page_keys("thermal_abs", state)
+        self.sensor_cursor = (self.sensor_cursor + delta) % max(1, len(keys))
+
+    def selected_page(self) -> str:
+        return THERMAL_MENU_ITEMS[self.menu_cursor][1]
+
+    def draw_focus_submenu(self, surface: pygame.Surface, colors: tuple[tuple[int, int, int], ...]) -> None:
+        _bg, bright, glow, _fault = colors
+        sw, sh = surface.get_size()
+        width = min(270, max(210, sw // 5))
+        row_h = max(19, min(27, sh // 19))
+        panel = pygame.Rect(sw - width - 18, 62, width, row_h * len(THERMAL_MENU_ITEMS) + 34)
+        shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((6, 8, 8, 235))
+        surface.blit(shade, panel.topleft); pygame.draw.rect(surface, bright, panel, 2, border_radius=7)
+        surface.blit(font(15, bold=True).render("TEMPS", True, bright), (panel.x + 12, panel.y + 8))
+        for index, (label, _page) in enumerate(THERMAL_MENU_ITEMS):
+            y = panel.y + 31 + index * row_h
+            color = bright if index == self.menu_cursor else glow
+            prefix = "▶ " if index == self.menu_cursor else "  "
+            surface.blit(font(12, bold=index == self.menu_cursor).render(prefix + label, True, color), (panel.x + 12, y))
+
+    def draw(self, surface: pygame.Surface, state: StateSnapshot, page: str, colors: tuple[tuple[int, int, int], ...]) -> None:
+        bg, bright, glow, fault = colors
+        sw, sh = surface.get_size()
+        panel = pygame.Rect(20, 54, sw - 40, sh - 82)
+        shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((5, 8, 9, 246))
+        surface.blit(shade, panel.topleft); pygame.draw.rect(surface, glow, panel, 2, border_radius=8)
+        title = next((label for label, target in THERMAL_MENU_ITEMS if target == page), "THERMAL")
+        status = state.thermal.overall_status
+        status_color = fault if status in {"WARNING", "CRITICAL", "DATA FAULT"} else bright
+        surface.blit(font(19, bold=True).render(f"THERMAL / {title}", True, bright), (panel.x + 14, panel.y + 9))
+        status_surface = font(15, bold=True).render(f"{status}  |  {state.thermal.thermal_state}", True, status_color)
+        surface.blit(status_surface, (panel.right - status_surface.get_width() - 14, panel.y + 12))
+        content = pygame.Rect(panel.x + 12, panel.y + 42, panel.width - 24, panel.height - 70)
+        if page in {"thermal_abs", "thermal_dev"}:
+            self._draw_map(surface, state, content, page == "thermal_dev", colors)
+        elif page == "thermal_overview":
+            self._draw_overview(surface, state, content, colors)
+        elif page == "thermal_status":
+            self._draw_status(surface, state, content, colors)
+        elif page == "thermal_history":
+            self._draw_history(surface, state, content, colors)
+        else:
+            self._draw_numeric_page(surface, state, content, page, colors)
+        hint = "UP/DOWN: SENSOR  |  LEFT/RIGHT: PAGE  |  ENTER: MENU  |  ESC: BACK"
+        surface.blit(font(11, bold=True).render(hint, True, glow), (panel.x + 14, panel.bottom - 21))
+
+    @staticmethod
+    def _score_color(score: float, valid: bool) -> tuple[int, int, int]:
+        if not valid:
+            return (70, 74, 78)
+        anchors = ((0, (30, 80, 150)), (20, (40, 170, 190)), (55, (70, 200, 90)), (75, (245, 195, 45)), (90, (255, 110, 30)), (100, (255, 35, 25)), (120, (255, 0, 180)))
+        value = max(0.0, min(120.0, score))
+        for (x0, c0), (x1, c1) in zip(anchors, anchors[1:]):
+            if value <= x1:
+                ratio = (value - x0) / (x1 - x0)
+                return tuple(int(c0[i] + ratio * (c1[i] - c0[i])) for i in range(3))
+        return anchors[-1][1]
+
+    def _component(self, surface: pygame.Surface, state: StateSnapshot, rect: pygame.Rect, key: str, label: str, dev: bool, selected: bool) -> None:
+        reading = state.thermal.get(key)
+        valid = reading is not None and reading.valid
+        score = (reading.thermal_dev if dev else reading.thermal_abs) if reading else 0.0
+        color = self._score_color(score, valid)
+        pygame.draw.rect(surface, color, rect, border_radius=5)
+        pygame.draw.rect(surface, (255, 255, 255) if selected else (12, 18, 22), rect, 3 if selected else 1, border_radius=5)
+        label_size = fit_font_size(label, rect.width - 8, max(10, rect.height // 2), start_size=12, bold=True)
+        text = font(label_size, bold=True).render(label, True, (5, 8, 10))
+        surface.blit(text, (rect.centerx - text.get_width() // 2, rect.y + 3))
+        value = "--" if not valid else f"{reading.temperature_c:.0f}°C"
+        value_text = font(max(9, label_size - 1), bold=True).render(value, True, (5, 8, 10))
+        surface.blit(value_text, (rect.centerx - value_text.get_width() // 2, rect.bottom - value_text.get_height() - 2))
+
+    def _draw_map(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, dev: bool, colors: tuple[tuple[int, int, int], ...]) -> None:
+        _bg, bright, glow, _fault = colors
+        detail_w = max(245, area.width // 4)
+        map_area = pygame.Rect(area.x, area.y, area.width - detail_w - 10, area.height)
+        keys = self._page_keys("thermal_abs", state)
+        self.sensor_cursor %= max(1, len(keys)); selected_key = keys[self.sensor_cursor] if keys else ""
+        def selected(key: str) -> bool: return key == selected_key
+        # Flow lines are schematic, not interpolated pseudo-IR pixels.
+        line = (65, 100, 105)
+        cx = map_area.centerx
+        pygame.draw.line(surface, line, (cx, map_area.y + 4), (cx, map_area.bottom - 5), 3)
+        pygame.draw.line(surface, line, (map_area.x + 90, map_area.y + 52), (map_area.right - 90, map_area.y + 52), 2)
+        w = max(58, map_area.width // 9); h = max(24, map_area.height // 12)
+        self._component(surface, state, pygame.Rect(cx - w//2, map_area.y, w, h), "AMBIENT_AIR", "AMBIENT", dev, selected("AMBIENT_AIR"))
+        self._component(surface, state, pygame.Rect(cx - w//2, map_area.y + h + 5, w, h), "RAD_IN", "RADIATOR IN", dev, selected("RAD_IN"))
+        self._component(surface, state, pygame.Rect(cx - w//2, map_area.y + 2*h + 10, w, h), "RAD_OUT", "RADIATOR OUT", dev, selected("RAD_OUT"))
+        left_x, right_x = map_area.x + 12, map_area.right - w - 12
+        y0 = map_area.y + h + 2
+        for x, side in ((left_x, "LEFT"), (right_x, "RIGHT")):
+            short = "L" if side == "LEFT" else "R"
+            self._component(surface, state, pygame.Rect(x, y0, w, h), f"COMP_IN_{side}", f"COMP IN {short}", dev, selected(f"COMP_IN_{side}"))
+            self._component(surface, state, pygame.Rect(x, y0+h+4, w, h), f"COMP_OUT_{side}", f"COMP {short}", dev, selected(f"COMP_OUT_{side}"))
+            self._component(surface, state, pygame.Rect(x, y0+2*h+8, w, h), f"IC_IN_{side}", f"IC IN {short}", dev, selected(f"IC_IN_{side}"))
+            self._component(surface, state, pygame.Rect(x, y0+3*h+12, w, h), f"IC_OUT_{side}", f"IC OUT {short}", dev, selected(f"IC_OUT_{side}"))
+            self._component(surface, state, pygame.Rect(x, y0+4*h+16, w, h), f"TURBO_OIL_DRAIN_{side}", f"CHRA {short}", dev, selected(f"TURBO_OIL_DRAIN_{side}"))
+            self._component(surface, state, pygame.Rect(x, y0+5*h+20, w, h), f"TURBINE_OUT_{side}", f"TURBINE {short}", dev, selected(f"TURBINE_OUT_{side}"))
+            self._component(surface, state, pygame.Rect(x, y0+6*h+24, w, h), f"EGT_{side}", f"EXHAUST {short}", dev, selected(f"EGT_{side}"))
+        common_y = map_area.y + 3*h + 10
+        for index, (key, label) in enumerate((("PRE_WMI","PRE-WMI"),("POST_WMI","POST-WMI"),("PLENUM_IAT","PLENUM"))):
+            self._component(surface, state, pygame.Rect(cx-w//2, common_y+index*(h+4), w, h), key, label, dev, selected(key))
+        head_y = map_area.bottom - 2*h - 7
+        head_w = max(w + 18, map_area.width // 5)
+        self._component(surface, state, pygame.Rect(cx-head_w-8, head_y, head_w, h+10), "HEAD_METAL_LEFT", "LEFT HEAD", dev, selected("HEAD_METAL_LEFT"))
+        self._component(surface, state, pygame.Rect(cx+8, head_y, head_w, h+10), "HEAD_METAL_RIGHT", "RIGHT HEAD", dev, selected("HEAD_METAL_RIGHT"))
+        self._component(surface, state, pygame.Rect(cx-head_w-8, head_y-h-3, head_w, h), "HEAD_COOLANT_LEFT", "COOLANT L", dev, selected("HEAD_COOLANT_LEFT"))
+        self._component(surface, state, pygame.Rect(cx+8, head_y-h-3, head_w, h), "HEAD_COOLANT_RIGHT", "COOLANT R", dev, selected("HEAD_COOLANT_RIGHT"))
+        self._component(surface, state, pygame.Rect(cx-w//2, map_area.bottom-h+1, w, h-1), "OIL_GALLERY", "CRANKCASE", dev, selected("OIL_GALLERY"))
+        surface.blit(font(10, bold=True).render("FRONT ↑", True, glow), (map_area.x + 3, map_area.y + 2))
+        self._draw_detail(surface, state, pygame.Rect(map_area.right + 10, area.y, detail_w, area.height), selected_key, dev, colors)
+
+    def _draw_detail(self, surface: pygame.Surface, state: StateSnapshot, rect: pygame.Rect, key: str, dev: bool, colors: tuple[tuple[int, int, int], ...]) -> None:
+        _bg, bright, glow, fault = colors
+        pygame.draw.rect(surface, (9, 14, 16), rect, border_radius=6); pygame.draw.rect(surface, glow, rect, 1, border_radius=6)
+        reading = state.thermal.get(key)
+        if reading is None: return
+        surface.blit(font(14, bold=True).render(reading.name.upper(), True, bright), (rect.x+10, rect.y+8))
+        def fmt(value: float | None, suffix="°C") -> str: return "--" if value is None else f"{value:+.1f}{suffix}"
+        rows = (
+            ("ACTUAL", fmt(reading.temperature_c)), ("Δ AMBIENT", fmt(reading.ambient_delta_c)),
+            ("EXPECTED", fmt(reading.expected_c)), ("DEVIATION", fmt(reading.residual_c)),
+            ("ABS SCORE", f"{reading.thermal_abs:.0f}"), ("DEV SCORE", f"{reading.thermal_dev:.0f}"),
+            ("dT/dt", fmt(reading.derivative_c_s, "°C/s")), ("SENSOR", reading.status.name.replace("_", " ")),
+            ("LAST UPDATE", "--" if math.isinf(reading.age_ms) else f"{reading.age_ms:.0f} ms"),
+            ("RAW", "--" if reading.raw_value is None else str(reading.raw_value)),
+            ("MAX", fmt(reading.maximum_c)), ("BASELINE N", str(reading.baseline_samples)),
+        )
+        row_h = max(16, min(23, (rect.height-42)//len(rows)))
+        for index, (label, value) in enumerate(rows):
+            y = rect.y + 34 + index*row_h
+            surface.blit(font(11, bold=True).render(label, True, glow), (rect.x+10, y))
+            value_color = fault if reading.status != SensorStatus.VALID and label == "SENSOR" else bright
+            value_s = font(11, bold=True).render(value, True, value_color)
+            surface.blit(value_s, (rect.right-value_s.get_width()-9, y))
+
+    def _draw_overview(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, colors) -> None:
+        _bg, bright, glow, fault = colors
+        items = (("NODE", "ONLINE" if state.thermal.online else "OFFLINE"), ("CAN AGE", f"{state.thermal.can_age_ms:.0f} ms" if state.thermal.online else "--"), ("UPTIME", self._uptime(state.thermal.uptime_s)), ("CONFIG", state.thermal.config_version), ("BASELINE", state.thermal.baseline_status))
+        for index, (label, value) in enumerate(items):
+            y=area.y+index*31; surface.blit(font(14,bold=True).render(label,True,glow),(area.x+8,y)); surface.blit(font(14,bold=True).render(value,True,bright if value!="OFFLINE" else fault),(area.x+170,y))
+        x = area.x + area.width//2
+        alerts = state.thermal.alerts or ("NO ACTIVE THERMAL ALERTS",)
+        surface.blit(font(15,bold=True).render("ACTIVE CONDITIONS",True,bright),(x,area.y))
+        for index, alert in enumerate(alerts[:10]): surface.blit(font(13,bold=True).render(alert,True,fault if state.thermal.alerts else glow),(x+8,area.y+29+index*23))
+
+    def _draw_numeric_page(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, page: str, colors) -> None:
+        _bg, bright, glow, fault = colors
+        keys = self._page_keys(page, state); cols=2; col_w=area.width//cols; rows_per=max(1,(len(keys)+1)//2)
+        for index,key in enumerate(keys):
+            reading=state.thermal.get(key); col=index//rows_per; row=index%rows_per; x=area.x+col*col_w; y=area.y+row*26
+            if not reading: continue
+            color=bright if reading.valid else fault; value="--" if not reading.valid else f"{reading.temperature_c:.1f}°C"
+            surface.blit(font(12).render(reading.name,True,glow),(x+5,y)); vs=font(12,bold=True).render(value,True,color); surface.blit(vs,(x+col_w-vs.get_width()-12,y))
+        derived_y=area.bottom-78
+        metrics = self._page_metrics(page)
+        for index,key in enumerate(metrics[:6]):
+            value=state.thermal.derived.get(key); text="--" if value is None else f"{value:+.1f}{'%' if 'EFFECTIVENESS' in key or 'EFFICIENCY' in key else '°C'}"
+            x=area.x+(index%3)*(area.width//3); y=derived_y+(index//3)*27
+            surface.blit(font(11,bold=True).render(key.replace("_"," "),True,glow),(x+4,y)); ts=font(11,bold=True).render(text,True,bright); surface.blit(ts,(x+area.width//3-ts.get_width()-8,y))
+
+    def _draw_status(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, colors) -> None:
+        _bg, bright, glow, fault = colors
+        readings=list(state.thermal.readings.values()); cols=2; rows_per=16; col_w=area.width//2; row_h=max(16,area.height//16)
+        for index,reading in enumerate(readings[:32]):
+            col=index//rows_per; row=index%rows_per; x=area.x+col*col_w; y=area.y+row*row_h
+            ok=reading.status==SensorStatus.VALID; color=(80,255,155) if ok else ((115,120,125) if reading.status==SensorStatus.NOT_CONFIGURED else fault)
+            pygame.draw.circle(surface,color,(x+6,y+7),4); surface.blit(font(10).render(reading.key,True,glow),(x+15,y))
+            value="--" if reading.temperature_c is None else f"{reading.temperature_c:.1f}°C"
+            status=f"{value}  {reading.status.name}"; ts=font(10,bold=True).render(status,True,color); surface.blit(ts,(x+col_w-ts.get_width()-8,y))
+
+    def _draw_history(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, colors) -> None:
+        _bg, bright, glow, _fault=colors
+        surface.blit(font(14,bold=True).render(state.thermal.baseline_status,True,bright),(area.x+6,area.y+2))
+        surface.blit(font(12).render("Learning is opt-in; factory, long-term, and recent baselines are kept separate.",True,glow),(area.x+6,area.y+28))
+        readings=[r for r in state.thermal.readings.values() if r.maximum_c is not None]
+        for index,reading in enumerate(readings[:18]):
+            col=index//9; row=index%9; x=area.x+col*(area.width//2); y=area.y+62+row*25
+            surface.blit(font(11).render(reading.name,True,glow),(x+5,y)); value=f"MAX {reading.maximum_c:.1f}°C  dT/dt {reading.derivative_c_s:+.1f}"; ts=font(11,bold=True).render(value,True,bright); surface.blit(ts,(x+area.width//2-ts.get_width()-10,y))
+
+    @staticmethod
+    def _uptime(seconds: int) -> str:
+        return f"{seconds//3600:02d}:{(seconds//60)%60:02d}:{seconds%60:02d}"
+
+    @staticmethod
+    def _page_keys(page: str, state: StateSnapshot) -> tuple[str, ...]:
+        if page == "thermal_intake": return ("AMBIENT_AIR","COMP_IN_LEFT","COMP_IN_RIGHT","COMP_OUT_LEFT","COMP_OUT_RIGHT","IC_IN_LEFT","IC_IN_RIGHT","IC_OUT_LEFT","IC_OUT_RIGHT","PRE_WMI","POST_WMI","PLENUM_IAT","RUNNER_IAT_LEFT","RUNNER_IAT_RIGHT","EGT_LEFT","EGT_RIGHT","TURBINE_OUT_LEFT","TURBINE_OUT_RIGHT")
+        if page == "thermal_engine": return ("HEAD_COOLANT_LEFT","HEAD_COOLANT_RIGHT","HEAD_METAL_LEFT","HEAD_METAL_RIGHT","RAD_IN","RAD_OUT","RUNNER_IAT_LEFT","RUNNER_IAT_RIGHT")
+        if page == "thermal_oil": return ("OIL_GALLERY","OIL_COOLER_IN","OIL_COOLER_OUT","TURBO_OIL_DRAIN_LEFT","TURBO_OIL_DRAIN_RIGHT","CHRA_TEMP_LEFT","CHRA_TEMP_RIGHT")
+        return tuple(key for key in MAP_KEYS if key in state.thermal.readings)
+
+    @staticmethod
+    def _page_metrics(page: str) -> tuple[str, ...]:
+        if page == "thermal_intake": return ("COMP_RISE_LEFT","COMP_RISE_RIGHT","IC_DROP_LEFT","IC_DROP_RIGHT","IC_EFFECTIVENESS_LEFT","IC_EFFECTIVENESS_RIGHT","WMI_DROP","TURBINE_DROP_LEFT","TURBINE_DROP_RIGHT")
+        if page == "thermal_engine": return ("HEAD_COOLANT_LR_DELTA","HEAD_METAL_LR_DELTA","HEAD_COOLANT_TO_METAL_LEFT","HEAD_COOLANT_TO_METAL_RIGHT","RAD_DELTA_T")
+        return ("OIL_COOLER_DELTA_T","TURBO_DRAIN_LR_DELTA")

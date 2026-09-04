@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import struct
 import time
+from pathlib import Path
 from dataclasses import replace
 from datetime import datetime
 from threading import Condition, Lock
@@ -17,7 +18,9 @@ from .ids import (
     PiToArduinoID,
     PiToEcuID,
     SystemCommandID,
+    ThermalNodeToNetworkID,
 )
+from ..thermal import ThermalService
 from ..state.snapshot import (
     AirShotState,
     CANFrameRecord,
@@ -46,7 +49,7 @@ TRACTION_LEVEL_NAMES = {
 
 
 _FRAME_NAMES: dict[int, str] = {}
-for _enum in (ECUToHudID, ArduinoToHudID, PiToArduinoID, PiToEcuID, SystemCommandID):
+for _enum in (ECUToHudID, ArduinoToHudID, ThermalNodeToNetworkID, PiToArduinoID, PiToEcuID, SystemCommandID):
     for _member in _enum:
         _FRAME_NAMES[int(_member)] = f"{_enum.__name__}.{_member.name}"
 
@@ -68,7 +71,14 @@ def _c_to_f(celsius: float) -> float:
 class CANStateAggregator:
     """Maintains the latest HUD snapshot derived from CAN frames."""
 
-    def __init__(self, rpm_redline: int = 12000) -> None:
+    def __init__(
+        self,
+        rpm_redline: int = 12000,
+        *,
+        thermal_config_path: Path | str | None = None,
+        thermal_baseline_path: Path | str | None = None,
+        thermal_log_directory: Path | str | None = None,
+    ) -> None:
         self._lock = Lock()
         self._condition = Condition(self._lock)
         self._engine_data: Dict[str, float | int | str] = {
@@ -110,11 +120,17 @@ class CANStateAggregator:
             firmware_versions=(ServiceReading("Pi HUD", "local/dev"),)
         )
         self._system = SystemStatus()
+        self._thermal = ThermalService(
+            thermal_config_path,
+            baseline_path=thermal_baseline_path,
+            log_directory=thermal_log_directory,
+        )
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_rx_monotonic: float | None = None
         self._last_ecu_rx_monotonic: float | None = None
         self._last_controller_rx_monotonic: float | None = None
+        self._last_thermal_rx_monotonic: float | None = None
         self._last_snapshot = StateSnapshot(
             engine=replace(EngineState(), rpm_redline=rpm_redline),
             service=self._service,
@@ -134,13 +150,31 @@ class CANStateAggregator:
                     self._last_ecu_rx_monotonic = received_at
                 elif arbitration_id in _CONTROLLER_RX_IDS:
                     self._last_controller_rx_monotonic = received_at
+                if arbitration_id in self._thermal.can_ids:
+                    self._last_thermal_rx_monotonic = received_at
             self._record_can_frame(arbitration_id, data, direction)
-            if handler is not None:
+            thermal_handled = self._thermal.apply_can_frame(arbitration_id, data) if direction.upper() == "RX" else False
+            if handler is not None and not thermal_handled:
                 handler(self, data)
             env_dict = self._environment.__dict__.copy()
             env_dict["time"] = datetime.now()
             self._environment = EnvironmentState(**env_dict)
             self._shift_light = self._engine_data.get("rpm", 0) >= 10000
+            ambient_c = (self._environment.ambient_temp_f - 32.0) * 5.0 / 9.0
+            boost_left = max(0.0, float(self._engine_data.get("boost_left_psi", 0.0)))
+            boost_right = max(0.0, float(self._engine_data.get("boost_right_psi", 0.0)))
+            self._thermal.set_vehicle_context({
+                "rpm": float(self._engine_data.get("rpm", 0)),
+                "load_pct": float(self._engine_data.get("engine_load_pct", 0.0)),
+                "boost_psi": float(self._engine_data.get("boost_psi", 0.0)),
+                "ambient_c": ambient_c,
+                "wmi_command": self._wmi.commanded_flow_cc_min,
+                "pressure_ratio_left": (14.7 + boost_left) / 14.7,
+                "pressure_ratio_right": (14.7 + boost_right) / 14.7,
+                "throttle_pct": float(self._engine_data.get("throttle_pct", 0.0)),
+                "speed_mph": float(self._engine_data.get("speed_mph", 0.0)),
+            })
+            thermal_snapshot = self._thermal.snapshot()
             self._last_snapshot = StateSnapshot(
                 engine=EngineState(**self._engine_data),
                 temps=TemperaturesState(
@@ -163,8 +197,9 @@ class CANStateAggregator:
                 economy=self._economy,
                 service=self._service,
                 system=self._system,
+                thermal=thermal_snapshot,
                 shift_light=self._shift_light,
-                faults=tuple(sorted(self._faults.values())),
+                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts))),
             )
             self._dirty = True
             self._condition.notify_all()
@@ -204,6 +239,12 @@ class CANStateAggregator:
         """Return age of the latest Teensy status frame."""
         with self._lock:
             last_rx = self._last_controller_rx_monotonic
+        return self._age_s(last_rx)
+
+    def thermal_rx_age_s(self) -> float:
+        """Return age of the latest dedicated thermal-node frame."""
+        with self._lock:
+            last_rx = self._last_thermal_rx_monotonic
         return self._age_s(last_rx)
 
     @staticmethod
@@ -447,7 +488,7 @@ class CANStateAggregator:
             ("WG1 enable", 0x01),
             ("WG2 enable", 0x02),
             ("WMI pump", 0x04),
-            ("Flame enable", 0x08),
+            ("Reserved output 3", 0x08),
             ("Air shot solenoid", 0x10),
             ("Air compressor", 0x20),
             ("WG1 direction", 0x40),

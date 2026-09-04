@@ -47,8 +47,13 @@ This is the short version of how this stuff works:
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).
   - Manages Air Shot compressor + shot latch/rearm logic.
   - Computes wheel speed + slip, accepts Pi traction level command (0x124), and publishes torque-reduction requests (0x12A/0x12B) for ECU cooperation.
-  - Enforces automatic demand-driven WMI/flame interlocks and limp-aware behavior.
+  - Enforces automatic demand-driven WMI interlocks, provisional CAN-level flame intent, and limp-aware behavior.
   - Uses a hardware watchdog so stalled controller firmware resets into inactive outputs.
+
+- Dedicated Teensy 4.1 thermal node (arduino/teensy41/albatross_thermal_node)
+  - Acquires the 32-channel thermal array through proper thermocouple front ends and precision SPI ADC hardware.
+  - Converts, validates, filters, diagnoses, and broadcasts versioned thermal CAN frames independently of the Pi.
+  - Feeds the Pi thermal service/HUD and the main Teensy's direct degraded/protective path. See docs/thermal_system.md.
 
 Controller firmware notes (important)
 

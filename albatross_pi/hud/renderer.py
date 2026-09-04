@@ -43,6 +43,7 @@ from .widgets.temps_grid import TempsGrid
 from .widgets.traction_panel import TractionPanel
 from .widgets.ui_utils import apply_theme, fit_font_size, font
 from .preferences import HUDPreferences
+from .thermal_views import THERMAL_MENU_ITEMS, ThermalViews
 from ..state.snapshot import StateSnapshot
 
 SCREEN_SIZE = (1920, 720)
@@ -284,9 +285,10 @@ class HUDRenderer:
         self._online_update_progress = 0.0
         self._online_update_busy = False
         self._online_update_lock = threading.Lock()
-        self._focus_targets = ["NAV", "SETTINGS", "MEDIA", "FAULTS"]
+        self._focus_targets = ["TEMPS", "NAV", "SETTINGS", "MEDIA", "FAULTS"]
         self._focus_index = 0
         self._active_menu = "home"
+        self._thermal_views = ThermalViews()
         self._fault_detail_index = 0
         self._visible_faults: tuple[str, ...] = ()
         self._settings_cursor = 0
@@ -1307,9 +1309,13 @@ class HUDRenderer:
         self._render_home_mode_hover_underline(state)
         self._render_home_fault_focus_outline(state)
         self._render_home_navigation_focus_outline()
+        self._render_home_thermal_focus()
         self._apply_theme_overlay_pre_ui()
         self._render_top_right_media_tile()
-        if self._active_menu == "settings":
+        if self._active_menu.startswith("thermal_"):
+            self._render_modal_dimmer()
+            self._thermal_views.draw(self.screen, state, self._active_menu, self._theme_colors())
+        elif self._active_menu == "settings":
             self._render_modal_dimmer()
             self._render_settings_overlay()
         elif self._active_menu == "media":
@@ -1400,6 +1406,10 @@ class HUDRenderer:
         self._fault_detail_index = (self._fault_detail_index + delta) % count
 
     def _handle_dpad_right(self) -> None:
+        if self._active_menu.startswith("thermal_"):
+            self._thermal_views.menu_move(1)
+            self._active_menu = self._thermal_views.selected_page()
+            return
         if self._active_menu == "nav_arrival":
             self._nav_arrival_cursor = (self._nav_arrival_cursor + 1) % 2
             return
@@ -1474,6 +1484,10 @@ class HUDRenderer:
         self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu.startswith("thermal_"):
+            self._thermal_views.menu_move(-1)
+            self._active_menu = self._thermal_views.selected_page()
+            return
         if self._active_menu == "nav_arrival":
             self._nav_arrival_cursor = (self._nav_arrival_cursor - 1) % 2
             return
@@ -1548,7 +1562,11 @@ class HUDRenderer:
         self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_up(self) -> None:
-        if self._active_menu == "nav_arrival":
+        if self._active_menu.startswith("thermal_"):
+            self._thermal_views.sensor_move(-1, self.state)
+        elif self._active_menu == "home" and self._home_focus_target() == "TEMPS":
+            self._thermal_views.menu_move(-1)
+        elif self._active_menu == "nav_arrival":
             self._nav_arrival_cursor = (self._nav_arrival_cursor - 1) % 2
         elif self._active_menu == "fault_detail":
             self._cycle_fault_detail(-1)
@@ -1575,7 +1593,11 @@ class HUDRenderer:
             self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_down(self) -> None:
-        if self._active_menu == "nav_arrival":
+        if self._active_menu.startswith("thermal_"):
+            self._thermal_views.sensor_move(1, self.state)
+        elif self._active_menu == "home" and self._home_focus_target() == "TEMPS":
+            self._thermal_views.menu_move(1)
+        elif self._active_menu == "nav_arrival":
             self._nav_arrival_cursor = (self._nav_arrival_cursor + 1) % 2
         elif self._active_menu == "fault_detail":
             self._cycle_fault_detail(1)
@@ -1602,6 +1624,10 @@ class HUDRenderer:
             self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
 
     def _handle_select(self) -> None:
+        if self._active_menu.startswith("thermal_"):
+            self._active_menu = "home"
+            self._set_home_focus_target("TEMPS")
+            return
         if self._active_menu == "nav_arrival":
             if self._nav_arrival_cursor == 0:
                 self._navigation.save_arrival_waypoint()
@@ -1618,6 +1644,9 @@ class HUDRenderer:
                 if self._visible_faults:
                     self._fault_detail_index = 0
                     self._active_menu = "fault_detail"
+                return
+            if target == "TEMPS":
+                self._active_menu = self._thermal_views.selected_page()
                 return
             if target == "NAV":
                 self._nav_cursor = 0
@@ -2660,7 +2689,7 @@ class HUDRenderer:
 
     def _render_global_hints(self) -> None:
         _bg, _bright, glow, _fault = self._theme_colors()
-        hint = "ARROWS: CYCLE SETTINGS/MEDIA/MODES  |  ENTER: SELECT  |  ESC: BACK"
+        hint = "ARROWS: CYCLE TEMPS/SETTINGS/MEDIA/MODES  |  ENTER: SELECT  |  ESC: BACK"
         s = font(12).render(hint, True, glow)
         self.screen.blit(s, (self.screen.get_width() - s.get_width() - 24, self.screen.get_height() - 20))
 
@@ -2673,7 +2702,7 @@ class HUDRenderer:
 
     def _home_focus_targets(self) -> list[str]:
         if self._visible_faults:
-            return ["NAV", "FAULTS", "SETTINGS", "MEDIA"]
+            return ["TEMPS", "NAV", "FAULTS", "SETTINGS", "MEDIA"]
         return list(self._focus_targets)
 
     def _set_home_focus_target(self, target: str) -> None:
@@ -2722,6 +2751,15 @@ class HUDRenderer:
         pygame.draw.rect(self.screen, bright, nav_rect.inflate(6, 6), width=2, border_radius=6)
         label = font(11, bold=True).render("SELECT NAV", True, bright)
         self.screen.blit(label, (nav_rect.x + 8, max(0, nav_rect.y - label.get_height() - 2)))
+
+    def _render_home_thermal_focus(self) -> None:
+        if self._active_menu != "home" or self._home_focus_target() != "TEMPS":
+            return
+        temps_rect = next((widget.rect for widget in self.widgets if isinstance(widget, TempsGrid)), None)
+        _bg, bright, _glow, _fault = self._theme_colors()
+        if temps_rect is not None:
+            pygame.draw.rect(self.screen, bright, temps_rect.inflate(6, 6), width=2, border_radius=6)
+        self._thermal_views.draw_focus_submenu(self.screen, self._theme_colors())
 
     def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
         _bg, bright, _glow, _fault = self._theme_colors()

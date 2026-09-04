@@ -65,6 +65,10 @@ namespace CanId {
   constexpr uint16_t ARD_SERVICE_FIRMWARE_VERSION = 0x146;
   constexpr uint16_t ARD_LIMP_STATUS = 0x147;
 
+  constexpr uint16_t THERMAL_HEARTBEAT = 0x160;
+  constexpr uint16_t THERMAL_VALUE_BASE = 0x161;
+  constexpr uint16_t THERMAL_STATUS_BASE = 0x169;
+
   constexpr uint16_t POST_REQUEST = 0x1F0;
   constexpr uint16_t POST_RESPONSE = 0x1F1;
 }
@@ -141,8 +145,15 @@ struct Outputs {
 Inputs g_inputs;
 Commands g_commands;
 Outputs g_outputs;
+struct ThermalInputs {
+  int16_t temperature_c_x10[32] = {};
+  uint8_t status[32] = {};
+  bool ever_seen = false;
+};
+ThermalInputs g_thermal;
 static uint32_t g_last_ecu_frame_ms = 0;
 static uint32_t g_last_pi_command_ms = 0;
+static uint32_t g_last_thermal_heartbeat_ms = 0;
 static uint32_t g_airshot_request_until_ms = 0;
 static bool g_limp_active = false;
 static uint8_t g_limp_reason = 0x00;
@@ -177,7 +188,6 @@ static constexpr uint8_t WG2_PWM_PIN = 5;
 static constexpr uint8_t WG2_DIR_PIN = 6;
 static constexpr uint8_t WG2_EN_PIN = 9;
 static constexpr uint8_t WMI_PUMP_PIN = 10;    // Water/meth pump relay/MOSFET input (active HIGH)
-static constexpr uint8_t FLAME_EN_PIN = 11;    // Flame mode interlock output
 static constexpr uint8_t AIRSHOT_SOL_PIN = 12; // Air shot solenoid driver input
 static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 24; // Air tank compressor relay driver input
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 18;
@@ -209,6 +219,8 @@ static constexpr float TC_MIN_SPEED_MPS = 4.5f; // ~10 mph; avoids low-speed pul
 static constexpr float TC_EXIT_HYSTERESIS = 0.025f;
 static constexpr uint32_t ECU_CAN_TIMEOUT_MS = 300;
 static constexpr uint32_t PI_CAN_TIMEOUT_MS = 1500;
+static constexpr uint32_t THERMAL_CAN_TIMEOUT_MS = 750;
+static constexpr uint16_t THERMAL_DEGRADED_BOOST_CAP_PSI_X10 = 80; // retain direct ECU protection, remove high-boost operation
 static constexpr uint32_t CONTROL_UPDATE_INTERVAL_MS = 5; // 200 Hz boost/wastegate control update
 static constexpr uint32_t STATUS_BROADCAST_INTERVAL_MS = 50; // 20 Hz status broadcast
 static constexpr uint32_t AIRSHOT_MAX_LATCH_MS = 10000;
@@ -313,6 +325,24 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
     g_last_ecu_frame_ms = now;
   } else if (isPiCommandFrame(id)) {
     g_last_pi_command_ms = now;
+  }
+
+  if (id == CanId::THERMAL_HEARTBEAT && len >= 8) {
+    if (data[0] == 1 && data[1] == 5) {
+      g_last_thermal_heartbeat_ms = now;
+      g_thermal.ever_seen = true;
+    }
+    return;
+  }
+  if (id >= CanId::THERMAL_VALUE_BASE && id < CanId::THERMAL_VALUE_BASE + 8 && len >= 8) {
+    const uint8_t offset = (id - CanId::THERMAL_VALUE_BASE) * 4;
+    for (uint8_t i = 0; i < 4; ++i) g_thermal.temperature_c_x10[offset + i] = int16_t((uint16_t(data[i * 2]) << 8) | data[i * 2 + 1]);
+    return;
+  }
+  if (id >= CanId::THERMAL_STATUS_BASE && id < CanId::THERMAL_STATUS_BASE + 4 && len >= 4) {
+    const uint8_t offset = (id - CanId::THERMAL_STATUS_BASE) * 8;
+    for (uint8_t i = 0; i < 4; ++i) { g_thermal.status[offset + i * 2] = data[i] >> 4; g_thermal.status[offset + i * 2 + 1] = data[i] & 0x0F; }
+    return;
   }
 
   switch (id) {
@@ -705,8 +735,10 @@ void updateControllers() {
   const bool ecu_can_stale = elapsedSince(g_last_ecu_frame_ms, ECU_CAN_TIMEOUT_MS, now);
   const bool pi_can_stale = elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now);
   const bool control_link_stale = ecu_can_stale || pi_can_stale;
+  const bool thermal_node_offline = !g_thermal.ever_seen || elapsedSince(g_last_thermal_heartbeat_ms, THERMAL_CAN_TIMEOUT_MS, now);
   const uint16_t cap = modeBoostCap(g_commands.mode);
   uint16_t target = min(g_commands.boost_target_psi_x10, cap);
+  if (thermal_node_offline) target = min(target, THERMAL_DEGRADED_BOOST_CAP_PSI_X10);
 
   const bool knock = g_inputs.knock_bits != 0;
   const bool hot =
@@ -715,6 +747,15 @@ void updateControllers() {
       (g_inputs.egt_right_c_x10 > 9300) ||
       (g_inputs.coolant_c_x10 > 1160) ||
       (g_inputs.oil_temp_c_x10 > 1400);
+  // Supplemental thermal-node protection. Status 0 means VALID; failed or
+  // stale channels never become fabricated temperatures. Primary CLT/IAT/EGT
+  // remain wired to and enforced by the ECU regardless of this node.
+  const bool supplemental_hot =
+      (g_thermal.status[0] == 0 && g_thermal.temperature_c_x10[0] > 9800) ||
+      (g_thermal.status[1] == 0 && g_thermal.temperature_c_x10[1] > 9800) ||
+      (g_thermal.status[17] == 0 && g_thermal.temperature_c_x10[17] > 1180) ||
+      (g_thermal.status[18] == 0 && g_thermal.temperature_c_x10[18] > 1180) ||
+      (g_thermal.status[23] == 0 && g_thermal.temperature_c_x10[23] > 1450);
   const bool low_oil_pressure = (g_inputs.rpm > 2200) && (g_inputs.oil_pressure_psi_x10 > 0) && (g_inputs.oil_pressure_psi_x10 < 80);
   const bool voltage_fault = (g_inputs.battery_mv > 0) && (g_inputs.battery_mv < 10500 || g_inputs.battery_mv > 15500);
   const bool low_auth = !g_commands.nfc_ok;
@@ -724,7 +765,7 @@ void updateControllers() {
   else if (g_commands.limp_mode) limp_reason = g_commands.limp_reason != LIMP_NONE ? g_commands.limp_reason : LIMP_PI_REQUEST;
   else if (ecu_can_stale) limp_reason = LIMP_ECU_CAN_STALE;
   else if (pi_can_stale) limp_reason = LIMP_PI_COMMAND_STALE;
-  else if (hot) limp_reason = LIMP_THERMAL;
+  else if (hot || supplemental_hot) limp_reason = LIMP_THERMAL;
   else if (low_oil_pressure) limp_reason = LIMP_LOW_OIL_PRESS;
   else if (voltage_fault) limp_reason = LIMP_BATTERY_VOLTAGE;
   else if (knock && g_inputs.boost_psi_x10 > target) limp_reason = LIMP_KNOCK;
@@ -744,6 +785,13 @@ void updateControllers() {
     if (hot) target = (target > 30) ? target - 30 : target;
     if (knock) target = (target > 20) ? target - 20 : target;
   }
+  if (thermal_node_offline) {
+    // Explicit degraded mode: no flame or Air Shot and no boost above 8 psi.
+    // WMI remains available because its independent pressure/flow checks and
+    // the ECU's directly wired sensors still own fundamental engine survival.
+    g_commands.flame_mode = false;
+    g_airshot_latched = false;
+  }
 
   if (g_inputs.tps_pct < 50) {
     g_airshot_rearm_ready = true;
@@ -753,7 +801,7 @@ void updateControllers() {
   if (!manual_airshot_request) {
     g_airshot_request_until_ms = 0;
   }
-  if (shouldTriggerAirShot(manual_airshot_request)) {
+  if (!thermal_node_offline && shouldTriggerAirShot(manual_airshot_request)) {
     g_airshot_latched = true;
     g_airshot_rearm_ready = false;
     g_airshot_latched_since_ms = now;
@@ -825,8 +873,8 @@ void updateControllers() {
   g_outputs.wmi_commanded_flow_cc_min = static_cast<uint16_t>(roundf(demand * 1400.0f));
   updateWmiSensorOutputs(wmi_enable);
 
-  const bool flame_enable = g_commands.flame_mode && (g_inputs.rpm > 3000) && g_commands.nfc_ok && !limp && !control_link_stale;
-  digitalWrite(FLAME_EN_PIN, flame_enable ? HIGH : LOW);
+  // Flame mode remains a CAN-level intent. Its eventual ECU strategy is not
+  // finalized, so this controller deliberately owns no dedicated flame GPIO.
 
   const float vehicle_speed_mps = max(g_front_wheel_mps, g_rear_wheel_mps);
   const bool bike_stationary = vehicle_speed_mps < AIRSHOT_COMPRESSOR_MAX_SPEED_MPS;
@@ -984,7 +1032,6 @@ void publishStatusFrames() {
     if (digitalRead(WG1_EN_PIN) == HIGH) output_bits |= 0x01;
     if (digitalRead(WG2_EN_PIN) == HIGH) output_bits |= 0x02;
     if (digitalRead(WMI_PUMP_PIN) == HIGH) output_bits |= 0x04;
-    if (digitalRead(FLAME_EN_PIN) == HIGH) output_bits |= 0x08;
     if (digitalRead(AIRSHOT_SOL_PIN) == HIGH) output_bits |= 0x10;
     if (digitalRead(AIR_COMPRESSOR_RELAY_PIN) == HIGH) output_bits |= 0x20;
     if (digitalRead(WG1_DIR_PIN) == HIGH) output_bits |= 0x40;
@@ -1003,6 +1050,7 @@ void publishStatusFrames() {
     if (elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now)) fault_bits |= 0x02;
     if (g_outputs.wmi_fault) fault_bits |= 0x04;
     if (g_outputs.traction_sensor_fault) fault_bits |= 0x08;
+    if (!g_thermal.ever_seen || elapsedSince(g_last_thermal_heartbeat_ms, THERMAL_CAN_TIMEOUT_MS, now)) fault_bits |= 0x10;
 
     uint8_t digital_states[4] = {input_bits, output_bits, command_bits, fault_bits};
     publishFrame(CanId::ARD_SERVICE_DIGITAL_STATES, digital_states, 4);
@@ -1024,6 +1072,7 @@ void publishStatusFrames() {
 
 void setup() {
   analogReadResolution(12);
+  for (uint8_t i = 0; i < 32; ++i) g_thermal.status[i] = 6; // STALE until an explicit thermal status arrives
   pinMode(WG1_PWM_PIN, OUTPUT);
   pinMode(WG1_DIR_PIN, OUTPUT);
   pinMode(WG1_EN_PIN, OUTPUT);
@@ -1031,7 +1080,6 @@ void setup() {
   pinMode(WG2_DIR_PIN, OUTPUT);
   pinMode(WG2_EN_PIN, OUTPUT);
   pinMode(WMI_PUMP_PIN, OUTPUT);
-  pinMode(FLAME_EN_PIN, OUTPUT);
   pinMode(AIRSHOT_SOL_PIN, OUTPUT);
   pinMode(AIR_COMPRESSOR_RELAY_PIN, OUTPUT);
   pinMode(FRONT_WHEEL_HALL_PIN, INPUT_PULLUP);
@@ -1057,7 +1105,6 @@ void setup() {
   digitalWrite(WG1_EN_PIN, LOW);
   digitalWrite(WG2_EN_PIN, LOW);
   digitalWrite(WMI_PUMP_PIN, LOW);
-  digitalWrite(FLAME_EN_PIN, LOW);
   digitalWrite(AIRSHOT_SOL_PIN, LOW);
   digitalWrite(AIR_COMPRESSOR_RELAY_PIN, LOW);
 

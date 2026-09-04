@@ -1,5 +1,5 @@
 """CAN bus utilities for the Albatross HUD."""
-from .ids import ArduinoToEcuID, ECUToHudID, ArduinoToHudID, PiToArduinoID, PiToEcuID, SystemCommandID
+from .ids import ArduinoToEcuID, ECUToHudID, ArduinoToHudID, PiToArduinoID, PiToEcuID, SystemCommandID, ThermalNodeToNetworkID
 from .decode import CANStateAggregator
 from .iface import SocketCANInterface, python_can_available
 from .encode import (
@@ -25,6 +25,7 @@ __all__ = [
     "PiToArduinoID",
     "PiToEcuID",
     "SystemCommandID",
+    "ThermalNodeToNetworkID",
     "CANStateAggregator",
     "SocketCANInterface",
     "python_can_available",

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Tuple
 
+from ..thermal.model import ThermalSnapshot
+
 
 @dataclass(frozen=True)
 class AirShotState:
@@ -159,6 +161,7 @@ class StateSnapshot:
     economy: EconomyState = field(default_factory=EconomyState)
     service: ServiceStatus = field(default_factory=ServiceStatus)
     system: SystemStatus = field(default_factory=SystemStatus)
+    thermal: ThermalSnapshot = field(default_factory=ThermalSnapshot)
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)
     advisories: Tuple[str, ...] = field(default_factory=tuple)

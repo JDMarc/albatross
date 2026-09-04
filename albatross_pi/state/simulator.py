@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Callable, Iterator
 
 from albatross_pi.boost_strategy import calculate_boost_target
+from albatross_pi.thermal.simulation import ThermalSimulator
 from .snapshot import (
     AirShotState,
     ClutchState,
@@ -30,7 +31,7 @@ FUEL_TYPES = ("87", "91", "93", "100", "E85", "C16")
 class StateSimulator:
     """Generate a continuous stream of synthetic `StateSnapshot` objects."""
 
-    def __init__(self, tick_period: float = TICK_PERIOD) -> None:
+    def __init__(self, tick_period: float = TICK_PERIOD, thermal_scenario: str = "normal_warmup") -> None:
         self._tick_period = tick_period
         self._running = False
         self._lock = threading.Lock()
@@ -39,6 +40,7 @@ class StateSimulator:
         self._phase = 0.0
         self._mode = "ECO"
         self._fuel_type = "93"
+        self._thermal = ThermalSimulator(scenario=thermal_scenario)
 
     def start(self) -> None:
         if self._running:
@@ -198,6 +200,15 @@ class StateSimulator:
         )
 
         shift_light = engine.rpm > 10000
+        self._thermal.service.set_vehicle_context({
+            "rpm": rpm, "load_pct": engine.engine_load_pct, "boost_psi": boost,
+            "ambient_c": (environment.ambient_temp_f - 32.0) * 5.0 / 9.0,
+            "wmi_command": wmi.commanded_flow_cc_min if self._thermal.scenario == "wmi_activation" else 0.0,
+            "pressure_ratio_left": (14.7 + max(0.0, boost)) / 14.7,
+            "pressure_ratio_right": (14.7 + max(0.0, boost)) / 14.7,
+        })
+        thermal = self._thermal.step(self._tick_period)
+        combined_alerts = tuple(sorted(set(alerts) | set(thermal.alerts)))
 
         next_snapshot = StateSnapshot(
             engine=engine,
@@ -209,8 +220,9 @@ class StateSimulator:
             lighting=lighting,
             environment=environment,
             economy=replace(snapshot.economy, injector_pulse_width_ms=pulse_width_ms),
+            thermal=thermal,
             shift_light=shift_light,
-            faults=alerts,
+            faults=combined_alerts,
         )
         return replace(
             next_snapshot,

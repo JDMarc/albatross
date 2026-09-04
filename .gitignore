@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+logs/
+settings/
+work_test_logs*/
+thermal_preview.png

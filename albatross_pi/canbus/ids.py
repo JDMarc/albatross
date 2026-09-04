@@ -49,6 +49,37 @@ class ArduinoToHudID(IntEnum):
     LIMP_STATUS = 0x147
 
 
+class ThermalNodeToNetworkID(IntEnum):
+    """Version-1 frames broadcast by the dedicated Teensy 4.1 thermal node."""
+
+    HEARTBEAT = 0x160
+    VALUES_01_04 = 0x161
+    VALUES_05_08 = 0x162
+    VALUES_09_12 = 0x163
+    VALUES_13_16 = 0x164
+    VALUES_17_20 = 0x165
+    VALUES_21_24 = 0x166
+    VALUES_25_28 = 0x167
+    VALUES_29_32 = 0x168
+    STATUS_01_08 = 0x169
+    STATUS_09_16 = 0x16A
+    STATUS_17_24 = 0x16B
+    STATUS_25_32 = 0x16C
+    CONFIGURATION = 0x16D
+    FAULTS_01_08 = 0x16E
+    FAULTS_09_16 = 0x16F
+    FAULTS_17_24 = 0x170
+    FAULTS_25_32 = 0x171
+    RAW_01_04 = 0x176
+    RAW_05_08 = 0x177
+    RAW_09_12 = 0x178
+    RAW_13_16 = 0x179
+    RAW_17_20 = 0x17A
+    RAW_21_24 = 0x17B
+    RAW_25_28 = 0x17C
+    RAW_29_32 = 0x17D
+
+
 class ArduinoToEcuID(IntEnum):
     """Messages that originate from Arduino and are consumed by the ECU."""
 

@@ -193,6 +193,9 @@ def main() -> None:
     parser.add_argument("--can-rate", type=float, default=60.0, help="HUD update rate when using CAN")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     parser.add_argument("--fault-log-dir", type=Path, default=Path("logs"), help="directory for fault event logs")
+    parser.add_argument("--thermal-log-dir", type=Path, default=Path("logs/thermal"), help="thermal JSONL and exposure log directory")
+    parser.add_argument("--thermal-baseline", type=Path, default=Path("settings/thermal_baselines.json"), help="protected thermal baseline store")
+    parser.add_argument("--thermal-scenario", default="normal_warmup", help="thermal simulator scenario")
     parser.add_argument("--settings-file", type=Path, default=Path("settings/hud_settings.json"), help="persistent HUD settings file")
     parser.add_argument("--phone-bt-mac", help="Paired phone Bluetooth MAC for media/weather/GPS bridge")
     parser.add_argument("--phone-telemetry-udp", default="127.0.0.1:5010", help="UDP host:port for phone weather/GPS telemetry")
@@ -313,7 +316,10 @@ def main() -> None:
     engine_run_inhibit = threading.Event()
 
     if args.can_interface:
-        aggregator = CANStateAggregator()
+        aggregator = CANStateAggregator(
+            thermal_baseline_path=args.thermal_baseline,
+            thermal_log_directory=args.thermal_log_dir,
+        )
         can_interface = SocketCANInterface(
             channel=args.can_interface,
             bitrate=args.can_bitrate,
@@ -722,7 +728,7 @@ def main() -> None:
 
         threading.Thread(target=_safety_supervisor, name="safety-supervisor", daemon=True).start()
     elif args.simulator:
-        simulator = StateSimulator()
+        simulator = StateSimulator(thermal_scenario=args.thermal_scenario)
         renderer.configure_mode_callback(simulator.set_mode)
         renderer.configure_fuel_type_callback(simulator.set_fuel_type)
         renderer.sync_persisted_controls()
