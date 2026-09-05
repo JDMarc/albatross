@@ -1,6 +1,7 @@
 #pragma once
 #include "airshot_safety.h"
 #include "airshot_profiles.h"
+#include "airshot_budget.h"
 namespace airshot {
 class Controller {
  public:
@@ -12,9 +13,10 @@ class Controller {
   const Outputs& output() const { return out; }
  private:
   Config c; Mode mode=Mode::OFF; Outputs out;
-  uint32_t last=0, started=0, recovery_until=0, window=0, used=0, button_since=0, taper_start=0;
+  uint32_t last=0, started=0, ended=0, button_since=0, taper_start=0;
+  RollingBudget budget;
   float last_rider=0,last_boost=0, taper_from[4]={0};
-  bool initialized=false, button_raw=false, button=false, auto_latched=false, manual_event=false, had_event=false;
+  bool initialized=false, button_raw=false, button=false, auto_latched=false, manual_event=false, recent_event=false;
   void end(const Inputs&,Reason,bool immediate);
 };
 }

@@ -30,6 +30,37 @@ bool closed(const Outputs& o){for(float v:o.valve)if(v!=0)return false;return tr
 void start(Controller& c,Inputs& i){c.setMode(Mode::MANUAL);c.update(i);i.manual=true;i.now+=5;c.update(i);i.now+=30;c.update(i);assert(c.output().state==State::FIRING);}
 int main(){
  auto cfg=fixture();assert(validConfig(cfg));assert(!validConfig(Config{}));
+ // A recent follow-up uses RECOVERY; later unrelated requests use RPM profiles.
+ for(int rollover=0;rollover<2;rollover++) for(int scenario=0;scenario<5;scenario++) {
+  Controller c(cfg);auto i=healthy();if(rollover)i.now=0xfffffe00u;start(c,i);
+  c.setMode(Mode::OFF);i.now+=100;c.update(i);uint32_t ended=i.now;
+  i.manual=false;i.now+=30;c.update(i);i.now+=30;c.update(i);
+  i.now=ended+(scenario==0?cfg.recovery_ms:2*cfg.recovery_ms);
+  i.rpm=scenario==2?2500:scenario==3?9000:4500;
+  if(scenario==4)i.boost[0]=0;
+  start(c,i);
+  Profile expected=scenario==0?Profile::RECOVERY:scenario==2?Profile::LAUNCH:scenario==3?Profile::HIGH_RPM:scenario==4?Profile::LEFT_LAG:Profile::MID_TRANSIENT;
+  assert(c.output().profile==expected);
+ }
+ // Usage before OFF counts; crossing the old fixed boundary cannot replenish it.
+ {
+  auto c0=cfg;c0.budget_window_ms=1000;c0.budget_ms=200;c0.recovery_ms=50;
+  for(auto& p:c0.profiles)p.maximum_ms=200;
+  Controller c(c0);auto i=healthy();i.now=1800;start(c,i);
+  i.now+=150;c.setMode(Mode::OFF);c.update(i);
+  i.manual=false;i.now+=5;c.update(i);i.now+=30;c.update(i);
+  i.now+=30;start(c,i);i.now+=50;
+  assert(closed(c.update(i)) && c.output().reason==Reason::BUDGET);
+ }
+ // Taper consumes budget too; it cannot extend the permitted time allowance.
+ {
+  auto c0=cfg;c0.budget_ms=200;
+  for(auto& p:c0.profiles)p.maximum_ms=200;
+  Controller c(c0);auto i=healthy();start(c,i);
+  i.manual=false;i.now+=100;c.update(i);i.now+=30;c.update(i);
+  assert(c.output().state==State::TAPERING);
+  i.now+=70;assert(closed(c.update(i)) && c.output().reason==Reason::BUDGET);
+ }
  {auto bad=cfg;bad.boost_start=NAN;assert(!validConfig(bad));bad=cfg;bad.gear[1]=NAN;assert(!validConfig(bad));}
  {auto c=cfg;assert(!setField(c,0,0.5));assert(!setField(c,1,258));assert(!setField(c,6,-1));assert(!setField(c,4,7.5));}
  {auto c0=cfg;c0.stage=4;Controller c(c0);auto i=healthy();c.setMode(Mode::AUTO);i.rider=i.dbw_actual=i.dbw_command=40;c.update(i);i.now+=50;i.rider=i.dbw_actual=i.dbw_command=80;assert(c.update(i).accepted);}
@@ -49,5 +80,5 @@ int main(){
  {Controller c(cfg);auto i=healthy();c.setMode(Mode::MANUAL);c.update(i);for(int n=0;n<30;n++){i.manual=!i.manual;i.now+=5;c.update(i);}assert(closed(c.output()));assert(c.output().event_id==0);}
  {Controller c(cfg);auto i=healthy();start(c,i);i.now+=30;i.manual=false;c.update(i);i.now+=30;c.update(i);i.now+=150;c.update(i);i.manual=true;i.now+=5;c.update(i);i.now+=30;assert(closed(c.update(i)));assert(c.output().reason==Reason::RECOVERY);}
  {Controller c(cfg);auto i=healthy();i.boost[0]=0;start(c,i);assert(c.output().profile==Profile::LEFT_LAG);}
- puts("PASS: manual, AUTO, shadow, 12 immediate aborts, hold, bounce, repeat protection, handoff, independent valves and imbalance");
+ puts("PASS: rolling OFF/taper accounting, recovery expiry/rollover, manual, AUTO, shadow, aborts, hold, bounce, handoff and imbalance");
 }

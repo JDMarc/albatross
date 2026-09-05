@@ -57,7 +57,47 @@ Normal spool handoff/release tapers. Faults abort immediately. Duration, recover
 and rolling usage budgets limit shots. The old fixed latch and fake wastegate
 boost substitution are removed.
 
-Required ECU frames 100/101/102/104/105/106/108/10C and bank boost 10F expire
+The usage budget now counts FIRING and TAPERING time in the trailing
+`budget_window_ms`, including the active interval immediately before OFF or a
+fault. Usage expires incrementally; crossing a clock boundary does not refill it.
+Accounting has control-tick resolution, not a separate hardware shutoff timer.
+The bounded 64-interval history coalesces adjacent active ticks. If full, it merges
+the oldest intervals including their idle gap, conservatively restricting usage
+rather than forgetting it. Mode changes do not clear usage; controller
+reinitialization/configuration does reset this runtime history. Shadow events
+also consume simulated usage so test timing matches deployed timing.
+
+RECOVERY state and RECOVERY profile are distinct. After an event ends,
+`recovery_ms` prohibits another shot. For one further `recovery_ms`, an accepted
+follow-up may use the RECOVERY profile. The context then expires, returning to
+LAUNCH/MID_TRANSIENT/HIGH_RPM selection. Left/right imbalance has priority over
+both recent-event and RPM selection. This uses the existing recovery calibration;
+no new timing value or CAN field was introduced.
+
+## Modes, profiles and stages
+
+- OFF: shot outputs closed; compressor management remains separate.
+- MANUAL: a fresh FIRE press requests one supervised event. Release normally
+  tapers; holding FIRE does not repeatedly trigger events.
+- AUTO: automatic request requires boost deficit, sufficient normalized demand
+  and a rider-request rise. FIRE can also request a manual event. Automatic
+  rearming requires demand below `auto_reset` with FIRE released.
+
+Profiles are selected at event start, not separate rider modes: LAUNCH below
+`launch_rpm`, HIGH_RPM above `high_rpm`, MID_TRANSIENT between them, RECOVERY for
+a recent follow-up, or LEFT_LAG/RIGHT_LAG for bank imbalance. Each profile defines
+intake/turbine weighting, intake decay and maximum duration. The bank-balancing
+correction currently acts on turbine valves; intake valves retain individual trims.
+Names do not imply validated performance or automatic launch-control arming.
+
+Stage 2 restricts output to intake valves; stage 3 to turbine valves; stage 4 is
+combined. Stage 7 is shadow-only. `auto_shadow=true` suppresses physical valve
+output in MANUAL as well as AUTO. Accepted stage values 5, 6, 8 and 9 currently
+have no separate behavior: they use combined outputs unless shadow is enabled.
+They must not be interpreted as additional implemented test features or safety
+levels. Stage/shadow selection does not disable separate compressor operation.
+
+Required ECU frames 100/101/102/104/105/108/10C and bank boost 10F expire
 independently. Permission, regulator, wastegate and four driver inputs also need
 fresh data. Thermal values/status groups expire independently of heartbeat.
 Missing feedback inhibits deployment; TPS is not treated as DBW torque permission.
@@ -105,6 +145,9 @@ remains compatible; legacy 125 FIRE is no longer an actuation route.
 Run python tests/run_airshot_checks.py and python tests/run_thermal_checks.py.
 Compile tests/airshot_core_test.cpp with airshot_config.cpp, airshot_safety.cpp,
 airshot_profiles.cpp and airshot_controller.cpp using a C++17 compiler. Arduino
+The standalone `tests/airshot_budget_test.cpp` also builds with C++17 and checks
+trailing-window expiration, partial overlaps, timer rollover and bounded-history
+saturation against a per-millisecond oracle.
 CLI target: teensy:avr:teensy41. Generate/check the calibration header with
 python tools/generate_airshot_config.py [--check].
 
