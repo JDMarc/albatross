@@ -12,6 +12,7 @@ from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.hud.widgets.thermal_summary import ThermalSummary
 from albatross_pi.hud.widgets.temps_grid import TempsGrid
 from albatross_pi.hud.thermal_views import MAP_KEYS
+from albatross_pi.hud.thermal_architecture import NODES
 from albatross_pi.thermal.simulation import ThermalSimulator
 
 
@@ -20,6 +21,7 @@ def check():
         with patch("albatross_pi.hud.renderer.EvaAlertAudio"):
             hud=HUDRenderer(size,use_display=False,preferences_path=None)
         hud._post_complete=True; hud._navigation.online_enabled=False
+        hud._auto_dim_enabled=False; hud._brightness_index=len(hud._brightness_levels)-1
         hud._dynamics_menu.preview_only=True
         simulator=ThermalSimulator(); thermal=simulator.step(40)
         for index, mode in enumerate(hud._modes):
@@ -48,8 +50,10 @@ def check():
             assert reached==set(MAP_KEYS)
             views.map_selected="COMP_IN_LEFT"; hud._handle_down()
             assert views.map_selected=="COMP_OUT_LEFT" and hud._active_menu=="thermal_abs"
-            hud._handle_dpad_right(); assert views.map_selected=="RAD_OUT"
-            hud._handle_dpad_right(); assert views.map_selected=="COMP_OUT_RIGHT"
+            previous=views.map_selected
+            hud._handle_dpad_right(); assert NODES[views.map_selected][0]>NODES[previous][0]
+            previous=views.map_selected
+            hud._handle_dpad_right(); assert NODES[views.map_selected][0]>NODES[previous][0]
             hud._handle_back(); assert hud._active_menu=="thermal_menu"
             hud._handle_back(); assert hud._active_menu=="home" and hud._home_focus_target()=="TEMPS"
             output=os.environ.get("ALBATROSS_THERMAL_NAV_PREVIEWS")
@@ -59,7 +63,11 @@ def check():
                 if index==2:
                     hud._handle_select(); pygame.image.save(hud.capture_frame(state),str(folder/"thermal-page-menu.png"))
                     hud._thermal_views.menu_cursor=1; hud._handle_select()
+                    views.map_selected="HEAD_METAL_RIGHT"
                     pygame.image.save(hud.capture_frame(state),str(folder/"thermal-map-navigation.png"))
+                    hud._active_menu="thermal_dev"
+                    assert views.map_selected=="HEAD_METAL_RIGHT"
+                    pygame.image.save(hud.capture_frame(state),str(folder/"thermal-architecture-dev.png"))
     pygame.quit()
     print("PASS thermal entry, all modes, map reachability and geometry")
 

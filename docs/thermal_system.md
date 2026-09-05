@@ -33,9 +33,15 @@ Baseline learning starts disabled. It must be deliberately authorized only durin
 
 Select the System Vitals window to open TEMPS. ECO/NORMAL use a compact TEMP tile beside Air Shot instead; its label changes color with thermal condition and its subtext reports the operating/fault state. Merely hovering never opens the menu. Up/down in the menu chooses Overview, Thermal Map, Thermal Δ / DEV, Intake / Turbos, Engine / Cooling, Oil System, Sensor Status, or History / Logs; Select opens the page. ABS answers “what is hot”; DEV answers “what is behaving unusually.”
 
-Heat maps display all 29 active sensor positions in left-bank, shared/cooling and right-bank columns. All four D-pad directions select a visible neighbor, prioritizing the same row or column and stopping at the edge. The selected sensor remains selected when switching ABS/DEV pages. Select or Back returns to the TEMPS menu; Back from that menu returns to the vitals/TEMP tile. Tests in `tests/run_thermal_navigation_checks.py` cover menu entry, all five drive modes, complete sensor reachability and non-overlapping map geometry at 1280×480 and 1920×720.
+Heat maps display all 29 active sensors on a functional overhead schematic of the twin-turbo transverse V-twin: a forward radiator, mirrored intercoolers and compressor/turbine housings, shared pre/post-WMI and plenum, separate runners and projecting cylinder banks, central crankcase, oil cooler and turbo oil drains. Charge-air/exhaust arrows show direction; coolant and oil connections are schematic, not a fabrication drawing or a specified pump/thermostat installation. Cylinder/scroll outlines and sensor callouts use measured thermal colors, with unavailable readings gray. Turbo drain temperatures are fluid temperatures, not the disabled CHRA housing sensors.
+
+All four D-pad directions select a visible neighbor, preferring nearby aligned sensors and stopping at the edge. Navigation and rendering share the same sensor coordinates. The selected sensor remains selected when switching ABS/DEV pages. Select or Back returns to the TEMPS menu; Back from that menu returns to the vitals/TEMP tile. Tests in `tests/run_thermal_navigation_checks.py` cover menu entry, all five drive modes, complete sensor reachability and non-overlapping callout geometry at 1280×480 and 1920×720.
 
 ## Commissioning sequence
+
+Synthetic 1280×480 architecture preview (sample temperatures; indicative component placement):
+
+![Twin-turbo transverse V-twin thermal schematic](assets/thermal-architecture.png)
 
 1. Run `py -3.12 tools/check_thermal_config.py` and resolve all drift.
 2. Power the acquisition PCB without probes. Confirm every installed channel reports an explicit open/front-end fault.

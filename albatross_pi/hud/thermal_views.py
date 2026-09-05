@@ -1,10 +1,11 @@
-"""Native thermal pages and a directional left/shared/right sensor heat map."""
+"""Thermal pages and a navigable twin-turbo transverse V-twin schematic."""
 from __future__ import annotations
 
 import math
 import pygame
 
 from .widgets.ui_utils import fit_font_size, font
+from .thermal_architecture import draw_architecture, neighbor
 from ..state.snapshot import StateSnapshot
 from ..thermal.model import SensorStatus, ThermalReading
 
@@ -31,19 +32,6 @@ MAP_KEYS = (
 )
 
 
-MAP_ROWS = (
-    (None, "AMBIENT_AIR", None),
-    ("COMP_IN_LEFT", "RAD_IN", "COMP_IN_RIGHT"),
-    ("COMP_OUT_LEFT", "RAD_OUT", "COMP_OUT_RIGHT"),
-    ("IC_IN_LEFT", "PRE_WMI", "IC_IN_RIGHT"),
-    ("IC_OUT_LEFT", "POST_WMI", "IC_OUT_RIGHT"),
-    ("RUNNER_IAT_LEFT", "PLENUM_IAT", "RUNNER_IAT_RIGHT"),
-    ("HEAD_COOLANT_LEFT", None, "HEAD_COOLANT_RIGHT"),
-    ("HEAD_METAL_LEFT", "OIL_GALLERY", "HEAD_METAL_RIGHT"),
-    ("EGT_LEFT", "OIL_COOLER_IN", "EGT_RIGHT"),
-    ("TURBINE_OUT_LEFT", "OIL_COOLER_OUT", "TURBINE_OUT_RIGHT"),
-    ("TURBO_OIL_DRAIN_LEFT", None, "TURBO_OIL_DRAIN_RIGHT"),
-)
 
 
 class ThermalViews:
@@ -54,16 +42,7 @@ class ThermalViews:
         self.map_rects = {}
 
     def map_move(self, dx: int, dy: int) -> None:
-        positions = {key: (x, y) for y, row in enumerate(MAP_ROWS) for x, key in enumerate(row) if key}
-        x, y = positions[self.map_selected]
-        candidates = []
-        for key, (cx, cy) in positions.items():
-            forward = (cx-x)*dx + (cy-y)*dy
-            cross = abs((cy-y)*dx + (cx-x)*dy)
-            if forward > 0:
-                candidates.append(((cross, forward), key))
-        if candidates:
-            self.map_selected = min(candidates)[1]
+        self.map_selected = neighbor(self.map_selected, dx, dy)
 
     def menu_move(self, delta: int) -> None:
         self.menu_cursor = (self.menu_cursor + delta) % len(THERMAL_MENU_ITEMS)
@@ -147,23 +126,16 @@ class ThermalViews:
 
     def _draw_map(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, dev: bool, colors) -> None:
         _bg, bright, glow, _fault = colors
-        detail_w = max(245, area.width // 4)
-        map_area = pygame.Rect(area.x, area.y, area.width-detail_w-12, area.height)
-        gap = 4
-        cell_w = (map_area.width-2*gap)//3
-        cell_h = (map_area.height-22-10*gap)//11
-        self.map_rects = {}
-        for column, label in enumerate(("LEFT BANK", "SHARED / COOLING", "RIGHT BANK")):
-            surface.blit(font(11, bold=True).render(label, True, glow), (map_area.x+column*(cell_w+gap)+4, map_area.y))
-        for row, cells in enumerate(MAP_ROWS):
-            for column, key in enumerate(cells):
-                if key is None:
-                    continue
-                rect = pygame.Rect(map_area.x+column*(cell_w+gap), map_area.y+22+row*(cell_h+gap), cell_w, cell_h)
-                self.map_rects[key] = rect
-                label = key.replace("_LEFT", "").replace("_RIGHT", "").replace("_", " ")
-                self._component(surface, state, rect, key, label, dev, key == self.map_selected)
+        detail_w = max(255, area.width // 4)
+        map_area = pygame.Rect(area.x, area.y, area.width-detail_w-12, area.height-18)
+        self.map_rects = draw_architecture(surface, map_area, state, self.map_selected, dev, self._score_color)
         self._draw_detail(surface, state, pygame.Rect(map_area.right+12, area.y, detail_w, area.height), self.map_selected, dev, colors)
+        x=map_area.x+5
+        for label,color in (("CHARGE AIR",(57,169,184)),("EXHAUST",(195,108,60)),("COOLANT",(72,125,175)),("OIL",(167,143,66))):
+            pygame.draw.line(surface,color,(x,map_area.bottom+8),(x+13,map_area.bottom+8),2)
+            surface.blit(font(9,bold=True).render(label,True,color),(x+18,map_area.bottom+3))
+            x+=125
+        surface.blit(font(9).render("SCHEMATIC / ALL VALUES C",True,glow),(map_area.right-205,map_area.bottom+3))
 
     def _draw_detail(self, surface: pygame.Surface, state: StateSnapshot, rect: pygame.Rect, key: str, dev: bool, colors: tuple[tuple[int, int, int], ...]) -> None:
         _bg, bright, glow, fault = colors
@@ -189,6 +161,12 @@ class ThermalViews:
             value_color = fault if reading.status != SensorStatus.VALID and label == "SENSOR" else bright
             value_s = font(11, bold=True).render(value, True, value_color)
             surface.blit(value_s, (rect.right-value_s.get_width()-9, y))
+        legend = "DEV: BASELINE TO ANOMALY" if dev else "ABS: COLD TO CRITICAL"
+        surface.blit(font(9,bold=True).render(legend,True,glow),(rect.x+10,rect.bottom-27))
+        for n in range(100):
+            x0=rect.x+10+(rect.width-20)*n//100
+            x1=rect.x+10+(rect.width-20)*(n+1)//100
+            pygame.draw.rect(surface,self._score_color(n,True),(x0,rect.bottom-12,max(1,x1-x0),4))
 
     def _draw_overview(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, colors) -> None:
         _bg, bright, glow, fault = colors

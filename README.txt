@@ -137,16 +137,23 @@ docs/thermal_alerts.md. Thermal errors now join the main HUD/audio warning path.
 Ignoring silences only the current occurrence; a resolved error warns again if
 it returns. ECU/controller protections and fault logging remain active.
 
-Left/right moves home focus; the ride modes run ECO, NORMAL, SPORT, RACE,
-ALBATROSS, then SETTINGS and MEDIA. Settings retains its stopped/neutral gate.
+Left/right on the top bar runs ECO, NORMAL, SPORT, RACE, ALBATROSS, then SETTINGS
+and MEDIA. Down enters NAV on the right. Up/down follows the visible panels:
+NAV, System Vitals (where present), TCS/AWC, then AIR. The bottom does not wrap
+back to NAV. ECO/NORMAL place TEMP and AIR side by side; left/right moves between
+them. Up from NAV or Back from the home panels returns to the last top-bar item.
+Left from the panel column accesses active errors, otherwise the top bar;
+Right from errors returns to the previous panel. Settings retains its stopped/neutral gate.
 TCS/AWC now has a larger panel with separate levels and intervention status.
 
 - TEMPS: Focus System Vitals (SPORT/RACE/ALBATROSS) or the small TEMP tile
   (ECO/NORMAL), then Select to open the page menu. Hovering does not open it.
   Up/down chooses a page; Select opens it. Includes overview,
   ABS/DEV heat maps, intake/turbos, cooling, oil, sensor status and history.
-  On heat maps, all four D-pad directions move to neighboring sensors in the
-  left/shared/right columns. Select or Back returns to the menu; Back again
+  Heat maps now draw the actual system architecture as a twin-turbo transverse
+  V-twin schematic with separate charge/exhaust, cooling and oil paths. All four
+  D-pad directions move to visible neighboring sensor callouts. Select or Back
+  returns to the menu; Back again
   returns to the focused vitals/TEMP tile. TEMP label color reflects thermal
   severity, with cold/warming/operating/hot/cooldown or fault state below it.
 - TCS/AWC: Select opens Dynamics. Up/down chooses a row; left/right requests

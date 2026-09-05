@@ -326,6 +326,9 @@ class HUDRenderer:
         self._online_update_busy = False
         self._online_update_lock = threading.Lock()
         self._focus_index = 0
+        self._home_header_target = "MODE:0"
+        self._home_panel_target = "NAV"
+        self._home_bottom_target = "AIR"
         self._active_menu = "home"
         self._thermal_views = ThermalViews()
         self._fault_detail_index = 0
@@ -1610,7 +1613,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
+        self._move_home_focus(dx=1)
 
     def _handle_dpad_left(self) -> None:
         if self._active_menu == "thermal_menu":
@@ -1704,7 +1707,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
+        self._move_home_focus(dx=-1)
 
     def _handle_up(self) -> None:
         if self._active_menu == "thermal_menu":
@@ -1728,6 +1731,7 @@ class HUDRenderer:
             return
         if self._active_menu == "air_selected":
             self._active_menu="home"
+            self._move_home_focus(dy=-1)
             return
         if self._active_menu.startswith("thermal_"):
             self._thermal_views.sensor_move(-1, self.state)
@@ -1755,7 +1759,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
         elif self._active_menu == "home":
-            self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
+            self._move_home_focus(dy=-1)
 
     def _handle_down(self) -> None:
         if self._active_menu == "thermal_menu":
@@ -1776,6 +1780,7 @@ class HUDRenderer:
             return
         if self._active_menu == "air_selected":
             self._active_menu="home"
+            self._move_home_focus(dy=1)
             return
         if self._active_menu.startswith("thermal_"):
             self._thermal_views.sensor_move(1, self.state)
@@ -1803,7 +1808,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
         elif self._active_menu == "home":
-            self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
+            self._move_home_focus(dy=1)
 
     def _handle_select(self) -> None:
         if self._active_menu == "thermal_menu":
@@ -2130,6 +2135,9 @@ class HUDRenderer:
             self._network_password_text += key
 
     def _handle_back(self) -> None:
+        if self._active_menu == "home":
+            self._set_home_focus_target(self._home_header_target)
+            return
         if self._active_menu.startswith("thermal_"):
             if self._active_menu == "thermal_menu":
                 self._active_menu = "home"
@@ -2972,7 +2980,9 @@ class HUDRenderer:
     def _render_global_hints(self) -> None:
         _bg, _bright, glow, _fault = self._theme_colors()
         hint = "LEFT/RIGHT: MOVE FOCUS  |  UP/DOWN: QUICK MOVE  |  SELECT: OPEN/APPLY  |  BACK: HOME"
-        if self._active_menu == "thermal_menu":
+        if self._active_menu == "home":
+            hint = self._home_navigation_hint()
+        elif self._active_menu == "thermal_menu":
             hint = "UP/DOWN: CHOOSE PAGE | SELECT: OPEN | BACK: VITALS"
         elif self._active_menu.startswith("thermal_"):
             hint = "D-PAD: MOVE BETWEEN SENSORS | SELECT / BACK: TEMPS MENU" if self._active_menu in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
@@ -2980,7 +2990,8 @@ class HUDRenderer:
             hint="LEFT/RIGHT: OFF / MANUAL / AUTO | SELECT AGAIN: AIR INFO | BACK: HOME"
             if self._air_requested_mode:
                 hint=("REQUEST " if time.monotonic()-self._air_mode_requested_at<1 else "NO ACK: ")+self._air_requested_mode+" | "+hint
-        s = font(12).render(hint, True, glow)
+        size = fit_font_size(hint, self.screen.get_width() - 48, 16, start_size=12)
+        s = font(size).render(hint, True, glow)
         self.screen.blit(s, (self.screen.get_width() - s.get_width() - 24, self.screen.get_height() - 20))
 
     def _home_focus_target(self) -> str:
@@ -2989,17 +3000,78 @@ class HUDRenderer:
         return targets[self._focus_index]
 
     def _home_focus_targets(self) -> list[str]:
-        targets = ["TEMPS", "DYNAMICS", "AIR", "NAV"]
+        targets = self._home_header_targets() + ["NAV", "TEMPS", "DYNAMICS", "AIR"]
         if self._visible_faults:
             targets.append("FAULTS")
-        targets.extend(f"MODE:{index}" for index in range(len(self._modes)))
-        targets.extend(("SETTINGS", "MEDIA"))
         return targets
+
+    def _home_header_targets(self) -> list[str]:
+        return [*(f"MODE:{index}" for index in range(len(self._modes))), "SETTINGS", "MEDIA"]
+
+    def _home_panel_rows(self) -> tuple[tuple[str, ...], ...]:
+        # The compact TEMP tile shares a row with Air Shot in map modes.
+        if self._modes[self._mode_index] in {"ECO", "NORMAL"}:
+            return (("NAV",), ("DYNAMICS",), ("TEMPS", "AIR"))
+        return (("NAV",), ("TEMPS",), ("DYNAMICS",), ("AIR",))
+
+    def _move_home_focus(self, dx: int = 0, dy: int = 0) -> None:
+        """Follow the visible rows without wrapping the bottom panel to the top."""
+        if self._active_menu != "home":
+            return
+        target = self._home_focus_target()
+        header = self._home_header_targets()
+        if target in header:
+            if dx:
+                self._set_home_focus_target(header[(header.index(target) + dx) % len(header)])
+            elif dy > 0:
+                self._set_home_focus_target("NAV")
+            return
+        if target == "FAULTS":
+            if dx > 0:
+                self._set_home_focus_target(self._home_panel_target)
+            elif dy < 0:
+                self._set_home_focus_target(self._home_header_target)
+            return
+        rows = self._home_panel_rows()
+        row_index = next((index for index, row in enumerate(rows) if target in row), None)
+        if row_index is None:
+            return
+        row = rows[row_index]
+        if dx:
+            column = row.index(target) + dx
+            if 0 <= column < len(row):
+                self._set_home_focus_target(row[column])
+            elif dx < 0:
+                self._set_home_focus_target("FAULTS" if self._visible_faults else self._home_header_target)
+        elif dy < 0 and row_index == 0:
+            self._set_home_focus_target(self._home_header_target)
+        elif dy and 0 <= row_index + dy < len(rows):
+            destination = rows[row_index + dy]
+            self._set_home_focus_target(self._home_bottom_target if len(destination) > 1 else destination[0])
+
+    def _home_navigation_hint(self) -> str:
+        target = self._home_focus_target()
+        if target in self._home_header_targets():
+            return "LEFT/RIGHT: TOP MENU | DOWN: SIDE PANELS | SELECT: OPEN / APPLY"
+        if target == "FAULTS":
+            return "RIGHT: SIDE PANELS | UP / BACK: TOP MENU | SELECT: ERRORS"
+        if len(self._home_panel_rows()[-1]) > 1 and target in {"TEMPS", "AIR"}:
+            return "UP: TCS/AWC | LEFT/RIGHT: TEMP / AIR | SELECT: OPEN | BACK: TOP MENU"
+        left = "ERRORS" if self._visible_faults else "TOP MENU"
+        return f"UP/DOWN: SIDE PANELS | LEFT: {left} | SELECT: OPEN | BACK: TOP MENU"
 
     def _set_home_focus_target(self, target: str) -> None:
         targets = self._home_focus_targets()
+        if target == "FAULTS" and target not in targets:
+            target = self._home_panel_target
         if target in targets:
             self._focus_index = targets.index(target)
+            if target in self._home_header_targets():
+                self._home_header_target = target
+            elif target != "FAULTS":
+                self._home_panel_target = target
+                if len(self._home_panel_rows()[-1]) > 1 and target in {"TEMPS", "AIR"}:
+                    self._home_bottom_target = target
             return
         self._focus_index %= max(1, len(targets))
 
