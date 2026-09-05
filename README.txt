@@ -152,6 +152,12 @@ text/background invert every 250 ms. Offline and shadow telemetry cannot flash
 the active-firing badge. Instrument bezels and a segmented boost gauge follow
 the selected theme without adding scanlines or screen overlays. Visual regression:
 python tests/run_instrument_style_checks.py
+The COMMS / MEDIA menu has theme-matched instrument styling, separate track and
+artist lines, elapsed/remaining time, labeled transport buttons and request feedback.
+DEVICES opens a scrolling picker; Back returns to the player before exiting to
+the HUD. Unknown duration and unavailable controls are explicit. Media requests
+do not assert successful playback or connection. No seek/volume/shuffle support
+is assumed. Run python tests/run_media_checks.py for UI/command regressions.
 HUD coolant/oil/plenum/EGT now come from the dedicated thermal Teensy, not legacy
 ECU temperature frames. See docs/thermal_system.md for source and failure behavior.
 TCS/AWC now has a larger panel with separate levels and intervention status.
