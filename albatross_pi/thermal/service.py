@@ -88,6 +88,10 @@ class ThermalService:
             for position, raw in enumerate(struct.unpack(">hhhh", data[:8])):
                 index = offset + position
                 if raw == protocol.invalid_raw:
+                    # A received invalid sample is fresh fault evidence, not a
+                    # missing packet. Keep its explicit status visible at startup.
+                    self._last_value_s[index] = now
+                    self._temperatures[index] = None
                     continue
                 value = raw * protocol.temperature_scale_c
                 definition = self.config.sensors[index]
@@ -153,6 +157,8 @@ class ThermalService:
                 status = SensorStatus.NOT_CONFIGURED
             elif not online or age_s > stale_limit:
                 status = SensorStatus.STALE
+            elif status == SensorStatus.VALID and self._temperatures[index] is None:
+                status = SensorStatus.FRONT_END_FAULT
             value = self._temperatures[index]
             expected, samples, sigma = self.baselines.expected(definition.key, self._vehicle)
             residual = None if value is None or expected is None else value - expected

@@ -85,6 +85,14 @@ def hud():
     with tempfile.TemporaryDirectory() as directory,patch("albatross_pi.hud.renderer.EvaAlertAudio"):
         h=HUDRenderer(use_display=False,preferences_path=None)
         h._dynamics_menu=DynamicsMenu(Path(directory)/"settings.json");menu=h._dynamics_menu;menu.restored=True
+        # Home order follows the visible UI: the utility tiles come after the
+        # final ride mode, in both navigation directions.
+        h._visible_faults=()
+        h._set_home_focus_target("MODE:4");h._handle_dpad_right();assert h._home_focus_target()=="SETTINGS"
+        h._handle_dpad_left();assert h._home_focus_target()=="MODE:4"
+        h._set_home_focus_target("SETTINGS");h._handle_dpad_left();assert h._home_focus_target()=="MODE:4"
+        traction=next(w for w in h.widgets if w.__class__.__name__=="TractionPanel")
+        assert traction.rect.height>=58
         sent=[];menu.callback=lambda fid,data:sent.append((fid,data))
         h._set_home_focus_target("DYNAMICS");h._handle_select();assert h._active_menu=="dynamics"
         h._handle_dpad_right();assert sent[-1][0]==0x208 and sent[-1][1][1]==3

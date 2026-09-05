@@ -40,6 +40,7 @@ from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.dynamics_weather import WeatherService
+from albatross_pi.demo_systems import DemoReceiver
 from albatross_pi.runtime import PiPowerSupervisor, SystemdNotifier
 from albatross_pi.security import NfcAuthorizer
 from albatross_pi.state.simulator import StateSimulator
@@ -786,6 +787,7 @@ def main() -> None:
             stream = simulator.stream()
 
     def _start_demo_udp_listener(addr: str) -> None:
+        demo_receiver=DemoReceiver()
         host, port_s = addr.split(":")
         port = int(port_s)
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -818,6 +820,7 @@ def main() -> None:
                 try:
                     data, _ = sock.recvfrom(65535)
                 except socket.timeout:
+                    if demo_receiver.active:renderer.update_state(demo_receiver.apply(renderer.state,[]))
                     continue
                 try:
                     obj = json.loads(data.decode("utf-8"))
@@ -950,6 +953,11 @@ def main() -> None:
                     service=service,
                     system=SystemStatus(limp_mode_active=limp_active, limp_mode_reason=limp_reason if limp_active else ""),
                 )
+                try:
+                    updated=demo_receiver.apply(updated,obj.get("demo_system_frames",[]))
+                except (ValueError,TypeError):
+                    logging.warning("Rejected invalid demo telemetry envelope")
+                    continue
                 renderer.update_state(
                     replace(
                         updated,

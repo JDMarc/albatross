@@ -298,7 +298,6 @@ class HUDRenderer:
         self._online_update_progress = 0.0
         self._online_update_busy = False
         self._online_update_lock = threading.Lock()
-        self._focus_targets = ["TEMPS", "DYNAMICS", "AIR", "NAV", "SETTINGS", "MEDIA", "FAULTS"]
         self._focus_index = 0
         self._active_menu = "home"
         self._thermal_views = ThermalViews()
@@ -1025,7 +1024,10 @@ class HUDRenderer:
         bottom_limit = message_rect.y - panel_gap
         compact_strip_height = max(36, min(46, int(height * 0.065)))
         airshot_height = compact_strip_height
-        traction_height = compact_strip_height
+        # The dynamics strip contains two independently selectable levels plus
+        # live intervention feedback. Give those rows enough vertical room at
+        # the supported compact 1280x480 resolution.
+        traction_height = max(58, min(72, int(height * 0.14)))
         # Fuel gauge moved to center-lower zone under mode stats.
         fuel_width = center_width
         fuel_x = center_x
@@ -1550,7 +1552,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
+        self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
 
     def _handle_dpad_left(self) -> None:
         if self._active_menu=="dynamics":
@@ -1636,7 +1638,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
             return
-        self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
+        self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
 
     def _handle_up(self) -> None:
         if self._active_menu=="dynamics":self._dynamics_menu.move(-1);return
@@ -1677,7 +1679,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index - 1) % len(self._media_items)
         elif self._active_menu == "home":
-            self._focus_index = (self._focus_index - 1) % (len(self._home_focus_targets()) + len(self._modes))
+            self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
 
     def _handle_down(self) -> None:
         if self._active_menu=="dynamics":self._dynamics_menu.move(1);return
@@ -1718,7 +1720,7 @@ class HUDRenderer:
             else:
                 self._media_index = (self._media_index + 1) % len(self._media_items)
         elif self._active_menu == "home":
-            self._focus_index = (self._focus_index + 1) % (len(self._home_focus_targets()) + len(self._modes))
+            self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
 
     def _handle_select(self) -> None:
         if self._active_menu=="dynamics":self._dynamics_menu.select();return
@@ -2832,7 +2834,7 @@ class HUDRenderer:
 
     def _render_global_hints(self) -> None:
         _bg, _bright, glow, _fault = self._theme_colors()
-        hint = "ARROWS: CYCLE TEMPS/SETTINGS/MEDIA/MODES  |  ENTER: SELECT  |  ESC: BACK"
+        hint = "LEFT/RIGHT: MOVE FOCUS  |  UP/DOWN: QUICK MOVE  |  SELECT: OPEN/APPLY  |  BACK: HOME"
         if self._active_menu=="air_selected":
             hint="LEFT/RIGHT: OFF / MANUAL / AUTO | SELECT AGAIN: AIR INFO | BACK: HOME"
             if self._air_requested_mode:
@@ -2842,30 +2844,23 @@ class HUDRenderer:
 
     def _home_focus_target(self) -> str:
         targets = self._home_focus_targets()
-        if self._focus_index < len(targets):
-            return targets[self._focus_index]
-        mode_idx = self._focus_index - len(targets)
-        return f"MODE:{mode_idx}"
+        self._focus_index %= max(1, len(targets))
+        return targets[self._focus_index]
 
     def _home_focus_targets(self) -> list[str]:
+        targets = ["TEMPS", "DYNAMICS", "AIR", "NAV"]
         if self._visible_faults:
-            return ["TEMPS", "DYNAMICS", "AIR", "NAV", "FAULTS", "SETTINGS", "MEDIA"]
-        return list(self._focus_targets)
+            targets.append("FAULTS")
+        targets.extend(f"MODE:{index}" for index in range(len(self._modes)))
+        targets.extend(("SETTINGS", "MEDIA"))
+        return targets
 
     def _set_home_focus_target(self, target: str) -> None:
         targets = self._home_focus_targets()
         if target in targets:
             self._focus_index = targets.index(target)
             return
-        if target.startswith("MODE:"):
-            try:
-                mode_idx = int(target.split(":", 1)[1])
-            except ValueError:
-                mode_idx = 0
-            mode_idx = max(0, min(len(self._modes) - 1, mode_idx))
-            self._focus_index = len(targets) + mode_idx
-            return
-        self._focus_index %= max(1, len(targets) + len(self._modes))
+        self._focus_index %= max(1, len(targets))
 
     def _normalize_home_focus(self, previous_target: str, previous_had_faults: bool) -> None:
         if self._active_menu != "home":

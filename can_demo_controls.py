@@ -18,7 +18,12 @@ import json
 import socket
 import struct
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk,messagebox
+from albatross_pi.demo_systems import DemoSystems,DYNAMICS_FIELDS,AIR_FIELDS
+from albatross_pi.dynamics import FAULTS,LEVELS
+from albatross_pi.airshot import mode_frame,fire_frame
+from albatross_pi.thermal import SensorStatus
+from albatross_pi.thermal.simulation import SCENARIOS
 
 from albatross_pi.canbus.encode import (
     build_air_shot_request_frame,
@@ -58,6 +63,8 @@ class App:
         self.can_interface_name = interface
         self.can_channel_name = channel
         self.can_bitrate = bitrate
+        self.tty_baudrate=tty_baudrate
+        self.systems=DemoSystems();self.fire_held=False;self.fire_sequence=0
         self.iface = None if dry_run else self._open_can_interface(interface, channel, bitrate, tty_baudrate)
         self.udp_host, self.udp_port = udp_target.split(":")
         self.udp_port = int(self.udp_port)
@@ -144,7 +151,16 @@ class App:
             "gps_lon": tk.StringVar(value="-83.0458"),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
         }
+        for key,_,initial,_ in DYNAMICS_FIELDS+AIR_FIELDS:
+            cls=tk.BooleanVar if type(initial) is bool else tk.StringVar if isinstance(initial,str) else tk.DoubleVar
+            self.vars[key]=cls(value=initial)
+        self.fault_vars=[tk.BooleanVar(value=False) for _ in FAULTS]
+        self.demo_status=tk.StringVar(value="SYNTHETIC HUD DATA — isolate from the vehicle powertrain")
+        self.thermal_stream=tk.BooleanVar(value=True);self.thermal_scenario=tk.StringVar(value="normal_warmup")
+        self.thermal_sensor=tk.StringVar(value=self.systems.thermal.service.config.sensors[0].key)
+        self.thermal_temperature=tk.StringVar(value="800");self.thermal_status=tk.StringVar(value="VALID");self.thermal_raw=tk.StringVar(value="0")
         self._build()
+        self._build_system_tabs()
         self._tick()
 
     @staticmethod
@@ -158,8 +174,8 @@ class App:
         return PythonCANInterface(interface=interface, channel=channel, bitrate=bitrate, tty_baudrate=tty_baudrate)
 
     def _build(self) -> None:
-        shell = ttk.Frame(self.root)
-        shell.grid(sticky="nsew")
+        self.notebook=ttk.Notebook(self.root);self.notebook.grid(sticky="nsew")
+        shell = ttk.Frame(self.notebook);self.notebook.add(shell,text="ECU / Bike / Legacy")
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         shell.columnconfigure(0, weight=1)
@@ -185,13 +201,14 @@ class App:
                 scroll_units(-1 if delta > 0 else 1)
 
         canvas.bind_all("<MouseWheel>", on_mousewheel)
+        canvas.bind("<Enter>", lambda event: canvas.bind_all("<MouseWheel>", on_mousewheel))
         canvas.bind_all("<Button-4>", lambda _event: scroll_units(-1))
         canvas.bind_all("<Button-5>", lambda _event: scroll_units(1))
 
         rootf.columnconfigure(0, weight=1)
         rootf.columnconfigure(1, weight=1)
 
-        tty_status = f" / serial {tty_baudrate}" if tty_baudrate else ""
+        tty_status = f" / serial {self.tty_baudrate}" if self.tty_baudrate else ""
         status = "DRY RUN" if self.dry_run else f"{self.can_interface_name} / {self.can_channel_name} / {self.can_bitrate}{tty_status}"
         ttk.Label(rootf, text=f"CAN output: {status}").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
@@ -279,7 +296,7 @@ class App:
         ttk.Checkbutton(cmds, text="Limp", variable=self.vars["limp_mode"]).grid(row=6, column=2, sticky="w")
         ttk.Checkbutton(cmds, text="Run Switch", variable=self.vars["engine_run"]).grid(row=6, column=3, sticky="w")
         ttk.Combobox(cmds, textvariable=self.vars["limp_reason"], values=[name for name in LIMP_REASON_CODES if name != "NONE"], width=18, state="readonly").grid(row=6, column=4, columnspan=2, sticky="w")
-        ttk.Button(cmds, text="Fire Air Shot", command=self._fire_air_shot).grid(row=6, column=6, sticky="w")
+        ttk.Button(cmds, text="Air Shot V2 controls →", command=lambda:self.notebook.select(self.air_tab)).grid(row=6, column=6, sticky="w")
 
         ttk.Button(cmds, text="Send Once", command=self.send_all).grid(row=7, column=0, sticky="w", pady=(6, 0))
         ttk.Button(cmds, text="Quit", command=self.close).grid(row=7, column=1, sticky="w", pady=(6, 0))
@@ -312,6 +329,108 @@ class App:
         ttk.Label(navigation, text="Longitude").grid(row=0, column=3, sticky="e", padx=(16, 4))
         ttk.Entry(navigation, textvariable=self.vars["gps_lon"], width=16).grid(row=0, column=4, sticky="w")
 
+    def _build_system_tabs(self):
+        def tab(title):
+            shell=ttk.Frame(self.notebook);self.notebook.add(shell,text=title)
+            canvas=tk.Canvas(shell,highlightthickness=0);bar=ttk.Scrollbar(shell,orient="vertical",command=canvas.yview)
+            canvas.configure(yscrollcommand=bar.set);canvas.pack(side="left",fill="both",expand=True);bar.pack(side="right",fill="y")
+            body=ttk.Frame(canvas,padding=10);window=canvas.create_window((0,0),window=body,anchor="nw")
+            body.bind("<Configure>",lambda e:canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.bind("<Configure>",lambda e:canvas.itemconfigure(window,width=e.width))
+            canvas.bind("<Enter>",lambda e:canvas.bind_all("<MouseWheel>",lambda event:canvas.yview_scroll(-1 if event.delta>0 else 1,"units")))
+            ttk.Label(body,textvariable=self.demo_status,wraplength=850).grid(row=0,column=0,columnspan=4,sticky="w",pady=8)
+            return shell,body
+        def fields(body,metadata):
+            for row,(key,label,initial,choices) in enumerate(metadata,1):
+                ttk.Label(body,text=label).grid(row=row,column=0,sticky="w")
+                if type(initial) is bool:widget=ttk.Checkbutton(body,variable=self.vars[key])
+                elif choices:widget=ttk.Combobox(body,textvariable=self.vars[key],values=choices,state="readonly",width=28)
+                else:widget=ttk.Entry(body,textvariable=self.vars[key],width=16)
+                widget.grid(row=row,column=1,sticky="w",padx=10)
+        _,d=tab("Dynamics / DBW / TCS / AWC");fields(d,DYNAMICS_FIELDS)
+        faults=ttk.LabelFrame(d,text="Simulated fault mask (no hardware reset)",padding=8);faults.grid(row=1,column=2,rowspan=20,sticky="nw")
+        for n,name in enumerate(FAULTS):ttk.Checkbutton(faults,text=name,variable=self.fault_vars[n]).grid(row=n,column=0,sticky="w")
+        for n,name in enumerate(("Normal","Controlled lift","Rear slip","Lift + slip","Touchdown","DBW fault","Powertrain stopped")):
+            ttk.Button(faults,text=name,command=lambda name=name:self._preset(name)).grid(row=len(FAULTS)+n,column=0,sticky="ew")
+        ttk.Checkbutton(faults,text="Allow command transmission (shared opt-in)",variable=self.vars["send_hud_commands"]).grid(row=22,column=0)
+        ttk.Button(faults,text="Send rider levels / curve / weather",command=self._dynamics_settings).grid(row=23,column=0,sticky="ew")
+        ttk.Button(faults,text="Request LATCHED powertrain STOP",command=self._powertrain_stop).grid(row=24,column=0,sticky="ew")
+        for n,(key,label) in enumerate((("wheelie_target","target"),("wheelie_max","maximum"),("lean_left","left lean"),("lean_right","right lean"))):
+            ttk.Button(faults,text="Send rider "+label,command=lambda n=n,key=key:self._rider_envelope(n,key)).grid(row=25+n,column=0,sticky="ew")
+        self.air_tab,a=tab("Air Shot V2");fields(a,AIR_FIELDS)
+        controls=ttk.LabelFrame(a,text="Explicit commands — isolated bench only",padding=8);controls.grid(row=1,column=2,rowspan=10,sticky="nw")
+        ttk.Checkbutton(controls,text="Allow command transmission",variable=self.vars["send_hud_commands"]).pack(anchor="w")
+        ttk.Button(controls,text="Send selected OFF / MANUAL / AUTO",command=self._air_mode).pack(fill="x")
+        fire=ttk.Button(controls,text="Hold to request Air Shot")
+        fire.pack(fill="x");fire.bind("<ButtonPress-1>",lambda e:self._hold_air(True));fire.bind("<ButtonRelease-1>",lambda e:self._hold_air(False));fire.bind("<Leave>",lambda e:self._hold_air(False))
+        ttk.Label(controls,text="Telemetry sliders do not operate valves.\nNo calibration upload or DBWX2 motor target\nis emitted by these new controls.").pack(anchor="w",pady=12)
+        _,t=tab("Thermal node / 32 channels")
+        ttk.Checkbutton(t,text="Transmit thermal node (uncheck for dropout)",variable=self.thermal_stream).grid(row=1,column=0,sticky="w")
+        ttk.Combobox(t,textvariable=self.thermal_scenario,values=SCENARIOS,state="readonly",width=30).grid(row=2,column=0,sticky="w")
+        ttk.Button(t,text="Restart scenario",command=self._thermal_restart).grid(row=2,column=1)
+        ttk.Combobox(t,textvariable=self.thermal_sensor,values=[s.key for s in self.systems.thermal.service.config.sensors],state="readonly",width=35).grid(row=3,column=0,sticky="w")
+        ttk.Label(t,text="Temperature °C").grid(row=4,column=0,sticky="w");ttk.Entry(t,textvariable=self.thermal_temperature).grid(row=4,column=1)
+        ttk.Combobox(t,textvariable=self.thermal_status,values=[s.name for s in SensorStatus],state="readonly").grid(row=5,column=0,sticky="w")
+        ttk.Button(t,text="Override selected sensor",command=self._thermal_override).grid(row=5,column=1)
+        ttk.Button(t,text="Clear all overrides",command=self.systems.thermal_overrides.clear).grid(row=6,column=1)
+        ttk.Label(t,text="Raw front-end diagnostic (synthetic)").grid(row=7,column=0,sticky="w");ttk.Entry(t,textvariable=self.thermal_raw).grid(row=7,column=1)
+        ttk.Button(t,text="Set selected raw value",command=self._thermal_raw_override).grid(row=8,column=1)
+        for n,s in enumerate(self.systems.thermal.service.config.sensors,10):ttk.Label(t,text=f"{s.sensor_id:02d}  {s.key} — {s.name}").grid(row=n,column=0,columnspan=2,sticky="w")
+    def _thermal_restart(self):
+        self.systems.thermal.scenario=self.thermal_scenario.get();self.systems.thermal.elapsed_s=0
+    def _thermal_override(self):
+        import math
+        try:
+            value=float(self.thermal_temperature.get())
+            if not math.isfinite(value):raise ValueError()
+            self.systems.thermal_overrides[self.thermal_sensor.get()]=(value,SensorStatus[self.thermal_status.get()])
+        except (ValueError,KeyError):self.demo_status.set("Invalid thermal override")
+    def _thermal_raw_override(self):
+        try:
+            value=int(self.thermal_raw.get())
+            if not 0<=value<=65535:raise ValueError()
+            self.systems.thermal_raw[self.thermal_sensor.get()]=value
+        except ValueError:self.demo_status.set("Raw diagnostic must be an integer 0–65535")
+    def _preset(self,name):
+        for key,_,initial,_ in DYNAMICS_FIELDS:self.vars[key].set(initial)
+        for v in self.fault_vars:v.set(False)
+        changes={
+            "Controlled lift":dict(state="AWC TRACKING",event="CONTROLLED LIFT",flags=28,pitch=9,front=16,rear=20,front_contact=0,wheelie_confidence=100),
+            "Rear slip":dict(state="TCS ACTIVE",event="REAR SLIP",flags=17,rear=24,slip=20,slip_confidence=100,permitted=20,tcs_limit=20),
+            "Lift + slip":dict(state="TCS + AWC",event="LIFT + SLIP",flags=23,pitch=25,rear=24,slip=20,front_contact=0,slip_confidence=100,wheelie_confidence=100,permitted=10,tcs_limit=20,awc_limit=10),
+            "Touchdown":dict(state="TCS MONITOR",event="TOUCHDOWN",flags=16,pitch_rate=-10,permitted=20,air_margin=0),
+            "DBW fault":dict(state="FAULT",flags=0,permitted=0,boost_target=0,air_margin=0),
+            "Powertrain stopped":dict(state="FAULT",flags=0,permitted=0,boost_target=0,air_margin=0),
+        }.get(name,{})
+        for key,value in changes.items():self.vars["vdc_"+key].set(value)
+        if name=="DBW fault":self.fault_vars[8].set(True)
+        if name=="Powertrain stopped":self.fault_vars[13].set(True)
+    def _command_allowed(self):
+        allowed=bool(self.vars["send_hud_commands"].get())
+        if not allowed:self.demo_status.set("Command blocked: enable command transmission explicitly")
+        return allowed
+    def _dynamics_settings(self):
+        if not self._command_allowed():return
+        self.fire_sequence=(self.fire_sequence+1)&255
+        self._send(0x208,bytes((1,LEVELS.index(self.vars["vdc_tcs"].get()),LEVELS.index(self.vars["vdc_awc"].get()),int(self.vars["vdc_curve"].get()),int(self.vars["vdc_weather_assist"].get()),0,self.fire_sequence,0xA5)))
+    def _air_mode(self):
+        if self._command_allowed():self._send(*mode_frame(self.vars["air_mode"].get()))
+    def _rider_envelope(self,parameter,key):
+        import math
+        if not self._command_allowed():return
+        value=float(self.vars["vdc_"+key].get())
+        if not math.isfinite(value) or value<0 or (parameter!=0 and value==0):
+            self.demo_status.set("Invalid rider envelope; controller engineering limits remain authoritative");return
+        self.fire_sequence=(self.fire_sequence+1)&255
+        self._send(0x209,struct.pack(">BBfBB",1,parameter,value,self.fire_sequence,0xA5))
+    def _hold_air(self,held):
+        if held and not self._command_allowed():return
+        was_held=self.fire_held;self.fire_held=held
+        if held or was_held:
+            self.fire_sequence=(self.fire_sequence+1)&65535;self._send(*fire_frame(held,self.fire_sequence))
+    def _powertrain_stop(self):
+        if self._command_allowed() and messagebox.askyesno("Latched powertrain stop","Send STOP to the controller? This removes torque authority and cannot be cleared by a run-ON command."):
+            self._send(0x20A,b'\x01STOP\xa5')
     def _slider(self, parent, label, key, lo, hi, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w")
         s = ttk.Scale(parent, from_=lo, to=hi, variable=self.vars[key], orient="horizontal")
@@ -326,10 +445,7 @@ class App:
             print(f"TX 0x{arb_id:03X} {payload.hex()}")
 
     def _fire_air_shot(self) -> None:
-        self._send(*build_air_shot_request_frame())
-        packet = json.dumps({"airshot_request": True}).encode("utf-8")
-        for p in self.udp_ports:
-            self.sock.sendto(packet, (self.udp_host, p))
+        self._hold_air(True)
 
     @staticmethod
     def _f_to_cx10(temp_f: float) -> int:
@@ -351,6 +467,14 @@ class App:
         return parsed if lo <= parsed <= hi else None
 
     def send_all(self) -> None:
+        self.systems.values.update({key:self.vars[key].get() for key,_,_,_ in DYNAMICS_FIELDS+AIR_FIELDS})
+        self.systems.faults=sum(1<<n for n,v in enumerate(self.fault_vars) if v.get())
+        self.systems.thermal_stream=self.thermal_stream.get();self.systems.thermal.scenario=self.thermal_scenario.get()
+        system_frames=self.systems.frames() # validate before transmitting this cycle
+        for fid,data in system_frames:self._send(fid,data)
+        if self.fire_held:
+            if self._command_allowed():self._hold_air(True)
+            else:self._hold_air(False)
         gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
         fuel_type_map = {"87": 0, "91": 1, "93": 2, "100": 3, "E85": 4, "C16": 5}
         mode_map = {"ECO": 1, "NORMAL": 2, "SPORT": 3, "RACE": 4, "ALBATROSS": 5}
@@ -533,17 +657,21 @@ class App:
             for key in ("mode", "fuel_type", "traction", "boost_target", "wmi_arm", "flame_mode", "engine_run", "nfc_ok"):
                 payload.pop(key, None)
         payload["msg"] = self.vars["msg"].get()
+        payload["demo_system_frames"]=[[fid,data.hex()] for fid,data in system_frames]
         packet = json.dumps(payload).encode("utf-8")
         for p in self.udp_ports:
             self.sock.sendto(packet, (self.udp_host, p))
 
     def _tick(self) -> None:
-        self.send_all()
-        self.root.after(100, self._tick)
+        try:self.send_all()
+        except (ValueError,TypeError,tk.TclError,struct.error) as exc:self.demo_status.set(f"Invalid demo value: {exc}")
+        finally:self.root.after(100, self._tick)
 
     def close(self) -> None:
+        self._hold_air(False)
         if self.iface:
             self.iface.stop()
+        self.sock.close()
         self.root.destroy()
 
 
