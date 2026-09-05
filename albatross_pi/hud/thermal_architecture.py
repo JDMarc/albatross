@@ -42,7 +42,45 @@ def neighbor(key, dx, dy):
     return min(choices)[-1] if choices else key
 
 
-def draw_architecture(surface, area, state, selected, dev, score_color):
+class FlowAnimation:
+    """Presentation-only phases; boost controls visual revolutions, never torque."""
+    ARROW_SPACING = 70.0
+    FLOW_SPEED = 34.0
+    MAX_VISUAL_BOOST_PSI = 40.0
+    IDLE_RPS = 0.15
+    RPS_PER_PSI = 0.075
+    SPOOL_SECONDS = 0.35
+
+    def __init__(self):
+        self.last_ms = None
+        self.rotors = {"LEFT": 0.0, "RIGHT": 0.0}
+        self.speeds = {"LEFT": 0.0, "RIGHT": 0.0}
+        self.flow = 0.0
+
+    @classmethod
+    def boost(cls, engine, side):
+        value = getattr(engine, "boost_" + side.lower() + "_psi", -1)
+        if not math.isfinite(value) or value < 0:
+            value = engine.boost_psi
+        return max(0.0, min(cls.MAX_VISUAL_BOOST_PSI, value)) if math.isfinite(value) else 0.0
+
+    def advance(self, engine, now_ms):
+        # Bound the delta so returning to the map never causes a large jump.
+        dt = 0.0 if self.last_ms is None else max(0.0, min(.1, (now_ms - self.last_ms) / 1000.0))
+        self.last_ms = now_ms
+        self.flow = (self.flow + dt * self.FLOW_SPEED) % self.ARROW_SPACING
+        for side in self.rotors:
+            # Screen rotations/second only, explicitly not a turbo RPM estimate.
+            target = self.IDLE_RPS + self.RPS_PER_PSI * self.boost(engine, side)
+            previous = self.speeds[side]
+            alpha = 1 - math.exp(-dt / self.SPOOL_SECONDS)
+            self.speeds[side] += (target - previous) * alpha
+            # Integrate the exponential exactly, independent of frame cadence.
+            turns = target * dt + (previous - target) * self.SPOOL_SECONDS * alpha
+            self.rotors[side] = (self.rotors[side] + turns * 360) % 360
+
+
+def draw_architecture(surface, area, state, selected, dev, score_color, animation):
     sx,sy=area.width/1000,area.height/400
     def point(x,y):return (round(area.x+x*sx),round(area.y+y*sy))
     def rect(x,y,w,h):return pygame.Rect(*point(x,y),round(w*sx),round(h*sy))
@@ -52,11 +90,20 @@ def draw_architecture(surface, area, state, selected, dev, score_color):
         surface.blit(font(size,bold=True).render(text,True,color),point(x,y))
     def pipe(points,color):
         line((9,20,25),points,7);line(color,points,2)
-        # Static directional arrow at the midpoint of the final segment.
-        a,b=points[-2:];vx,vy=b[0]-a[0],b[1]-a[1];length=math.hypot(vx,vy)
-        if length>0:
-            ux,uy=vx/length,vy/length;mx,my=(a[0]+b[0])/2,(a[1]+b[1])/2
-            pygame.draw.polygon(surface,color,[point(mx+ux*5,my+uy*5),point(mx-ux*4-uy*4,my-uy*4+ux*4),point(mx-ux*4+uy*4,my-uy*4-ux*4)])
+        # Follow the complete polyline, including corners, with spaced chevrons.
+        lengths=[math.dist(a,b) for a,b in zip(points,points[1:])]
+        distance=animation.flow
+        total_length=sum(lengths)
+        while distance<total_length:
+            remaining=distance
+            for a,b,length in zip(points,points[1:],lengths):
+                if length>0 and remaining<=length:
+                    ux,uy=(b[0]-a[0])/length,(b[1]-a[1])/length
+                    mx,my=a[0]+ux*remaining,a[1]+uy*remaining
+                    pygame.draw.polygon(surface,color,[point(mx+ux*5,my+uy*5),point(mx-ux*4-uy*4,my-uy*4+ux*4),point(mx-ux*4+uy*4,my-uy*4-ux*4)])
+                    break
+                remaining-=length
+            distance+=animation.ARROW_SPACING
     def heat(key):
         reading=state.thermal.get(key)
         return score_color((reading.thermal_dev if dev else reading.thermal_abs) if reading else 0, bool(reading and reading.valid))
@@ -91,7 +138,7 @@ def draw_architecture(surface, area, state, selected, dev, score_color):
         pygame.draw.rect(surface,(13,31,36),rect(x-74,43,148,72),border_radius=5)
         for fy in range(47,113,6):line((42,75,79),[p(135,fy),p(275,fy)],1)
         label("INTERCOOLER",x-70,116,(104,158,168),9)
-        # Turbo scroll outlines, shared shaft and blades (no inferred shaft speed).
+        # A mirrored rotor animation correlated with bank boost, not shaft RPM.
         cx,_=p(140,213)
         pygame.draw.line(surface,(88,102,103),point(cx,187),point(cx,243),3)
         for y,key in ((194,"COMP_OUT_"+side),(239,"TURBINE_OUT_"+side)):
@@ -100,7 +147,7 @@ def draw_architecture(surface, area, state, selected, dev, score_color):
             pygame.draw.ellipse(surface,heat(key),housing,2)
             pygame.draw.arc(surface,(112,146,151),housing.inflate(-8,-8),.3,5.2,2)
             for angle in range(0,360,60):
-                a=math.radians(angle)
+                a=math.radians(angle+animation.rotors[side]*(-1 if mirror else 1))
                 line((78,108,117),[(cx,y),(cx+18*math.cos(a),y+18*math.sin(a))],2)
             pygame.draw.circle(surface,(152,176,178),point(cx,y),3)
         label("TURBO",cx-28,271,(166,153,130),9)

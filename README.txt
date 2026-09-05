@@ -151,8 +151,10 @@ TCS/AWC now has a larger panel with separate levels and intervention status.
   Up/down chooses a page; Select opens it. Includes overview,
   ABS/DEV heat maps, intake/turbos, cooling, oil, sensor status and history.
   Heat maps now draw the actual system architecture as a twin-turbo transverse
-  V-twin schematic with separate charge/exhaust, cooling and oil paths. All four
-  D-pad directions move to visible neighboring sensor callouts. Select or Back
+  V-twin schematic with separate charge/exhaust, cooling and oil paths. Moving
+  flow arrows and smoothly rotating turbo rotors animate the map; each bank's
+  boost drives its visual speed (common-boost fallback, not measured shaft RPM).
+  All four D-pad directions move to visible neighboring sensor callouts. Select or Back
   returns to the menu; Back again
   returns to the focused vitals/TEMP tile. TEMP label color reflects thermal
   severity, with cold/warming/operating/hot/cooldown or fault state below it.

@@ -35,7 +35,9 @@ Select the System Vitals window to open TEMPS. ECO/NORMAL use a compact TEMP til
 
 Heat maps display all 29 active sensors on a functional overhead schematic of the twin-turbo transverse V-twin: a forward radiator, mirrored intercoolers and compressor/turbine housings, shared pre/post-WMI and plenum, separate runners and projecting cylinder banks, central crankcase, oil cooler and turbo oil drains. Charge-air/exhaust arrows show direction; coolant and oil connections are schematic, not a fabrication drawing or a specified pump/thermostat installation. Cylinder/scroll outlines and sensor callouts use measured thermal colors, with unavailable readings gray. Turbo drain temperatures are fluid temperatures, not the disabled CHRA housing sensors.
 
-All four D-pad directions select a visible neighbor, preferring nearby aligned sensors and stopping at the edge. Navigation and rendering share the same sensor coordinates. The selected sensor remains selected when switching ABS/DEV pages. Select or Back returns to the TEMPS menu; Back from that menu returns to the vitals/TEMP tile. Tests in `tests/run_thermal_navigation_checks.py` cover menu entry, all five drive modes, complete sensor reachability and non-overlapping callout geometry at 1280×480 and 1920×720.
+While either heat map is open, animated arrows travel along the charge-air, exhaust and turbo-drain paths. Both rotor drawings on each turbo share a smoothly changing phase: more bank boost means faster visual rotation; missing bank pressure falls back to common boost. Invalid common pressure uses the slow idle visual speed. Motion is explicitly a **boost proxy, not measured shaft RPM or proof of fluid flow**. Presentation constants are bounded separately from engineering calibrations, and animation does not issue commands or alter thermal alerts. Coolant paths remain unarrowed because exact circulation plumbing is unspecified.
+
+All four D-pad directions select a visible neighbor, preferring nearby aligned sensors and stopping at the edge. Navigation and rendering share the same sensor coordinates. The selected sensor remains selected when switching ABS/DEV pages. Select or Back returns to the TEMPS menu; Back from that menu returns to the vitals/TEMP tile. Tests in `tests/run_thermal_navigation_checks.py` cover menu entry, all five drive modes, complete sensor reachability, non-overlapping callout geometry at 1280×480 and 1920×720, and animation bounds, fallback and timing.
 
 ## Commissioning sequence
 
@@ -55,8 +57,11 @@ Synthetic 1280×480 architecture preview (sample temperatures; indicative compon
 
 ```text
 py -3.12 tests/run_thermal_checks.py
+py -3.12 tests/run_thermal_navigation_checks.py
 py -3.12 tools/check_thermal_config.py
 py -3.12 main.py --simulator --thermal-scenario full_boost_pull
 ```
+
+Optional offline animation preview (requires Pygame and Pillow, opens no CAN/network connection): `py -3.12 tools/render_thermal_motion.py thermal-motion.gif`. The synthetic 0–20 psi sweep demonstrates visual spool-up/down only; it is not calibration or test evidence for the motorcycle.
 
 Thermal logs are written independently of the selected page under `logs/thermal`. Every record carries the configuration version and vehicle-state context.

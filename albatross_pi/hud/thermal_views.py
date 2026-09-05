@@ -5,7 +5,7 @@ import math
 import pygame
 
 from .widgets.ui_utils import fit_font_size, font
-from .thermal_architecture import draw_architecture, neighbor
+from .thermal_architecture import draw_architecture, neighbor, FlowAnimation
 from ..state.snapshot import StateSnapshot
 from ..thermal.model import SensorStatus, ThermalReading
 
@@ -40,6 +40,7 @@ class ThermalViews:
         self.sensor_cursor = 0
         self.map_selected = "AMBIENT_AIR"
         self.map_rects = {}
+        self.animation = FlowAnimation()
 
     def map_move(self, dx: int, dy: int) -> None:
         self.map_selected = neighbor(self.map_selected, dx, dy)
@@ -95,7 +96,7 @@ class ThermalViews:
             self._draw_history(surface, state, content, colors)
         else:
             self._draw_numeric_page(surface, state, content, page, colors)
-        hint = "D-PAD: MOVE TO NEIGHBOR | SELECT / BACK: TEMPS MENU" if page in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
+        hint = "D-PAD: SENSOR | SELECT / BACK: TEMPS MENU | ROTOR MOTION: BOOST PROXY" if page in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
         surface.blit(font(11, bold=True).render(hint, True, glow), (panel.x + 14, panel.bottom - 21))
 
     @staticmethod
@@ -128,7 +129,8 @@ class ThermalViews:
         _bg, bright, glow, _fault = colors
         detail_w = max(255, area.width // 4)
         map_area = pygame.Rect(area.x, area.y, area.width-detail_w-12, area.height-18)
-        self.map_rects = draw_architecture(surface, map_area, state, self.map_selected, dev, self._score_color)
+        self.animation.advance(state.engine,pygame.time.get_ticks())
+        self.map_rects = draw_architecture(surface, map_area, state, self.map_selected, dev, self._score_color,self.animation)
         self._draw_detail(surface, state, pygame.Rect(map_area.right+12, area.y, detail_w, area.height), self.map_selected, dev, colors)
         x=map_area.x+5
         for label,color in (("CHARGE AIR",(57,169,184)),("EXHAUST",(195,108,60)),("COOLANT",(72,125,175)),("OIL",(167,143,66))):
