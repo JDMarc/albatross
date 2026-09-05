@@ -1,6 +1,7 @@
 """Compact entry point when the main layout has no system-vitals panel."""
 import pygame
 from .base import Widget
+from .ui_utils import instrument_frame
 from .ui_utils import AMBER_BG, AMBER_GLOW, FAULT_AMBER, font, fit_font_size
 
 
@@ -20,8 +21,7 @@ class ThermalSummary(Widget):
             text = "DATA FAULT" if thermal.online and status == "DATA FAULT" else status if thermal.online else text
         if text == "COOLDOWN RECOMMENDED":
             text = "COOLDOWN"
-        pygame.draw.rect(surface, AMBER_BG, self.rect)
-        pygame.draw.rect(surface, color, self.rect, 1)
+        instrument_frame(surface, self.rect, color=color)
         surface.blit(font(14, bold=True).render("TEMP", True, color), (self.rect.x+7, self.rect.y+3))
         size = fit_font_size(text, self.rect.width-14, 13, start_size=11, bold=True)
         surface.blit(font(size, bold=True).render(text, True, AMBER_GLOW), (self.rect.x+7, self.rect.bottom-15))

@@ -3,6 +3,7 @@ import pygame
 from .base import Widget
 from .ui_utils import AMBER_BG,AMBER_BRIGHT,AMBER_DARK,AMBER_GLOW,FAULT_AMBER,font,fit_font_size
 from ...dynamics import LEVELS
+from .ui_utils import instrument_frame
 
 class TractionPanel(Widget):
     def __init__(self,rect):self.rect=rect;self.intensity=0.0;self.last=0
@@ -12,13 +13,12 @@ class TractionPanel(Widget):
             d=state.dynamics;now=pygame.time.get_ticks();dt=(now-self.last)/1000 if self.last else 0;self.last=now
             correction=max(0,d.rider-d.permitted) if d.online else 0
             self.intensity=max(correction,self.intensity-dt*100)
-            pygame.draw.rect(surface,AMBER_BG,self.rect)
-            pygame.draw.rect(surface,FAULT_AMBER if d.faults or not d.online else AMBER_BRIGHT if d.flags&3 else AMBER_DARK,self.rect,1)
+            instrument_frame(surface,self.rect,color=FAULT_AMBER if d.faults or not d.online else AMBER_BRIGHT if d.flags&3 else None)
             pad=8;half=(self.rect.width-2*pad)//2
             for n,(label,level) in enumerate((("TCS",d.tcs),("AWC",d.awc))):
                 color=FAULT_AMBER if level==0 else AMBER_BRIGHT if d.flags&(1<<n) else AMBER_GLOW
                 x=self.rect.x+pad+n*half
-                label_surface=font(11,bold=True).render(label,True,AMBER_DARK)
+                label_surface=font(11,bold=True).render(label,True,AMBER_GLOW)
                 level_text=LEVELS[level]
                 level_size=fit_font_size(level_text,half-8,19,start_size=17,bold=True)
                 surface.blit(label_surface,(x,self.rect.y+5))

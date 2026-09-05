@@ -5,19 +5,22 @@ from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
 from ..airshot_status import AirShotRequest, airshot_status
+from .ui_utils import instrument_frame
 
 class AirShotPanel(Widget):
     def __init__(self, rect: pygame.Rect, max_pressure: float = 150.0, max_shots: int = 3) -> None:
         self.rect=rect
         self.request=AirShotRequest()
 
+    def firing_rect(self):
+        return pygame.Rect(self.rect.right-107,self.rect.bottom-23,100,19)
+
     def draw(self,surface: pygame.Surface,state: StateSnapshot) -> None:
         previous=surface.get_clip();surface.set_clip(self.rect)
         try:
             air=state.air_shot.v2;pad=7
             fault=not air.online or air.state=="FAULT"
-            pygame.draw.rect(surface,AMBER_BG,self.rect)
-            pygame.draw.rect(surface,FAULT_AMBER if fault else AMBER_DARK,self.rect,1)
+            instrument_frame(surface,self.rect,color=FAULT_AMBER if fault else None)
             intent,status,_reason=airshot_status(air,self.request)
             title="AIR / "+intent
             text=font(fit_font_size(title,self.rect.width-pad*2,16,start_size=12,bold=True),bold=True).render(title,True,AMBER_BRIGHT)
@@ -28,7 +31,19 @@ class AirShotPanel(Widget):
             actual="CTRL "+(air.mode if air.online else "--")
             size=fit_font_size(actual,self.rect.width-value.get_width()-pad*3,14,start_size=11,bold=True)
             surface.blit(font(size,bold=True).render(actual,True,AMBER_GLOW),(self.rect.x+pad,self.rect.y+23))
-            size=fit_font_size(status,self.rect.width-pad*2,14,start_size=11,bold=True)
+            firing=air.online and air.state=="FIRING" and not air.flags&8
+            available=self.rect.width-pad*2
+            if firing:
+                box=self.firing_rect()
+                inverted=(pygame.time.get_ticks()//250)%2==0
+                foreground,background=(AMBER_BG,AMBER_BRIGHT) if inverted else (AMBER_BRIGHT,AMBER_BG)
+                pygame.draw.rect(surface,background,box)
+                pygame.draw.rect(surface,AMBER_BRIGHT,box,1)
+                label=font(12,bold=True).render("FIRING",True,foreground)
+                surface.blit(label,label.get_rect(center=box.center))
+                available=box.x-(self.rect.x+pad)-7
+                if status=="FIRING":status="VALVES ACTIVE"
+            size=fit_font_size(status,available,14,start_size=11,bold=True)
             text=font(size,bold=True).render(status,True,FAULT_AMBER if fault else AMBER_GLOW)
             surface.blit(text,(self.rect.x+pad,self.rect.bottom-18))
         finally:surface.set_clip(previous)

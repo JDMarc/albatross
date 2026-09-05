@@ -6,6 +6,7 @@ import pygame
 from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
+from .ui_utils import instrument_frame
 
 
 class BoostPanel(Widget):
@@ -14,7 +15,7 @@ class BoostPanel(Widget):
         self.boost_max = boost_max
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, AMBER_BG, self.rect)
+        instrument_frame(surface, self.rect)
         engine = state.engine
         pct = min(1.0, max(0.0, engine.boost_psi / max(1e-6, self.boost_max)))
         bar_padding = max(8, int(self.rect.height * 0.15))
@@ -29,15 +30,21 @@ class BoostPanel(Widget):
         fill = bar_rect.copy()
         fill.width = int(bar_rect.width * pct)
         pygame.draw.rect(surface, AMBER_BRIGHT, fill)
+        # Calibrated bar divisions, not a screen-space decorative effect.
+        for step in range(1, 20):
+            x = bar_rect.x + round(bar_rect.width * step / 20)
+            pygame.draw.line(surface, AMBER_BG, (x,bar_rect.y),(x,bar_rect.bottom-1),2)
 
         target_pct = min(1.0, max(0.0, engine.target_boost_psi / max(1e-6, self.boost_max)))
         target_x = bar_rect.x + int(bar_rect.width * target_pct)
         pygame.draw.line(surface, AMBER_GLOW, (target_x, bar_rect.y), (target_x, bar_rect.bottom), 2)
+        pygame.draw.polygon(surface,AMBER_GLOW,[(target_x-4,bar_rect.bottom+3),
+                            (target_x+4,bar_rect.bottom+3),(target_x,bar_rect.bottom)])
 
         target_text = f"REQ {engine.target_boost_psi:4.1f}"
         target_column_width = max(int(self.rect.width * 0.34), 90)
 
-        text = f"Boost {engine.boost_psi:4.1f} psi"
+        text = f"BOOST {engine.boost_psi:4.1f} PSI"
         top_text_width = max(80, self.rect.width - target_column_width - 3 * bar_padding)
         top_font = fit_font_size(text, top_text_width, int(self.rect.height * 0.28), start_size=max(16, int(self.rect.height * 0.3)), bold=True)
         text_surface = font(top_font, bold=True).render(text, True, AMBER_BRIGHT)

@@ -7,6 +7,7 @@ import time
 from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
+from .ui_utils import instrument_frame
 
 
 class AlertPanel(Widget):
@@ -16,8 +17,7 @@ class AlertPanel(Widget):
         self._advisory_latch_until: dict[str, float] = {}
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, AMBER_BG, self.rect)
-        pygame.draw.rect(surface, AMBER_DARK, self.rect, 2)
+        instrument_frame(surface, self.rect)
 
         now = time.monotonic()
         active_faults = list(state.faults)

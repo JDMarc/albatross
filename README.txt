@@ -147,6 +147,11 @@ Right from errors returns to the previous panel. Settings always opens for brows
 editing requires stopped speed and either neutral/park or an engine-off bench state.
 Air Shot separates requested mode/FIRE, confirmed controller mode, and the reported
 inhibit reason. Missing acknowledgements are shown as unconfirmed, not as success.
+Controller-confirmed FIRING has its own bordered annunciator inside Air Shot;
+text/background invert every 250 ms. Offline and shadow telemetry cannot flash
+the active-firing badge. Instrument bezels and a segmented boost gauge follow
+the selected theme without adding scanlines or screen overlays. Visual regression:
+python tests/run_instrument_style_checks.py
 HUD coolant/oil/plenum/EGT now come from the dedicated thermal Teensy, not legacy
 ECU temperature frames. See docs/thermal_system.md for source and failure behavior.
 TCS/AWC now has a larger panel with separate levels and intervention status.

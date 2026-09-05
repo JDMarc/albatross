@@ -6,6 +6,7 @@ import pygame
 from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, fit_font_size, font
 from ...state.snapshot import StateSnapshot
+from .ui_utils import instrument_frame
 
 
 class TempsGrid(Widget):
@@ -29,8 +30,7 @@ class TempsGrid(Widget):
         return "--" if value == -1.0 else f"{value:.0f}F"
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        pygame.draw.rect(surface, AMBER_BG, self.rect)
-        pygame.draw.rect(surface, AMBER_DARK, self.rect, 1)
+        instrument_frame(surface, self.rect)
         if self.split:
             self._draw_split(surface, state)
             return

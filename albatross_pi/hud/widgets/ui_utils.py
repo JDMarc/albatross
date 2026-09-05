@@ -79,3 +79,17 @@ def apply_theme(theme: str) -> None:
     AMBER_BRIGHT[:] = bright
     AMBER_GLOW[:] = glow
     FAULT_AMBER[:] = fault
+
+
+def instrument_frame(surface, rect, *, color=None):
+    """Native instrument bezel: clipped corners, restrained index marks; no overlay."""
+    edge = AMBER_MID if color is None else color
+    r = pygame.Rect(rect)
+    x, y, right, bottom = r.x, r.y, r.right-1, r.bottom-1
+    cut = min(6, r.width//8, r.height//8)
+    pygame.draw.polygon(surface, AMBER_BG, [(x+cut,y),(right,y),(right,bottom-cut),
+                        (right-cut,bottom),(x,bottom),(x,y+cut)])
+    pygame.draw.lines(surface, edge, True, [(x+cut,y),(right,y),(right,bottom-cut),
+                      (right-cut,bottom),(x,bottom),(x,y+cut)], 1)
+    pygame.draw.line(surface, edge, (x+cut+3,y+2),(x+cut+18,y+2),1)
+    pygame.draw.line(surface, edge, (right-cut-18,bottom-2),(right-cut-3,bottom-2),1)
