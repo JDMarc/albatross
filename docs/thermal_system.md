@@ -31,7 +31,9 @@ for main-HUD warning conditions, audio mapping, clearing and recurrence behavior
 
 Baseline learning starts disabled. It must be deliberately authorized only during known-healthy commissioning. Factory, long-term, and recent dictionaries remain separate so degradation cannot silently redefine the only good baseline.
 
-The HUD adds TEMPS to the existing focus/navigation abstraction. Focusing it exposes Overview, Thermal Map, Thermal Δ / DEV, Intake / Turbos, Engine / Cooling, Oil System, Sensor Status, and History / Logs. ABS answers “what is hot”; DEV answers “what is behaving unusually.”
+Select the System Vitals window to open TEMPS. ECO/NORMAL use a compact TEMP tile beside Air Shot instead; its label changes color with thermal condition and its subtext reports the operating/fault state. Merely hovering never opens the menu. Up/down in the menu chooses Overview, Thermal Map, Thermal Δ / DEV, Intake / Turbos, Engine / Cooling, Oil System, Sensor Status, or History / Logs; Select opens the page. ABS answers “what is hot”; DEV answers “what is behaving unusually.”
+
+Heat maps display all 29 active sensor positions in left-bank, shared/cooling and right-bank columns. All four D-pad directions select a visible neighbor, prioritizing the same row or column and stopping at the edge. The selected sensor remains selected when switching ABS/DEV pages. Select or Back returns to the TEMPS menu; Back from that menu returns to the vitals/TEMP tile. Tests in `tests/run_thermal_navigation_checks.py` cover menu entry, all five drive modes, complete sensor reachability and non-overlapping map geometry at 1280×480 and 1920×720.
 
 ## Commissioning sequence
 

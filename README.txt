@@ -141,8 +141,14 @@ Left/right moves home focus; the ride modes run ECO, NORMAL, SPORT, RACE,
 ALBATROSS, then SETTINGS and MEDIA. Settings retains its stopped/neutral gate.
 TCS/AWC now has a larger panel with separate levels and intervention status.
 
-- TEMPS: Up/down chooses the thermal page; Select opens it. Includes overview,
+- TEMPS: Focus System Vitals (SPORT/RACE/ALBATROSS) or the small TEMP tile
+  (ECO/NORMAL), then Select to open the page menu. Hovering does not open it.
+  Up/down chooses a page; Select opens it. Includes overview,
   ABS/DEV heat maps, intake/turbos, cooling, oil, sensor status and history.
+  On heat maps, all four D-pad directions move to neighboring sensors in the
+  left/shared/right columns. Select or Back returns to the menu; Back again
+  returns to the focused vitals/TEMP tile. TEMP label color reflects thermal
+  severity, with cold/warming/operating/hot/cooldown or fault state below it.
 - TCS/AWC: Select opens Dynamics. Up/down chooses a row; left/right requests
   levels, throttle curve, weather assist or bounded rider envelopes. Telemetry,
   event history and confirmed latched-stop controls are available here.

@@ -40,6 +40,7 @@ from .widgets.navigation_panel import NavigationPanel
 from .widgets.rpm_bar import RpmBar
 from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
+from .widgets.thermal_summary import ThermalSummary
 from .widgets.traction_panel import TractionPanel
 from .widgets.ui_utils import apply_theme, fit_font_size, font
 from .preferences import HUDPreferences
@@ -1075,6 +1076,9 @@ class HUDRenderer:
         if map_mode:
             navigation_rect = pygame.Rect(right_x, content_top, right_width, right_primary_height)
             temps_rect = None
+            thermal_summary_rect = pygame.Rect(airshot_rect.x, airshot_rect.y, int(right_width*0.30), airshot_rect.height)
+            airshot_rect.x = thermal_summary_rect.right + 6
+            airshot_rect.width = right_x + right_width - airshot_rect.x
         else:
             nav_banner_height = max(36, min(44, int(height * 0.06)))
             navigation_rect = pygame.Rect(right_x, content_top, right_width, nav_banner_height)
@@ -1108,6 +1112,7 @@ class HUDRenderer:
             widgets.insert(7, NavigationPanel(navigation_rect, self._navigation, compact=True))
         else:
             widgets.insert(7, NavigationPanel(navigation_rect, self._navigation))
+            widgets.append(ThermalSummary(thermal_summary_rect))
         self.widgets = widgets
         for widget in self.widgets:
             if isinstance(widget, AlertPanel):
@@ -1410,6 +1415,9 @@ class HUDRenderer:
         elif self._active_menu == "airshot":
             self._render_modal_dimmer()
             draw_airshot(self.screen,state,self._theme_colors())
+        elif self._active_menu == "thermal_menu":
+            self._render_modal_dimmer()
+            self._thermal_views.draw_focus_submenu(self.screen, self._theme_colors())
         elif self._active_menu.startswith("thermal_"):
             self._render_modal_dimmer()
             self._thermal_views.draw(self.screen, state, self._active_menu, self._theme_colors())
@@ -1511,6 +1519,11 @@ class HUDRenderer:
         self._fault_detail_index = (self._fault_detail_index + delta) % count
 
     def _handle_dpad_right(self) -> None:
+        if self._active_menu == "thermal_menu":
+            return
+        if self._active_menu in {"thermal_abs", "thermal_dev"}:
+            self._thermal_views.map_move(1, 0)
+            return
         if self._active_menu == "fault_ignore_confirm":
             self._ignore_confirm_yes = not self._ignore_confirm_yes
             return
@@ -1600,6 +1613,11 @@ class HUDRenderer:
         self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu == "thermal_menu":
+            return
+        if self._active_menu in {"thermal_abs", "thermal_dev"}:
+            self._thermal_views.map_move(-1, 0)
+            return
         if self._active_menu == "fault_ignore_confirm":
             self._ignore_confirm_yes = not self._ignore_confirm_yes
             return
@@ -1689,6 +1707,12 @@ class HUDRenderer:
         self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
 
     def _handle_up(self) -> None:
+        if self._active_menu == "thermal_menu":
+            self._thermal_views.menu_move(-1)
+            return
+        if self._active_menu in {"thermal_abs", "thermal_dev"}:
+            self._thermal_views.map_move(0, -1)
+            return
         if self._active_menu == "fault_ignore_confirm":
             self._ignore_confirm_yes = not self._ignore_confirm_yes
             return
@@ -1707,8 +1731,6 @@ class HUDRenderer:
             return
         if self._active_menu.startswith("thermal_"):
             self._thermal_views.sensor_move(-1, self.state)
-        elif self._active_menu == "home" and self._home_focus_target() == "TEMPS":
-            self._thermal_views.menu_move(-1)
         elif self._active_menu == "nav_arrival":
             self._nav_arrival_cursor = (self._nav_arrival_cursor - 1) % 2
         elif self._active_menu == "fault_detail":
@@ -1736,6 +1758,12 @@ class HUDRenderer:
             self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
 
     def _handle_down(self) -> None:
+        if self._active_menu == "thermal_menu":
+            self._thermal_views.menu_move(1)
+            return
+        if self._active_menu in {"thermal_abs", "thermal_dev"}:
+            self._thermal_views.map_move(0, 1)
+            return
         if self._active_menu in {"fault_ignore_confirm", "fault_detail"}:
             self._handle_up()
             return
@@ -1751,8 +1779,6 @@ class HUDRenderer:
             return
         if self._active_menu.startswith("thermal_"):
             self._thermal_views.sensor_move(1, self.state)
-        elif self._active_menu == "home" and self._home_focus_target() == "TEMPS":
-            self._thermal_views.menu_move(1)
         elif self._active_menu == "nav_arrival":
             self._nav_arrival_cursor = (self._nav_arrival_cursor + 1) % 2
         elif self._active_menu == "fault_detail":
@@ -1780,6 +1806,9 @@ class HUDRenderer:
             self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
 
     def _handle_select(self) -> None:
+        if self._active_menu == "thermal_menu":
+            self._active_menu = self._thermal_views.selected_page()
+            return
         if self._active_menu == "fault_ignore_confirm":
             if self._ignore_confirm_yes and self._ignore_target in self._visible_faults:
                 self._ignored_faults.add(self._ignore_target)
@@ -1812,8 +1841,7 @@ class HUDRenderer:
             self._active_menu = "airshot_calibration"
             return
         if self._active_menu.startswith("thermal_"):
-            self._active_menu = "home"
-            self._set_home_focus_target("TEMPS")
+            self._active_menu = "thermal_menu"
             return
         if self._active_menu == "nav_arrival":
             if self._nav_arrival_cursor == 0:
@@ -1834,7 +1862,7 @@ class HUDRenderer:
                     self._active_menu = "fault_detail"
                 return
             if target == "TEMPS":
-                self._active_menu = self._thermal_views.selected_page()
+                self._active_menu = "thermal_menu"
                 return
             if target == "AIR":
                 self._active_menu = "air_selected"
@@ -2102,6 +2130,13 @@ class HUDRenderer:
             self._network_password_text += key
 
     def _handle_back(self) -> None:
+        if self._active_menu.startswith("thermal_"):
+            if self._active_menu == "thermal_menu":
+                self._active_menu = "home"
+                self._set_home_focus_target("TEMPS")
+            else:
+                self._active_menu = "thermal_menu"
+            return
         if self._active_menu == "fault_ignore_confirm":
             self._ignore_target = None
             self._ignore_confirm_yes = False
@@ -2937,6 +2972,10 @@ class HUDRenderer:
     def _render_global_hints(self) -> None:
         _bg, _bright, glow, _fault = self._theme_colors()
         hint = "LEFT/RIGHT: MOVE FOCUS  |  UP/DOWN: QUICK MOVE  |  SELECT: OPEN/APPLY  |  BACK: HOME"
+        if self._active_menu == "thermal_menu":
+            hint = "UP/DOWN: CHOOSE PAGE | SELECT: OPEN | BACK: VITALS"
+        elif self._active_menu.startswith("thermal_"):
+            hint = "D-PAD: MOVE BETWEEN SENSORS | SELECT / BACK: TEMPS MENU" if self._active_menu in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
         if self._active_menu=="air_selected":
             hint="LEFT/RIGHT: OFF / MANUAL / AUTO | SELECT AGAIN: AIR INFO | BACK: HOME"
             if self._air_requested_mode:
@@ -2999,11 +3038,10 @@ class HUDRenderer:
     def _render_home_thermal_focus(self) -> None:
         if self._active_menu != "home" or self._home_focus_target() != "TEMPS":
             return
-        temps_rect = next((widget.rect for widget in self.widgets if isinstance(widget, TempsGrid)), None)
+        temps_rect = next((widget.rect for widget in self.widgets if isinstance(widget, (TempsGrid, ThermalSummary))), None)
         _bg, bright, _glow, _fault = self._theme_colors()
         if temps_rect is not None:
             pygame.draw.rect(self.screen, bright, temps_rect.inflate(6, 6), width=2, border_radius=6)
-        self._thermal_views.draw_focus_submenu(self.screen, self._theme_colors())
 
     def _render_home_mode_hover_underline(self, state: StateSnapshot) -> None:
         _bg, bright, _glow, _fault = self._theme_colors()

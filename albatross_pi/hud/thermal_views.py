@@ -1,4 +1,4 @@
-"""Native Albatross HUD thermal pages and transverse V-twin schematic map."""
+"""Native thermal pages and a directional left/shared/right sensor heat map."""
 from __future__ import annotations
 
 import math
@@ -31,10 +31,39 @@ MAP_KEYS = (
 )
 
 
+MAP_ROWS = (
+    (None, "AMBIENT_AIR", None),
+    ("COMP_IN_LEFT", "RAD_IN", "COMP_IN_RIGHT"),
+    ("COMP_OUT_LEFT", "RAD_OUT", "COMP_OUT_RIGHT"),
+    ("IC_IN_LEFT", "PRE_WMI", "IC_IN_RIGHT"),
+    ("IC_OUT_LEFT", "POST_WMI", "IC_OUT_RIGHT"),
+    ("RUNNER_IAT_LEFT", "PLENUM_IAT", "RUNNER_IAT_RIGHT"),
+    ("HEAD_COOLANT_LEFT", None, "HEAD_COOLANT_RIGHT"),
+    ("HEAD_METAL_LEFT", "OIL_GALLERY", "HEAD_METAL_RIGHT"),
+    ("EGT_LEFT", "OIL_COOLER_IN", "EGT_RIGHT"),
+    ("TURBINE_OUT_LEFT", "OIL_COOLER_OUT", "TURBINE_OUT_RIGHT"),
+    ("TURBO_OIL_DRAIN_LEFT", None, "TURBO_OIL_DRAIN_RIGHT"),
+)
+
+
 class ThermalViews:
     def __init__(self) -> None:
         self.menu_cursor = 0
         self.sensor_cursor = 0
+        self.map_selected = "AMBIENT_AIR"
+        self.map_rects = {}
+
+    def map_move(self, dx: int, dy: int) -> None:
+        positions = {key: (x, y) for y, row in enumerate(MAP_ROWS) for x, key in enumerate(row) if key}
+        x, y = positions[self.map_selected]
+        candidates = []
+        for key, (cx, cy) in positions.items():
+            forward = (cx-x)*dx + (cy-y)*dy
+            cross = abs((cy-y)*dx + (cx-x)*dy)
+            if forward > 0:
+                candidates.append(((cross, forward), key))
+        if candidates:
+            self.map_selected = min(candidates)[1]
 
     def menu_move(self, delta: int) -> None:
         self.menu_cursor = (self.menu_cursor + delta) % len(THERMAL_MENU_ITEMS)
@@ -51,7 +80,9 @@ class ThermalViews:
         sw, sh = surface.get_size()
         width = min(270, max(210, sw // 5))
         row_h = max(19, min(27, sh // 19))
-        panel = pygame.Rect(sw - width - 18, 62, width, row_h * len(THERMAL_MENU_ITEMS) + 34)
+        width = min(440, sw-48)
+        panel = pygame.Rect(0, 0, width, row_h * len(THERMAL_MENU_ITEMS) + 60)
+        panel.center = surface.get_rect().center
         shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((6, 8, 8, 235))
         surface.blit(shade, panel.topleft); pygame.draw.rect(surface, bright, panel, 2, border_radius=7)
         surface.blit(font(15, bold=True).render("TEMPS", True, bright), (panel.x + 12, panel.y + 8))
@@ -60,6 +91,7 @@ class ThermalViews:
             color = bright if index == self.menu_cursor else glow
             prefix = "▶ " if index == self.menu_cursor else "  "
             surface.blit(font(12, bold=index == self.menu_cursor).render(prefix + label, True, color), (panel.x + 12, y))
+        surface.blit(font(11).render("UP/DOWN: PAGE | SELECT: OPEN | BACK: VITALS", True, glow), (panel.x+12, panel.bottom-20))
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot, page: str, colors: tuple[tuple[int, int, int], ...]) -> None:
         bg, bright, glow, fault = colors
@@ -84,7 +116,7 @@ class ThermalViews:
             self._draw_history(surface, state, content, colors)
         else:
             self._draw_numeric_page(surface, state, content, page, colors)
-        hint = "UP/DOWN: SENSOR  |  LEFT/RIGHT: PAGE  |  ENTER: MENU  |  ESC: BACK"
+        hint = "D-PAD: MOVE TO NEIGHBOR | SELECT / BACK: TEMPS MENU" if page in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
         surface.blit(font(11, bold=True).render(hint, True, glow), (panel.x + 14, panel.bottom - 21))
 
     @staticmethod
@@ -106,59 +138,40 @@ class ThermalViews:
         color = self._score_color(score, valid)
         pygame.draw.rect(surface, color, rect, border_radius=5)
         pygame.draw.rect(surface, (255, 255, 255) if selected else (12, 18, 22), rect, 3 if selected else 1, border_radius=5)
-        label_size = fit_font_size(label, rect.width - 8, max(10, rect.height // 2), start_size=12, bold=True)
+        label_size = fit_font_size(label, rect.width - 70, rect.height-6, start_size=12, bold=True)
         text = font(label_size, bold=True).render(label, True, (5, 8, 10))
-        surface.blit(text, (rect.centerx - text.get_width() // 2, rect.y + 3))
+        surface.blit(text, (rect.x+6, rect.centery-text.get_height()//2))
         value = "--" if not valid else f"{reading.temperature_c:.0f}°C"
         value_text = font(max(9, label_size - 1), bold=True).render(value, True, (5, 8, 10))
-        surface.blit(value_text, (rect.centerx - value_text.get_width() // 2, rect.bottom - value_text.get_height() - 2))
+        surface.blit(value_text, (rect.right-value_text.get_width()-6, rect.centery-value_text.get_height()//2))
 
-    def _draw_map(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, dev: bool, colors: tuple[tuple[int, int, int], ...]) -> None:
+    def _draw_map(self, surface: pygame.Surface, state: StateSnapshot, area: pygame.Rect, dev: bool, colors) -> None:
         _bg, bright, glow, _fault = colors
         detail_w = max(245, area.width // 4)
-        map_area = pygame.Rect(area.x, area.y, area.width - detail_w - 10, area.height)
-        keys = self._page_keys("thermal_abs", state)
-        self.sensor_cursor %= max(1, len(keys)); selected_key = keys[self.sensor_cursor] if keys else ""
-        def selected(key: str) -> bool: return key == selected_key
-        # Flow lines are schematic, not interpolated pseudo-IR pixels.
-        line = (65, 100, 105)
-        cx = map_area.centerx
-        pygame.draw.line(surface, line, (cx, map_area.y + 4), (cx, map_area.bottom - 5), 3)
-        pygame.draw.line(surface, line, (map_area.x + 90, map_area.y + 52), (map_area.right - 90, map_area.y + 52), 2)
-        w = max(58, map_area.width // 9); h = max(24, map_area.height // 12)
-        self._component(surface, state, pygame.Rect(cx - w//2, map_area.y, w, h), "AMBIENT_AIR", "AMBIENT", dev, selected("AMBIENT_AIR"))
-        self._component(surface, state, pygame.Rect(cx - w//2, map_area.y + h + 5, w, h), "RAD_IN", "RADIATOR IN", dev, selected("RAD_IN"))
-        self._component(surface, state, pygame.Rect(cx - w//2, map_area.y + 2*h + 10, w, h), "RAD_OUT", "RADIATOR OUT", dev, selected("RAD_OUT"))
-        left_x, right_x = map_area.x + 12, map_area.right - w - 12
-        y0 = map_area.y + h + 2
-        for x, side in ((left_x, "LEFT"), (right_x, "RIGHT")):
-            short = "L" if side == "LEFT" else "R"
-            self._component(surface, state, pygame.Rect(x, y0, w, h), f"COMP_IN_{side}", f"COMP IN {short}", dev, selected(f"COMP_IN_{side}"))
-            self._component(surface, state, pygame.Rect(x, y0+h+4, w, h), f"COMP_OUT_{side}", f"COMP {short}", dev, selected(f"COMP_OUT_{side}"))
-            self._component(surface, state, pygame.Rect(x, y0+2*h+8, w, h), f"IC_IN_{side}", f"IC IN {short}", dev, selected(f"IC_IN_{side}"))
-            self._component(surface, state, pygame.Rect(x, y0+3*h+12, w, h), f"IC_OUT_{side}", f"IC OUT {short}", dev, selected(f"IC_OUT_{side}"))
-            self._component(surface, state, pygame.Rect(x, y0+4*h+16, w, h), f"TURBO_OIL_DRAIN_{side}", f"CHRA {short}", dev, selected(f"TURBO_OIL_DRAIN_{side}"))
-            self._component(surface, state, pygame.Rect(x, y0+5*h+20, w, h), f"TURBINE_OUT_{side}", f"TURBINE {short}", dev, selected(f"TURBINE_OUT_{side}"))
-            self._component(surface, state, pygame.Rect(x, y0+6*h+24, w, h), f"EGT_{side}", f"EXHAUST {short}", dev, selected(f"EGT_{side}"))
-        common_y = map_area.y + 3*h + 10
-        for index, (key, label) in enumerate((("PRE_WMI","PRE-WMI"),("POST_WMI","POST-WMI"),("PLENUM_IAT","PLENUM"))):
-            self._component(surface, state, pygame.Rect(cx-w//2, common_y+index*(h+4), w, h), key, label, dev, selected(key))
-        head_y = map_area.bottom - 2*h - 7
-        head_w = max(w + 18, map_area.width // 5)
-        self._component(surface, state, pygame.Rect(cx-head_w-8, head_y, head_w, h+10), "HEAD_METAL_LEFT", "LEFT HEAD", dev, selected("HEAD_METAL_LEFT"))
-        self._component(surface, state, pygame.Rect(cx+8, head_y, head_w, h+10), "HEAD_METAL_RIGHT", "RIGHT HEAD", dev, selected("HEAD_METAL_RIGHT"))
-        self._component(surface, state, pygame.Rect(cx-head_w-8, head_y-h-3, head_w, h), "HEAD_COOLANT_LEFT", "COOLANT L", dev, selected("HEAD_COOLANT_LEFT"))
-        self._component(surface, state, pygame.Rect(cx+8, head_y-h-3, head_w, h), "HEAD_COOLANT_RIGHT", "COOLANT R", dev, selected("HEAD_COOLANT_RIGHT"))
-        self._component(surface, state, pygame.Rect(cx-w//2, map_area.bottom-h+1, w, h-1), "OIL_GALLERY", "CRANKCASE", dev, selected("OIL_GALLERY"))
-        surface.blit(font(10, bold=True).render("FRONT ↑", True, glow), (map_area.x + 3, map_area.y + 2))
-        self._draw_detail(surface, state, pygame.Rect(map_area.right + 10, area.y, detail_w, area.height), selected_key, dev, colors)
+        map_area = pygame.Rect(area.x, area.y, area.width-detail_w-12, area.height)
+        gap = 4
+        cell_w = (map_area.width-2*gap)//3
+        cell_h = (map_area.height-22-10*gap)//11
+        self.map_rects = {}
+        for column, label in enumerate(("LEFT BANK", "SHARED / COOLING", "RIGHT BANK")):
+            surface.blit(font(11, bold=True).render(label, True, glow), (map_area.x+column*(cell_w+gap)+4, map_area.y))
+        for row, cells in enumerate(MAP_ROWS):
+            for column, key in enumerate(cells):
+                if key is None:
+                    continue
+                rect = pygame.Rect(map_area.x+column*(cell_w+gap), map_area.y+22+row*(cell_h+gap), cell_w, cell_h)
+                self.map_rects[key] = rect
+                label = key.replace("_LEFT", "").replace("_RIGHT", "").replace("_", " ")
+                self._component(surface, state, rect, key, label, dev, key == self.map_selected)
+        self._draw_detail(surface, state, pygame.Rect(map_area.right+12, area.y, detail_w, area.height), self.map_selected, dev, colors)
 
     def _draw_detail(self, surface: pygame.Surface, state: StateSnapshot, rect: pygame.Rect, key: str, dev: bool, colors: tuple[tuple[int, int, int], ...]) -> None:
         _bg, bright, glow, fault = colors
         pygame.draw.rect(surface, (9, 14, 16), rect, border_radius=6); pygame.draw.rect(surface, glow, rect, 1, border_radius=6)
         reading = state.thermal.get(key)
         if reading is None: return
-        surface.blit(font(14, bold=True).render(reading.name.upper(), True, bright), (rect.x+10, rect.y+8))
+        title_size = fit_font_size(reading.name.upper(), rect.width-20, 20, start_size=14, bold=True)
+        surface.blit(font(title_size, bold=True).render(reading.name.upper(), True, bright), (rect.x+10, rect.y+8))
         def fmt(value: float | None, suffix="°C") -> str: return "--" if value is None else f"{value:+.1f}{suffix}"
         rows = (
             ("ACTUAL", fmt(reading.temperature_c)), ("Δ AMBIENT", fmt(reading.ambient_delta_c)),

@@ -1,0 +1,67 @@
+"""Thermal entry, map reachability and layout checks at supported sizes."""
+import os
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from unittest.mock import patch
+from dataclasses import replace
+import pygame
+from albatross_pi.hud.renderer import HUDRenderer
+from albatross_pi.hud.widgets.thermal_summary import ThermalSummary
+from albatross_pi.hud.widgets.temps_grid import TempsGrid
+from albatross_pi.hud.thermal_views import MAP_KEYS
+from albatross_pi.thermal.simulation import ThermalSimulator
+
+
+def check():
+    for size in ((1280,480),(1920,720)):
+        with patch("albatross_pi.hud.renderer.EvaAlertAudio"):
+            hud=HUDRenderer(size,use_display=False,preferences_path=None)
+        hud._post_complete=True; hud._navigation.online_enabled=False
+        hud._dynamics_menu.preview_only=True
+        simulator=ThermalSimulator(); thermal=simulator.step(40)
+        for index, mode in enumerate(hud._modes):
+            hud._mode_index=index; hud._mode_layout_state={}; hud._create_widgets()
+            state=replace(hud.state,thermal=thermal,environment=replace(hud.state.environment,mode=mode))
+            hud._active_menu="home"; hud._set_home_focus_target("TEMPS")
+            assert any(isinstance(w,ThermalSummary if index<2 else TempsGrid) for w in hud.widgets)
+            with patch.object(hud._thermal_views,"draw_focus_submenu") as menu:
+                hud.capture_frame(state); menu.assert_not_called()
+                hud._handle_select(); hud.capture_frame(state); menu.assert_called_once()
+            assert hud._active_menu=="thermal_menu"
+            hud._thermal_views.menu_cursor=1; hud._handle_select()
+            hud.capture_frame(state)
+            views=hud._thermal_views
+            assert set(views.map_rects)==set(MAP_KEYS)
+            rectangles=list(views.map_rects.values())
+            assert all(hud.screen.get_rect().contains(r) for r in rectangles)
+            assert not any(a.colliderect(b) for n,a in enumerate(rectangles) for b in rectangles[n+1:])
+            reached={"AMBIENT_AIR"}; queue=list(reached)
+            while queue:
+                key=queue.pop()
+                for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
+                    views.map_selected=key; views.map_move(dx,dy)
+                    if views.map_selected not in reached:
+                        reached.add(views.map_selected); queue.append(views.map_selected)
+            assert reached==set(MAP_KEYS)
+            views.map_selected="COMP_IN_LEFT"; hud._handle_down()
+            assert views.map_selected=="COMP_OUT_LEFT" and hud._active_menu=="thermal_abs"
+            hud._handle_dpad_right(); assert views.map_selected=="RAD_OUT"
+            hud._handle_dpad_right(); assert views.map_selected=="COMP_OUT_RIGHT"
+            hud._handle_back(); assert hud._active_menu=="thermal_menu"
+            hud._handle_back(); assert hud._active_menu=="home" and hud._home_focus_target()=="TEMPS"
+            output=os.environ.get("ALBATROSS_THERMAL_NAV_PREVIEWS")
+            if output and size==(1280,480) and index in (0,2):
+                folder=Path(output); folder.mkdir(parents=True,exist_ok=True)
+                pygame.image.save(hud.capture_frame(state),str(folder/f"thermal-entry-{mode.lower()}.png"))
+                if index==2:
+                    hud._handle_select(); pygame.image.save(hud.capture_frame(state),str(folder/"thermal-page-menu.png"))
+                    hud._thermal_views.menu_cursor=1; hud._handle_select()
+                    pygame.image.save(hud.capture_frame(state),str(folder/"thermal-map-navigation.png"))
+    pygame.quit()
+    print("PASS thermal entry, all modes, map reachability and geometry")
+
+
+if __name__=="__main__": check()
