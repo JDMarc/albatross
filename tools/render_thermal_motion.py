@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PIL import Image
 import pygame
 from albatross_pi.hud.thermal_views import ThermalViews
+from albatross_pi.hud.widgets.ui_utils import font
 from albatross_pi.state.snapshot import StateSnapshot, EngineState
 from albatross_pi.thermal.simulation import ThermalSimulator
 
@@ -29,7 +30,7 @@ def main():
     try:
         surface = pygame.Surface((1280, 480))
         views = ThermalViews()
-        title_font = pygame.font.Font(None, 23)
+        title_font = font(15, bold=True)
         colors = ((4, 12, 17), (255, 198, 64), (148, 166, 167), (255, 80, 40))
         thermal = ThermalSimulator().step(40)
         frames = []
@@ -41,7 +42,7 @@ def main():
             with patch("pygame.time.get_ticks", return_value=n * 50):
                 views.draw(surface, state, "thermal_abs", colors)
             title = title_font.render(
-                f"SYNTHETIC BOOST SWEEP: {boost:04.1f} PSI  /  VISUAL MOTION, NOT SHAFT RPM",
+                f"ALBATROSS // THERMAL SYSTEMS     DEMO BOOST: {boost:04.1f} PSI",
                 True, (194, 217, 219),
             )
             surface.blit(title, (24, 20))

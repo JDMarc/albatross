@@ -78,7 +78,14 @@ class ThermalViews:
         sw, sh = surface.get_size()
         panel = pygame.Rect(20, 54, sw - 40, sh - 82)
         shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((5, 8, 9, 246))
-        surface.blit(shade, panel.topleft); pygame.draw.rect(surface, glow, panel, 2, border_radius=8)
+        surface.blit(shade, panel.topleft)
+        if page in {"thermal_abs", "thermal_dev"}:
+            # Chamfered multi-function-display bezel; no decorative alert colors.
+            x,y,r,b=panel.left,panel.top,panel.right-1,panel.bottom-1
+            pygame.draw.lines(surface,glow,True,[(x+8,y),(r-8,y),(r,y+8),(r,b-8),
+                                               (r-8,b),(x+8,b),(x,b-8),(x,y+8)],2)
+        else:
+            pygame.draw.rect(surface, glow, panel, 2, border_radius=8)
         title = next((label for label, target in THERMAL_MENU_ITEMS if target == page), "THERMAL")
         status = state.thermal.overall_status
         status_color = fault if status in {"WARNING", "CRITICAL", "DATA FAULT"} else bright
@@ -96,7 +103,7 @@ class ThermalViews:
             self._draw_history(surface, state, content, colors)
         else:
             self._draw_numeric_page(surface, state, content, page, colors)
-        hint = "D-PAD: SENSOR | SELECT / BACK: TEMPS MENU | ROTOR MOTION: BOOST PROXY" if page in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
+        hint = "D-PAD: SENSOR | SELECT / BACK: TEMPS MENU" if page in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
         surface.blit(font(11, bold=True).render(hint, True, glow), (panel.x + 14, panel.bottom - 21))
 
     @staticmethod

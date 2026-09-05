@@ -42,6 +42,28 @@ def neighbor(key, dx, dy):
     return min(choices)[-1] if choices else key
 
 
+def cylinder_geometry(side):
+    """Build the bank and its inset fin spans from the same four corners."""
+    polygon = ((300, 200), (365, 180), (495, 295), (445, 322))
+
+    def lerp(a, b, t):
+        return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+    def bank_point(point):
+        x, y = point
+        return (1000 - x if side == "RIGHT" else x, y)
+
+    fins = []
+    for n in range(8):
+        t = .16 + n * .09
+        outer = lerp(polygon[0], polygon[3], t)
+        inner = lerp(polygon[1], polygon[2], t)
+        # Inset both ends so line width and pixel rounding stay on the casting.
+        fins.append((bank_point(lerp(outer, inner, .10)),
+                     bank_point(lerp(outer, inner, .90))))
+    return tuple(map(bank_point, polygon)), fins
+
+
 class FlowAnimation:
     """Presentation-only phases; boost controls visual revolutions, never torque."""
     ARROW_SPACING = 70.0
@@ -56,6 +78,7 @@ class FlowAnimation:
         self.rotors = {"LEFT": 0.0, "RIGHT": 0.0}
         self.speeds = {"LEFT": 0.0, "RIGHT": 0.0}
         self.flow = 0.0
+        self.raster = 0.0
 
     @classmethod
     def boost(cls, engine, side):
@@ -69,6 +92,7 @@ class FlowAnimation:
         dt = 0.0 if self.last_ms is None else max(0.0, min(.1, (now_ms - self.last_ms) / 1000.0))
         self.last_ms = now_ms
         self.flow = (self.flow + dt * self.FLOW_SPEED) % self.ARROW_SPACING
+        self.raster = (self.raster + dt * 42.0) % 400.0
         for side in self.rotors:
             # Screen rotations/second only, explicitly not a turbo RPM estimate.
             target = self.IDLE_RPS + self.RPS_PER_PSI * self.boost(engine, side)
@@ -109,9 +133,21 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
         return score_color((reading.thermal_dev if dev else reading.thermal_abs) if reading else 0, bool(reading and reading.valid))
     pygame.draw.rect(surface,(4,12,17),area,border_radius=6)
     old_clip=surface.get_clip();surface.set_clip(area)
-    # Blueprint field and a mechanical centerline make the transverse layout legible.
+    # Subtle phosphor raster under the schematic, never over sensor text.
+    for y in range(2,400,4):line((6,16,21),[(0,y),(1000,y)],1)
+    # Blueprint field and avionics-style edge graduations.
     for x in range(0,1001,40):line((10,24,30),[(x,0),(x,400)],1)
     for y in range(0,401,40):line((10,24,30),[(0,y),(1000,y)],1)
+    # A low-contrast CRT refresh sweep lives behind every component and reading.
+    for offset,color in ((-6,(7,19,24)),(-3,(9,24,29)),(0,(15,34,39)),(3,(9,24,29))):
+        y=(animation.raster+offset)%400
+        line(color,[(18,y),(982,y)],1)
+    for y in range(40,381,10):
+        tick=12 if y%40==0 else 6
+        line((41,76,81),[(3,y),(3+tick,y)],1)
+        line((41,76,81),[(997-tick,y),(997,y)],1)
+    for x,y,dx,dy in ((3,3,1,1),(997,3,-1,1),(3,397,1,-1),(997,397,-1,-1)):
+        line((85,139,142),[(x+dx*20,y),(x,y),(x,y+dy*18)],2)
     for y in range(75,340,12):line((24,49,56),[(500,y),(500,y+5)],1)
     label("FRONT",574,5,(144,183,190),9)
     line((144,183,190),[(624,22),(624,6),(619,11),(624,6),(629,11)],1)
@@ -127,6 +163,7 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
         def p(x,y):return (1000-x if mirror else x,y)
         def bank_pipe(points,color):pipe([p(x,y) for x,y in points],color)
         label(side+" BANK",35 if not mirror else 810,14,(146,180,184),11)
+        line((62,104,109),[p(35,32),p(111,32),p(118,25)],1)
         bank_pipe([(85,133),(140,133),(140,193)],charge)
         bank_pipe([(140,193),(160,193),(160,45),(205,45),(205,65)],charge)
         bank_pipe([(205,95),(260,95),(260,104),(500,104)],charge)
@@ -152,12 +189,12 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
             pygame.draw.circle(surface,(152,176,178),point(cx,y),3)
         label("TURBO",cx-28,271,(166,153,130),9)
         # Finned cylinder bank leans outward from the shared crankcase.
-        polygon=[p(300,200),p(365,180),p(495,295),p(445,322)]
+        polygon,fins=cylinder_geometry(side)
         pygame.draw.polygon(surface,tuple(max(15,int(c*.23)) for c in heat("HEAD_METAL_"+side)),[point(*v) for v in polygon])
         pygame.draw.polygon(surface,heat("HEAD_METAL_"+side),[point(*v) for v in polygon],2)
-        for n in range(5):
-            yy=255+n*8;xx=373+n*8
-            line((66,85,89),[p(xx-26,yy+14),p(xx+30,yy-12)],2)
+        for endpoints in fins:
+            line((17,35,40),endpoints,3)
+            line((112,156,153),endpoints,1)
     # Shared water/meth treatment, plenum and V-twin crankcase.
     pipe([(500,104),(500,164)],charge)
     pygame.draw.ellipse(surface,(121,172,175),rect(488,145,24,14),1)
@@ -181,7 +218,13 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
         reading=state.thermal.get(key);valid=bool(reading and reading.valid)
         color=heat(key);focus=key==selected
         pygame.draw.rect(surface,(12,23,29),box,border_radius=3)
-        pygame.draw.rect(surface,(234,249,243) if focus else color,box,2 if focus else 1,border_radius=3)
+        pygame.draw.rect(surface,color,box,1,border_radius=3)
+        if focus:
+            # A steady acquisition bracket, not a flashing warning indicator.
+            for bx,by,dx,dy in ((box.left,box.top,1,1),(box.right-1,box.top,-1,1),
+                                (box.left,box.bottom-1,1,-1),(box.right-1,box.bottom-1,-1,-1)):
+                pygame.draw.lines(surface,(234,249,243),False,
+                                  [(bx+dx*9,by),(bx,by),(bx,by+dy*5)],2)
         pygame.draw.rect(surface,color,(box.x+2,box.y+2,3,box.height-4))
         value=f"{reading.temperature_c:.0f}" if valid else "--"
         vs=font(10,bold=True).render(value,True,(238,248,243) if focus else color)

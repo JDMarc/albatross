@@ -23,6 +23,7 @@ def check():
     for tick in range(0,2001,20):animation.advance(engine,tick)
     assert animation.speeds["RIGHT"]>animation.speeds["LEFT"]>0
     assert 0<=animation.rotors["LEFT"]<360 and animation.flow>0
+    assert 0<animation.raster<400
     previous=animation.speeds["RIGHT"]
     animation.advance(EngineState(boost_psi=0),2020)
     assert 0<animation.speeds["RIGHT"]<previous
@@ -37,10 +38,13 @@ def check():
     for tick in range(0,2001,10):fast.advance(engine,tick)
     assert abs(slow.rotors["RIGHT"]-fast.rotors["RIGHT"])<1e-8
     assert abs(slow.speeds["RIGHT"]-fast.speeds["RIGHT"])<1e-8
+    assert abs(slow.raster-fast.raster)<1e-8
     # Wrapped arrow phase and long page absences must not cause large jumps.
     slow.flow=slow.ARROW_SPACING-1
+    slow.raster=399
     slow.advance(engine,100000)
     assert abs(slow.flow-2.4)<1e-8
+    assert abs(slow.raster-3.2)<1e-8
     phase=slow.rotors["RIGHT"]
     slow.advance(engine,100000)
     assert slow.rotors["RIGHT"]==phase
