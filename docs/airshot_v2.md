@@ -144,11 +144,11 @@ remains compatible; legacy 125 FIRE is no longer an actuation route.
 
 Run python tests/run_airshot_checks.py and python tests/run_thermal_checks.py.
 Compile tests/airshot_core_test.cpp with airshot_config.cpp, airshot_safety.cpp,
-airshot_profiles.cpp and airshot_controller.cpp using a C++17 compiler. Arduino
+airshot_profiles.cpp and airshot_controller.cpp using a C++17 compiler.
 The standalone `tests/airshot_budget_test.cpp` also builds with C++17 and checks
 trailing-window expiration, partial overlaps, timer rollover and bounded-history
 saturation against a per-millisecond oracle.
-CLI target: teensy:avr:teensy41. Generate/check the calibration header with
+Arduino CLI target: teensy:avr:teensy41. Generate/check the calibration header with
 python tools/generate_airshot_config.py [--check].
 
 Timestamped raw RX/TX JSONL includes calibration transfers. Replay uses the same
