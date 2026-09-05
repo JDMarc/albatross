@@ -1,184 +1,199 @@
-# Albatross Controller Firmware
+# Albatross firmware: two Teensy 4.1 boards
 
-Production controller target: **Teensy 4.1**.
+The current architecture uses **two separate Teensy 4.1 boards**, each with its
+own firmware and external 3.3 V CAN transceiver on the shared 500 kbit/s bus.
+Pin numbers below are local to the named board; the same number on the other
+Teensy is a different electrical connection.
 
-Legacy controller target: **Arduino Mega 2560 Rev3 + MCP2515**, retained under
-`arduino/legacy/mega2560/albatross_controller/` for reference and bench fallback.
+| Board | Sketch directory under this directory | Responsibility |
+| --- | --- | --- |
+| Main controller | `teensy41/albatross_controller_teensy41/` | Wastegates, WMI, four-valve Air Shot V2, wheel speeds, unified DBW/TCS/AWC supervision |
+| Thermal node | `teensy41/albatross_thermal_node/` | Thermocouple/analog acquisition, conversion, validation, filtering and thermal CAN |
+| Legacy Mega 2560 | `legacy/mega2560/albatross_controller/` | Historical Mega/MCP2515 reference; does not implement the current stack |
 
-## Production Teensy 4.1 Sketch
+The Raspberry Pi owns the HUD, USB grip controls, settings, thermal analytics,
+logging and weather context. MS3Pro Mini owns engine management. DBWX2 owns
+the throttle motor servo and redundant APS/TPS checking. RaceGrade supplies
+six-axis inertial CAN measurements. The main Teensy combines chassis and wheel
+evidence: rear-wheel slip drives TCS; chassis pitch drives AWC. Wheel-speed
+difference alone is not a throttle-cut criterion.
 
-- Main sketch:
-  `arduino/teensy41/albatross_controller_teensy41/albatross_controller_teensy41.ino`
-- CAN library: `FlexCAN_T4`
-- Hardware watchdog library: `Watchdog_t4`
-- CAN bus: Teensy native `CAN1` at 500 kbit/s.
-- CAN wiring: Teensy pin `22` = CAN1 RX, Teensy pin `23` = CAN1 TX, through an
-  external 3.3 V CAN transceiver.
-- Important: Teensy 4.1 GPIO and ADC pins are **not 5 V tolerant**. Every bike
-  signal, lamp feed, Hall input, flow input, and 0.5-4.5 V sender must be
-  conditioned to 0-3.3 V before it reaches the Teensy.
+## Main Teensy pin map
 
-## What This Controller Owns
+Source: `albatross_controller_teensy41.ino` and `airshot_io.cpp`.
 
-- Dual electronic wastegate actuator outputs, PWM/DIR/EN per actuator.
-- Air Shot compressor relay + shot latch/rearm logic.
-- Air Shot active status reporting for HUD indicator.
-- Wheel-speed reporting for HUD speedometer from Hall sensor measurements.
-- Traction control slip estimation from front/rear Hall sensors.
-- Torque-reduction request messaging to ECU over CAN.
-- WMI + flame interlocks and limp-mode enforcement.
-- WMI tank, flow, and status sensing for HUD/boost safety.
-- Motorcycle lamp status reporting for HUD indicators/high beam/brake/oil warning.
+| Pin | Direction | Function / connection |
+| --- | --- | --- |
+| 22 | CAN RX | CAN1 RX to transceiver RXD |
+| 23 | CAN TX | CAN1 TX to transceiver TXD |
+| 2 / 3 / 4 | Outputs | Wastegate 1 PWM / direction / enable to power driver |
+| 5 / 6 / 9 | Outputs | Wastegate 2 PWM / direction / enable to power driver |
+| 10 | PWM output | WMI pump driver, active high |
+| 11 | Unassigned | No dedicated flame-mode pin; flame intent remains on CAN |
+| 12 | Legacy output | Held low by initialization; not the V2 single-solenoid output. Only an explicitly validated V2 valve assignment may repurpose it |
+| 24 | Output | Compressor relay/MOSFET command |
+| 18 / 19 | Pull-up inputs | Front / rear wheel Hall pulses |
+| 20 | Pull-up input | WMI flow pulses |
+| 25 | Pull-up input | Neutral switch, active low |
+| 26 / 27 | Inputs | Left / right indicator sense |
+| 28 / 29 / 30 | Inputs | High beam / brake / stock oil-warning sense |
+| 31 | Pull-up input | WMI pressure/status OK, active low |
+| A0 (14) | Analog input | Fallback oil-pressure sender |
+| A1 (15) | Analog input | WMI tank level |
+| A2 (16) | Analog input | Air Shot tank pressure |
+| Four configurable PWM pins | Outputs | Intake L/R and turbine L/R valve drivers; assignments are unset in the shipped calibration |
+| Optional FIRE/service pins | Inputs | Default -1 (not wired); normal FIRE and mode selection use USB grip controls through the Pi |
 
-## Teensy 4.1 Pin Map
+The valve validator rejects reserved or duplicate pins, non-PWM outputs and
+incompatible shared-timer frequencies. Do not infer a final valve harness from
+unused GPIO numbers. Configure the actual drivers in `config/airshot_v2.json`
+or the stopped-only HUD calibration transfer.
 
-| Teensy pin | Direction | Function | Hookup notes |
+All Teensy GPIO/ADC signals must be conditioned to 0–3.3 V; they are not 5 V
+tolerant. Use power drivers for motors, pumps and valves, and condition bike
+lamp feeds and pressure senders. Reset-state pulldowns belong on driver inputs.
+
+## Dedicated thermal Teensy pin map
+
+Four MAX31856 thermocouple front ends and two ADS7953 16-channel ADCs share
+hardware SPI. Each device has its own chip-select. Sources:
+`thermocouple_driver.h`, `analog_adc_driver.h`, and `can_transport.h`.
+
+| Thermal Teensy pin | Direction | Connection |
+| --- | --- | --- |
+| 11 | SPI MOSI | All MAX31856 SDI and ADS7953 SDI inputs |
+| 12 | SPI MISO | Shared MAX31856 SDO and ADS7953 SDO outputs |
+| 13 | SPI SCK | All six devices' serial clocks |
+| 10 | CS output | MAX31856 channel 0: EGT_LEFT |
+| 9 | CS output | MAX31856 channel 1: EGT_RIGHT |
+| 8 | CS output | MAX31856 channel 2: TURBINE_OUT_LEFT |
+| 7 | CS output | MAX31856 channel 3: TURBINE_OUT_RIGHT |
+| 6 | CS output | ADS7953 device 0: logical analog channels 0–15 |
+| 5 | CS output | ADS7953 device 1: logical analog channels 16–31 |
+| 22 | CAN RX | CAN1 RX to this board's transceiver RXD |
+| 23 | CAN TX | CAN1 TX to this board's transceiver TXD |
+| GND | Reference | Front-end, transceiver and conditioned sensor returns |
+| 3.3 V | Logic supply | Compatible logic circuitry only; size the front-end/reference power supplies for the actual PCB |
+
+No data-ready or fault GPIO is allocated; front ends are polled over SPI.
+CANH/CANL connect to transceivers, never directly to Teensy pins. Terminate only
+the two physical ends of the whole CAN trunk, not every board.
+
+## Thermal sensor/ADC connector assignment
+
+Sensor ID is the stable CAN/HUD identity, not a Teensy GPIO number. ADC channel
+numbers are zero-based. Logical analog channel = 16 × device + local channel.
+The 32-entry configuration currently enables 29 sensors and reserves three.
+
+| Sensor ID | Key | Technology | Front end |
 | --- | --- | --- | --- |
-| 22 | CAN RX | CAN1 RX | To 3.3 V CAN transceiver RXD |
-| 23 | CAN TX | CAN1 TX | To 3.3 V CAN transceiver TXD |
-| 2 | Output PWM | Wastegate actuator 1 PWM | To actuator power driver/H-bridge command input |
-| 3 | Output | Wastegate actuator 1 direction | To actuator power driver/H-bridge direction input |
-| 4 | Output | Wastegate actuator 1 enable | To actuator power driver/H-bridge enable input |
-| 5 | Output PWM | Wastegate actuator 2 PWM | To actuator power driver/H-bridge command input |
-| 6 | Output | Wastegate actuator 2 direction | To actuator power driver/H-bridge direction input |
-| 9 | Output | Wastegate actuator 2 enable | To actuator power driver/H-bridge enable input |
-| 10 | Output PWM | WMI pump command | Drive relay/MOSFET module, active high |
-| 11 | Output | Flame mode interlock | Drive external interlock circuit, active high |
-| 12 | Output | Air Shot solenoid | Drive MOSFET/relay, active high |
-| 24 | Output | Air compressor relay | Drive relay/MOSFET module, active high |
-| 18 | Input pullup | Front wheel Hall sensor | Open collector/open drain or conditioned 3.3 V pulse |
-| 19 | Input pullup | Rear wheel Hall sensor | Open collector/open drain or conditioned 3.3 V pulse |
-| 20 | Input pullup | WMI flow sensor | Pulse input, 450 pulses/L default |
-| 25 | Input pullup | Neutral switch/lamp | Active low; condition to 3.3 V |
-| 26 | Input | Left indicator lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
-| 27 | Input | Right indicator lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
-| 28 | Input | High beam lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
-| 29 | Input | Brake lamp sense | Condition bike voltage to 3.3 V logic, external pulldown |
-| 30 | Input | Stock oil warning lamp sense | Status only; not the real oil pressure gauge path |
-| 31 | Input pullup | WMI pressure/status OK | Active low by default; switch pulls to ground when OK |
-| A0 | Analog input | Fallback oil pressure | 0.5-4.5 V sender scaled to about 0.33-3.0 V at Teensy |
-| A1 | Analog input | WMI tank level | 0-5 V sender scaled to 0-3.3 V |
-| A2 | Analog input | Air Shot tank pressure | 0.5-4.5 V sender scaled to about 0.33-3.0 V at Teensy |
+| 1 | EGT_LEFT | K type | MAX31856 0, CS 10 |
+| 2 | EGT_RIGHT | K type | MAX31856 1, CS 9 |
+| 3 | TURBINE_OUT_LEFT | K type | MAX31856 2, CS 8 |
+| 4 | TURBINE_OUT_RIGHT | K type | MAX31856 3, CS 7 |
+| 5 | COMP_IN_LEFT | IAT NTC | ADC 0 / CH 0 |
+| 6 | COMP_IN_RIGHT | IAT NTC | ADC 0 / CH 1 |
+| 7 | COMP_OUT_LEFT | IAT NTC | ADC 0 / CH 2 |
+| 8 | COMP_OUT_RIGHT | IAT NTC | ADC 0 / CH 3 |
+| 9 | IC_IN_LEFT | IAT NTC | ADC 0 / CH 4 |
+| 10 | IC_IN_RIGHT | IAT NTC | ADC 0 / CH 5 |
+| 11 | IC_OUT_LEFT | IAT NTC | ADC 0 / CH 6 |
+| 12 | IC_OUT_RIGHT | IAT NTC | ADC 0 / CH 7 |
+| 13 | PRE_WMI | IAT NTC | ADC 0 / CH 8 |
+| 14 | POST_WMI | IAT NTC | ADC 0 / CH 9 |
+| 15 | PLENUM_IAT | IAT NTC | ADC 0 / CH 10 |
+| 16 | RUNNER_IAT_LEFT | IAT NTC | ADC 0 / CH 11 |
+| 17 | RUNNER_IAT_RIGHT | IAT NTC | ADC 0 / CH 12 |
+| 18 | HEAD_COOLANT_LEFT | Coolant NTC | ADC 0 / CH 13 |
+| 19 | HEAD_COOLANT_RIGHT | Coolant NTC | ADC 0 / CH 14 |
+| 20 | HEAD_METAL_LEFT | PT1000 | ADC 0 / CH 15 |
+| 21 | HEAD_METAL_RIGHT | PT1000 | ADC 1 / CH 0 |
+| 22 | RAD_IN | Coolant NTC | ADC 1 / CH 1 |
+| 23 | RAD_OUT | Coolant NTC | ADC 1 / CH 2 |
+| 24 | OIL_GALLERY | PT1000 | ADC 1 / CH 3 |
+| 25 | OIL_COOLER_IN | PT1000 | ADC 1 / CH 4 |
+| 26 | OIL_COOLER_OUT | PT1000 | ADC 1 / CH 5 |
+| 27 | TURBO_OIL_DRAIN_LEFT | PT1000 | ADC 1 / CH 6 |
+| 28 | TURBO_OIL_DRAIN_RIGHT | PT1000 | ADC 1 / CH 7 |
+| 29 | AMBIENT_AIR | IAT NTC | ADC 1 / CH 8 |
+| 30 | CHRA_TEMP_LEFT | Disabled | Reserved logical 25 (ADC 1 / CH 9); not acquired |
+| 31 | CHRA_TEMP_RIGHT | Disabled | Reserved logical 26 (ADC 1 / CH 10); not acquired |
+| 32 | RESERVED_THERMAL_32 | Disabled | No physical input assigned |
 
-## Single-Point Boost Configuration
+Thermocouples connect to their compensated front ends, not an ADC input.
+PT1000 conditioning currently assumes 500 µA excitation; NTC channels require
+the configured pull-ups and calibration profiles. Reference, filtering,
+protection and conversion constants must match the actual acquisition PCB.
+See [thermal design](../docs/thermal_system.md) and
+[thermal protocol](../docs/thermal_can_protocol.md).
 
-Mode boost caps are centralized in `modeBoostCap()` so each mode only has one
-editable value.
+## Air Shot V2 and dynamics
 
-The Pi calculates a fuel/WMI/temperature-aware boost target and sends it over
-CAN. The Teensy is the actual boost controller: it clamps that request by mode
-and limp state, compares requested boost to MS3-reported MAP/boost, computes
-wastegate actuator duty, and drives the wastegate actuator power stages
-directly. There is no separate boost controller between the Teensy and the
-wastegate actuator drivers.
+Air Shot runs four independent valves at the main 200 Hz control cadence.
+OFF/MANUAL/AUTO selection and renewable FIRE requests arrive on CAN; the main
+Teensy checks pressure, driver feedback, thermal state, engine state, torque
+permission and pitch margin. The former fixed shot latch and fake wastegate
+boost substitution are removed. Compressor refill remains separate from demand.
+[Air Shot V2](../docs/airshot_v2.md) describes calibration, driver feedback,
+EEPROM persistence and the USB three-position switch.
 
-The Teensy production loop runs boost, wastegate, Air Shot, WMI, compressor,
-traction, and limp enforcement at 200 Hz. Status frames remain at 20 Hz to keep
-the CAN bus quiet while still giving the HUD fresh data.
+DBWX2 channel 1 is the intended single driven channel for the 2026 MT-07
+throttle-body assembly. Its connector pinout, polarity, redundant sensor wiring
+and kill/interlock circuit remain hardware verification items; this repository
+does not assign them to Teensy GPIO. RaceGrade uses CAN rather than local I2C.
+Installation proposals in `vdc_io.h` include RaceGrade base 0x470, DBWX2 node 10,
+main node 9 and DBWX2 broadcast base 0x300 to avoid ECU IDs. Verify device setup
+against [vehicle dynamics](../docs/vehicle_dynamics.md).
 
-If ECU telemetry or Pi command traffic goes stale, Teensy forces a no-boost
-limp state, disables flame/WMI/Air Shot outputs, and keeps publishing status
-frames so the HUD can report the fault.
+Engineering limits/maps live in `config/vdc_engineering.json`. Missing measured
+values remain null. Rider levels, curves and bounded envelopes are separate.
+The latched stop request 0x20A (or engine-run OFF) removes powertrain authority;
+run-ON does not clear it. See the dynamics document for recovery and independent
+kill requirements. Software implementation is not a road-qualified calibration.
 
-The Teensy hardware watchdog resets the controller if the main loop stalls for
-two seconds. Install `Watchdog_t4` alongside `FlexCAN_T4` before compiling.
-External output drivers still require physical pulldowns so reset and unplugged
-controller states default inactive.
+## CAN families
 
-## Automatic WMI
+| IDs (hex) | Purpose |
+| --- | --- |
+| 100–10F | ECU telemetry |
+| 130–147 | Existing controller/status/service frames, including legacy Air Shot compatibility |
+| 160–17D | Thermal heartbeat, values, statuses, configuration, faults and raw diagnostics |
+| 180–185 | Air Shot V2 telemetry |
+| 190–19E | Air Shot requests, external feedback and calibration transactions; see protocol for allocated IDs |
+| 207–20A | Weather, rider settings/envelopes and latched stop |
+| 210 | DBWX2 physical-position request |
+| 220–229 | Unified dynamics telemetry and configuration fingerprint |
 
-WMI does not require a rider arm switch. The pump is demand-driven when NFC is
-authorized, links are fresh, limp mode is inactive, requested or measured boost
-is at least 6 psi, RPM is above 3300, and TPS is above 38%. Pump PWM scales
-with boost, target boost, load, RPM, and the selected fuel's WMI dependence.
-The legacy Pi `0x128` WMI-arm command remains decoded for old bench tools but
-does not gate normal operation.
+DBWX2 native polling also uses extended 29-bit frames; an 11-bit-only filter
+will lose its replies. Flame intent remains provisional CAN behavior, with no
+dedicated flame output pin on either board.
 
-## Air Shot Behavior
+## Build, flash and verify
 
-- Compressor only runs when:
-  - bike speed is effectively zero (<~1 mph),
-  - TPS is below 5%,
-  - engine is not cranking,
-  - bus voltage is at least 12.2 V,
-  - neither ECU voltage nor Pi limp reason reports undervoltage,
-  - no limp condition is active,
-  - no Air Shot is currently latched,
-  - tank pressure is at or below 95 psi,
-  - the 15 second restart delay after the last shutoff has expired.
-- Compressor turns off at 145 psi, while moving, above low throttle, during
-  cranking, below 12.2 V, during limp/undervoltage, or during a shot.
-- The Air Shot tank is treated as a buffer: compressor refill is independent
-  from shot demand and should not start just because the rider or auto logic
-  requested a shot.
-- Automatic shots trigger only in RACE or ALBATROSS and only if TPS > 90%,
-  gear >= 2, and RPM > 5500.
-- Manual Air Shot requests arrive from the Pi on `0x125` and may latch a shot
-  in RACE/ALBATROSS when boost is at least 4 psi below request, gear >= 2,
-  RPM > 3000, TPS > 70%, tank pressure has available charge, tank pressure is
-  at least 12 psi above manifold pressure, and the system is not already latched.
-- Shot output drops as soon as intake pressure reaches the Pi-requested boost
-  target, capped by the mode safety limit.
-- Shot output also drops after 10 seconds max latch time, or immediately if
-  intake/manifold pressure is equal to or greater than Air Shot tank pressure.
-- Re-fire is blocked until throttle is lifted.
-- While a shot is active, and for a brief 350 ms decay window after it closes,
-  the wastegate loop uses a clamped boost value so transient Air Shot pressure
-  does not open the wastegates and kill turbo spool. The Air Shot solenoid still
-  uses real manifold pressure for shutoff, and a >3 psi overshoot exits the
-  clamp so the wastegate can protect the engine.
-- `shots_remaining` is conservative for a 0-150 psi tank:
-  - <35 psi => 0
-  - 35-74 psi => 1
-  - 75-114 psi => 2
-  - >=115 psi => 3
+Install the Teensy board package plus FlexCAN_T4 and Watchdog_t4. The thermal
+sketch additionally needs Adafruit MAX31856 and its Adafruit BusIO dependency.
+Build each sketch independently:
 
-## Traction Control
+```sh
+arduino-cli compile --fqbn teensy:avr:teensy41 arduino/teensy41/albatross_controller_teensy41
+arduino-cli compile --fqbn teensy:avr:teensy41 arduino/teensy41/albatross_thermal_node
+```
 
-Hall sensor wheel speed parameters are centralized constants:
+Run these from the repository root. Label the two USB devices and flash the
+matching image to each board. Do not assume the existing single-controller
+update bundle flashes or identifies the thermal Teensy; verify the target and
+use a separate thermal flashing step.
 
-- `FRONT_WHEEL.circumference_m`
-- `REAR_WHEEL.circumference_m`
-- `FRONT_WHEEL.magnets`
-- `REAR_WHEEL.magnets`
+```sh
+python tools/check_thermal_config.py
+python tools/generate_airshot_config.py --check
+python tools/generate_vdc_config.py --check
+python tests/run_thermal_checks.py
+python tests/run_airshot_checks.py
+python tests/run_dynamics_checks.py
+python tests/run_can_demo_checks.py
+```
 
-Traction level is commanded by Pi CAN frame (`0x124`) with levels LOW, MED,
-HIGH, and OFF. Teensy computes filtered slip ratio and publishes torque-cut
-request (`0x12A`) plus external slip request (`0x12B`) for ECU-side power
-reduction.
-
-## CAN Notes
-
-- Teensy reports lamp status in `0x13B` payload byte 0: bit 0 left indicator,
-  bit 1 right indicator, bit 2 high beam, bit 3 neutral, bit 4 brake light,
-  bit 5 oil warning. The oil warning lamp is status only; pressure decisions use
-  the real pressure sensor path.
-- Teensy can report fallback oil pressure in `0x13C` as psi x10 from
-  `OIL_PRESSURE_SENSOR_PIN` if the ECU cannot publish oil pressure. On the
-  current MS3Pro Mini plan, oil pressure and oil temperature are MS3-owned
-  inputs, so this should stay a bench/fallback path.
-- Teensy consumes ECU fuel level on `0x107`; fuel type selection is not inferred
-  from this frame.
-- MS3 publishes flex-fuel ethanol content to the HUD on ECU frame `0x10D`
-  (byte 0 = ethanol %). Teensy does not infer fuel type from the flex sensor;
-  the Pi/HUD uses ethanol percentage for supervisory boost caps.
-- MS3 may publish optional split boost pressure on `0x10F`:
-  bytes 0-1 = left boost psi x10, bytes 2-3 = right boost psi x10. The Teensy
-  averages that pair for boost-control feedback, while the Pi uses the split
-  values to detect left/right tract mismatch.
-- Teensy reports fuel type in `0x13D` using the shared fuel code map:
-  0=87, 1=91, 2=93, 3=100, 4=E85, 5=C16.
-- Teensy accepts Pi fuel type selection on `0x129` using the same map.
-- Teensy reports WMI status in `0x139`: byte 0 tank level %, bytes 1-2
-  commanded cc/min, bytes 3-4 sensed cc/min, byte 5 aggregate fault.
-- Teensy reports service-mode diagnostics for the HUD: `0x13F` sensor voltages
-  (oil sender ADC mV, WMI tank ADC mV, Teensy ADC reference mV, Air Shot tank
-  pressure sender ADC mV), `0x145` digital input/output/command/fault bitfields,
-  and `0x146` firmware version.
-- Teensy reports limp status in `0x147`: byte 0 active flag, byte 1 reason code.
-
-## Legacy Mega 2560
-
-The previous Mega/MCP2515 sketch remains in
-`arduino/legacy/mega2560/albatross_controller/`. It is no longer the production
-target, but it is useful for comparing behavior or running old bench hardware.
+The CAN demo includes all three subsystems; see
+[demo controls](../docs/can_demo_controls.md). Validate firmware builds and
+physical conversion, pin mapping, bus timing and failure behavior separately.

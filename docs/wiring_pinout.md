@@ -12,6 +12,8 @@ Use one 500 kbit/s CAN backbone shared by:
 - MS3Pro Mini
 - Raspberry Pi CAN interface
 - Teensy 4.1 controller CAN transceiver
+- Second Teensy 4.1 thermal-node CAN transceiver
+- DBWX2 throttle controller and RaceGrade 6-Axis CAN IMU
 - Any future CAN sensor modules
 
 Wire the bus as a trunk with short stubs, not as a star.
@@ -27,8 +29,9 @@ Only two devices on the entire bus should have termination enabled. Many CAN
 HATs and transceiver breakout boards include a 120 ohm resistor or jumper;
 remove/disable extras once the final physical bus ends are known.
 
-For Windows bench testing with a CANable running SLCAN firmware, connect the
-CANable to the same CANH/CANL backbone and run:
+For Windows HUD testing with a CANable running SLCAN firmware, use an isolated
+test CANH/CANL backbone. The demo impersonates live nodes; do not connect its
+synthetic telemetry to an operating powertrain. Run:
 
 ```text
 py -3.12 can_demo_controls.py --canable COM5
@@ -138,7 +141,30 @@ an external 3.3 V CAN transceiver. Teensy pins are not CANH/CANL directly.
 Use a 3.3 V-compatible CAN transceiver. Do not connect Teensy pins directly to
 the CAN bus, and do not feed 5 V logic into Teensy pins.
 
-## Teensy 4.1 Harness Pinout
+## Main Teensy 4.1 Harness Pinout
+
+Four Air Shot V2 valve PWM pins are installation configuration, not fixed entries
+in this table. Assign intake L/R and turbine L/R drivers through the validated
+Air Shot configuration; see [Air Shot V2](airshot_v2.md). FIRE and the three-position
+mode switch normally connect to the Pi's USB grip controller, not new Teensy inputs.
+
+## Additional thermal Teensy and CAN devices
+
+The second Teensy has its own transceiver and shares the CAN backbone with the
+main Teensy, Pi, ECU, DBWX2 and RaceGrade IMU. Both boards use RX 22 / TX 23,
+but these are separate local pins. Thermal SPI uses MOSI 11 / MISO 12 / SCK 13;
+MAX31856 chip selects are 10, 9, 8, 7, and ADS7953 chip selects are 6, 5.
+See the [firmware README](../arduino/README.md#dedicated-thermal-teensy-pin-map)
+for every thermal sensor's front-end/channel assignment and power/conditioning notes.
+
+DBWX2 connects the grip's redundant APS and throttle body's redundant TPS and
+motor according to the verified device/donor pinouts. The current adapter
+supervises channel 1 only. No Yamaha connector or independent-kill pin assignment
+has been established in this repository. RaceGrade uses CAN, with its bitrate,
+base ID and mounting transform verified as described in
+[vehicle dynamics](vehicle_dynamics.md#installation-prerequisites).
+
+### Main board fixed pins
 
 | Teensy pin | Direction | Function | Hookup notes |
 | --- | --- | --- | --- |
@@ -149,8 +175,8 @@ the CAN bus, and do not feed 5 V logic into Teensy pins.
 | 6 | Output | Wastegate actuator 2 direction | To actuator power driver/H-bridge direction input |
 | 9 | Output | Wastegate actuator 2 enable | To actuator power driver/H-bridge enable input |
 | 10 | Output PWM | WMI pump command | Drive relay/MOSFET module, active high |
-| 11 | Output | Flame mode interlock | Drive external interlock circuit, active high |
-| 12 | Output | Air Shot solenoid | Drive MOSFET/relay, active high |
+| 11 | Unassigned | No dedicated flame output | Flame intent remains on CAN |
+| 12 | Legacy output | Initialized low | Not a default V2 valve assignment; repurpose only via validated valve configuration |
 | 24 | Output | Air compressor relay | Drive relay/MOSFET module, active high |
 | 18 | Input pullup | Front wheel Hall sensor | Open collector/open drain or conditioned 3.3 V pulse |
 | 19 | Input pullup | Rear wheel Hall sensor | Open collector/open drain or conditioned 3.3 V pulse |

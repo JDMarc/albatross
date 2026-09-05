@@ -3,7 +3,8 @@ Hello All,
 This my major project, which has been active for years, ever since I bought my bike.
 A 1982 Honda GL500, which is exactly what this "albatross" project is for.
 In essence, we are building a twin turbocharged motorcycle in homage to the 80s and the cx500 turbo as a whole, 
-this is done through liberal fault correction and tuning options controlled by 3 main systems.
+this is done through fault correction and tuning coordinated by the Pi, ECU,
+two separate Teensy 4.1 boards, DBWX2 throttle controller and RaceGrade CAN IMU.
 
 What this repo is trying to accomplish
 --------------------------------------
@@ -49,8 +50,12 @@ This is the short version of how this stuff works:
 
 - Teensy 4.1 controller (arduino/teensy41/albatross_controller_teensy41)
   - Runs dual electronic wastegate actuator outputs (PWM/DIR/EN per channel).
-  - Manages Air Shot compressor + shot latch/rearm logic.
-  - Computes wheel speed + slip, accepts Pi traction level command (0x124), and publishes torque-reduction requests (0x12A/0x12B) for ECU cooperation.
+  - Manages Air Shot V2: four independent PWM valves, OFF/MANUAL/AUTO, demand,
+    pressure/driver checks, profile tapering and a separate compressor controller.
+  - Runs the unified dynamics estimator, rear-slip TCS, pitch-based AWC and
+    torque arbitration using wheel Hall inputs, RaceGrade IMU and DBWX2 feedback.
+  - Requests physical throttle travel from DBWX2 and retains ECU torque-reduction
+    requests (0x12A/0x12B) for integration with engine protection.
   - Enforces automatic demand-driven WMI interlocks, provisional CAN-level flame intent, and limp-aware behavior.
   - Uses a hardware watchdog so stalled controller firmware resets into inactive outputs.
 
@@ -59,15 +64,44 @@ This is the short version of how this stuff works:
   - Converts, validates, filters, diagnoses, and broadcasts versioned thermal CAN frames independently of the Pi.
   - Feeds the Pi thermal service/HUD and the main Teensy's direct degraded/protective path. See docs/thermal_system.md.
 
+- DBWX2 + RaceGrade 6-Axis CAN IMU
+  - DBWX2 owns throttle servo control and redundant APS/TPS checking; the current
+    adapter supervises channel 1 for the intended 2026 MT-07 throttle assembly.
+  - RaceGrade supplies acceleration/angular-rate CAN data to the main Teensy.
+  - Device configuration, throttle connector wiring and independent kill circuit
+    require verification; see docs/vehicle_dynamics.md for the exact boundary.
+
+Two-board wiring and firmware quick reference
+---------------------------------------------
+
+Both Teensy boards use CAN1 RX pin 22 and TX pin 23 through SEPARATE external
+3.3 V CAN transceivers on the same 500 kbit/s backbone. Pin numbers are local
+to each board. Do not combine pins just because their numbers match.
+
+Thermal Teensy hardware SPI: MOSI 11, MISO 12, SCK 13.
+Thermal MAX31856 chip-select pins: 10 = left EGT, 9 = right EGT,
+8 = left turbine outlet, 7 = right turbine outlet.
+Thermal ADS7953 chip-select pins: 6 = device 0 (analog channels 0-15),
+5 = device 1 (analog channels 16-31).
+The thermal configuration has 32 stable sensor IDs: 29 enabled, 3 reserved.
+The full pin tables and sensor-ID-to-ADC-channel map are in arduino/README.md.
+
+No dedicated flame-mode output pin is allocated. Main-controller pin 11 is
+unassigned. Air Shot V2 needs four configured PWM driver outputs; the shipped
+configuration does not invent their pin assignments. Main pin 12 is a legacy
+output initialized low, not an automatically assigned V2 solenoid output.
+See docs/wiring_pinout.md for the rest of the harness and voltage conditioning.
+
 Controller firmware notes (important)
 
-   Current production sketch target is Teensy 4.1 with native CAN1 through a
+   Both current sketch targets are Teensy 4.1 with native CAN1 through a
    3.3 V CAN transceiver. The old Mega/MCP2515 sketch is retained under
    arduino/legacy/mega2560.
 
 Quick references:
 
 - Main sketch: arduino/teensy41/albatross_controller_teensy41/albatross_controller_teensy41.ino
+- Thermal sketch: arduino/teensy41/albatross_thermal_node/albatross_thermal_node.ino
 - Controller details/tuning notes: arduino/README.md
 
 What the controller currently publishes for the HUD/stack:
@@ -82,9 +116,40 @@ What the controller currently publishes for the HUD/stack:
 
 Bring-up reminder for this repo architecture:
 
-1) Flash controller sketch and verify CAN traffic exists first.
+1) Identify and label both USB boards; flash each matching sketch independently.
+   Existing single-controller update bundles must not be assumed to flash the
+   thermal board. Build/library instructions are in arduino/README.md.
 2) Confirm Pi receives expected IDs on can0.
 3) Then validate HUD rendering/state transitions.
+
+New telemetry: thermal 0x160-0x17D, Air Shot V2 0x180-0x185, and unified
+dynamics 0x220-0x229. DBWX2 also uses extended 29-bit polling/replies.
+Protocol details: docs/thermal_can_protocol.md, docs/airshot_v2.md,
+docs/vehicle_dynamics.md. The latched powertrain stop is 0x20A; run-ON cannot
+clear it. This is a software stop request, with independent kill hardware
+and recovery requirements described in the dynamics document.
+
+HUD controls and calibration
+----------------------------
+
+Left/right moves home focus; the ride modes run ECO, NORMAL, SPORT, RACE,
+ALBATROSS, then SETTINGS and MEDIA. Settings retains its stopped/neutral gate.
+TCS/AWC now has a larger panel with separate levels and intervention status.
+
+- TEMPS: Up/down chooses the thermal page; Select opens it. Includes overview,
+  ABS/DEV heat maps, intake/turbos, cooling, oil, sensor status and history.
+- TCS/AWC: Select opens Dynamics. Up/down chooses a row; left/right requests
+  levels, throttle curve, weather assist or bounded rider envelopes. Telemetry,
+  event history and confirmed latched-stop controls are available here.
+- AIR: Select once, then left/right requests OFF/MANUAL/AUTO. Select again opens
+  detailed Air Shot information. The USB three-position switch also sends modes.
+- SETTINGS: AIR SHOT CALIBRATION edits drafts and transfers while stopped;
+  AIR MODE SWITCH learns USB switch positions. FIRE uses the grip controller.
+
+Rider settings do not replace measured engineering limits. The configuration
+sources are config/thermal_system.json, config/airshot_v2.json and
+config/vdc_engineering.json. Missing physical calibration values remain unset;
+curve visualizations show configured data and require matching firmware identity.
 
 Repository layout
 -----------------
@@ -159,6 +224,17 @@ python main.py --width 1280 --height 480
 For desktop CAN/demo control testing without a GPS receiver, run
 `py -3.12 can_demo_controls.py --dry-run` and use the `Navigation GPS -> HUD`
 fields to enter latitude, longitude, and simulated GPS-lock state.
+
+The demo also has Dynamics, Air Shot V2 and Thermal tabs, per-channel overrides,
+fault presets and subsystem stream-pause controls for stale-data warnings.
+Dry-run prints CAN and sends local UDP to the HUD; use the default HUD launch
+without --simulator or a live CAN interface. Hardware commands are opt-in.
+See docs/can_demo_controls.md for units, command behavior and isolated-bus use.
+
+Regression checks: python tests/run_can_demo_checks.py,
+python tests/run_dynamics_checks.py, python tests/run_airshot_checks.py,
+python tests/run_thermal_checks.py. Shared configuration checks and both firmware
+build commands are listed in arduino/README.md.
 
 
 Live CAN mode (SocketCAN):

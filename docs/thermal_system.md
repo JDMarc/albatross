@@ -4,6 +4,11 @@ The dedicated `THERMAL_NODE` is a second Teensy 4.1. It acquires and validates 3
 
 ## Hardware boundary
 
+The complete [thermal Teensy pin map and 32-channel connector assignment](../arduino/README.md#dedicated-thermal-teensy-pin-map)
+are maintained in the firmware README. This is a physically separate board:
+SPI 11/12/13, MAX31856 CS 10/9/8/7, ADS7953 CS 6/5, CAN1 RX/TX 22/23.
+The current configuration enables 29 of the 32 stable sensor IDs; three are reserved.
+
 - CAN remains 500 kbit/s, 11-bit identifiers, through a 3.3 V automotive CAN transceiver. Terminate only at the two physical bus ends.
 - Four K-type probes use four MAX31856-class cold-junction-compensated front ends. Never wire a thermocouple to a Teensy ADC. Use K extension wire and connectors through the cold-junction point.
 - Two ADS7953 16-channel SPI ADCs provide 32 analog inputs. Each installed circuit requires the calibration network named in `config/thermal_system.json`, a stable reference/excitation supply, RC filtering, series/current limiting, ESD and load-dump/transient protection, and a low-noise sensor return.
