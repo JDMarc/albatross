@@ -6,6 +6,7 @@ Selectable callouts and navigation share this one layout.
 import math
 import pygame
 from .widgets.ui_utils import font, fit_font_size
+from .thermal_style import thermal_chrome
 
 # key: (center x, center y, concise label), in a 1000 x 400 drawing.
 NODES = {
@@ -104,16 +105,17 @@ class FlowAnimation:
             self.rotors[side] = (self.rotors[side] + turns * 360) % 360
 
 
-def draw_architecture(surface, area, state, selected, dev, score_color, animation):
+def draw_architecture(surface, area, state, selected, dev, score_color, animation, colors):
+    chrome=thermal_chrome(colors)
     sx,sy=area.width/1000,area.height/400
     def point(x,y):return (round(area.x+x*sx),round(area.y+y*sy))
     def rect(x,y,w,h):return pygame.Rect(*point(x,y),round(w*sx),round(h*sy))
     def line(color, points, width=2):
         pygame.draw.lines(surface,color,False,[point(x,y) for x,y in points],width)
-    def label(text,x,y,color=(102,146,151),size=10):
-        surface.blit(font(size,bold=True).render(text,True,color),point(x,y))
+    def label(text,x,y,color=None,size=10):
+        surface.blit(font(size,bold=True).render(text,True,chrome["muted"] if color is None else color),point(x,y))
     def pipe(points,color):
-        line((9,20,25),points,7);line(color,points,2)
+        line(chrome["shadow"],points,7);line(color,points,2)
         # Follow the complete polyline, including corners, with spaced chevrons.
         lengths=[math.dist(a,b) for a,b in zip(points,points[1:])]
         distance=animation.flow
@@ -131,39 +133,39 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
     def heat(key):
         reading=state.thermal.get(key)
         return score_color((reading.thermal_dev if dev else reading.thermal_abs) if reading else 0, bool(reading and reading.valid))
-    pygame.draw.rect(surface,(4,12,17),area,border_radius=6)
+    pygame.draw.rect(surface,chrome["field"],area,border_radius=6)
     old_clip=surface.get_clip();surface.set_clip(area)
     # Subtle phosphor raster under the schematic, never over sensor text.
-    for y in range(2,400,4):line((6,16,21),[(0,y),(1000,y)],1)
+    for y in range(2,400,4):line(chrome["raster"],[(0,y),(1000,y)],1)
     # Blueprint field and avionics-style edge graduations.
-    for x in range(0,1001,40):line((10,24,30),[(x,0),(x,400)],1)
-    for y in range(0,401,40):line((10,24,30),[(0,y),(1000,y)],1)
+    for x in range(0,1001,40):line(chrome["grid"],[(x,0),(x,400)],1)
+    for y in range(0,401,40):line(chrome["grid"],[(0,y),(1000,y)],1)
     # A low-contrast CRT refresh sweep lives behind every component and reading.
-    for offset,color in ((-6,(7,19,24)),(-3,(9,24,29)),(0,(15,34,39)),(3,(9,24,29))):
+    for offset,role in ((-6,"raster"),(-3,"grid"),(0,"sweep"),(3,"grid")):
         y=(animation.raster+offset)%400
-        line(color,[(18,y),(982,y)],1)
+        line(chrome[role],[(18,y),(982,y)],1)
     for y in range(40,381,10):
         tick=12 if y%40==0 else 6
-        line((41,76,81),[(3,y),(3+tick,y)],1)
-        line((41,76,81),[(997-tick,y),(997,y)],1)
+        line(chrome["ticks"],[(3,y),(3+tick,y)],1)
+        line(chrome["ticks"],[(997-tick,y),(997,y)],1)
     for x,y,dx,dy in ((3,3,1,1),(997,3,-1,1),(3,397,1,-1),(997,397,-1,-1)):
-        line((85,139,142),[(x+dx*20,y),(x,y),(x,y+dy*18)],2)
-    for y in range(75,340,12):line((24,49,56),[(500,y),(500,y+5)],1)
-    label("FRONT",574,5,(144,183,190),9)
-    line((144,183,190),[(624,22),(624,6),(619,11),(624,6),(629,11)],1)
+        line(chrome["edge"],[(x+dx*20,y),(x,y),(x,y+dy*18)],2)
+    for y in range(75,340,12):line(chrome["centerline"],[(500,y),(500,y+5)],1)
+    label("FRONT",574,5,chrome["ink"],9)
+    line(chrome["ink"],[(624,22),(624,6),(619,11),(624,6),(629,11)],1)
     charge=(57,169,184);exhaust=(195,108,60);coolant=(72,125,175);oil=(167,143,66)
     # Forward radiator and low oil cooler, independent of the charge-air path.
-    pygame.draw.rect(surface,(13,27,34),rect(356,34,288,42),border_radius=4)
-    for x in range(360,640,8):line((35,56,63),[(x,38),(x,72)],1)
-    label("RADIATOR",449,32,(119,162,177),9)
+    pygame.draw.rect(surface,chrome["component"],rect(356,34,288,42),border_radius=4)
+    for x in range(360,640,8):line(chrome["centerline"],[(x,38),(x,72)],1)
+    label("RADIATOR",449,32,chrome["muted"],9)
     line(coolant,[(380,55),(295,55),(295,219),(320,219)])
     line(coolant,[(680,219),(705,219),(705,55),(620,55)])
     # Intake banks, distinct compressor/turbine housings and cylinder assemblies.
     for side,mirror in (("LEFT",False),("RIGHT",True)):
         def p(x,y):return (1000-x if mirror else x,y)
         def bank_pipe(points,color):pipe([p(x,y) for x,y in points],color)
-        label(side+" BANK",35 if not mirror else 810,14,(146,180,184),11)
-        line((62,104,109),[p(35,32),p(111,32),p(118,25)],1)
+        label(side+" BANK",35 if not mirror else 810,14,chrome["ink"],11)
+        line(chrome["edge"],[p(35,32),p(111,32),p(118,25)],1)
         bank_pipe([(85,133),(140,133),(140,193)],charge)
         bank_pipe([(140,193),(160,193),(160,45),(205,45),(205,65)],charge)
         bank_pipe([(205,95),(260,95),(260,104),(500,104)],charge)
@@ -172,42 +174,42 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
         bank_pipe([(140,236),(85,236),(85,285),(42,285),(42,310)],exhaust)
         bank_pipe([(140,232),(140,344),(85,344),(85,382),(500,382),(500,318)],oil)
         x,_=p(205,65)
-        pygame.draw.rect(surface,(13,31,36),rect(x-74,43,148,72),border_radius=5)
-        for fy in range(47,113,6):line((42,75,79),[p(135,fy),p(275,fy)],1)
-        label("INTERCOOLER",x-70,116,(104,158,168),9)
+        pygame.draw.rect(surface,chrome["component"],rect(x-74,43,148,72),border_radius=5)
+        for fy in range(47,113,6):line(chrome["centerline"],[p(135,fy),p(275,fy)],1)
+        label("INTERCOOLER",x-70,116,chrome["muted"],9)
         # A mirrored rotor animation correlated with bank boost, not shaft RPM.
         cx,_=p(140,213)
-        pygame.draw.line(surface,(88,102,103),point(cx,187),point(cx,243),3)
+        pygame.draw.line(surface,chrome["edge"],point(cx,187),point(cx,243),3)
         for y,key in ((194,"COMP_OUT_"+side),(239,"TURBINE_OUT_"+side)):
             housing=rect(cx-32,y-28,64,56)
             pygame.draw.ellipse(surface,tuple(max(12,int(c*.20)) for c in heat(key)),housing)
             pygame.draw.ellipse(surface,heat(key),housing,2)
-            pygame.draw.arc(surface,(112,146,151),housing.inflate(-8,-8),.3,5.2,2)
+            pygame.draw.arc(surface,chrome["ink"],housing.inflate(-8,-8),.3,5.2,2)
             for angle in range(0,360,60):
                 a=math.radians(angle+animation.rotors[side]*(-1 if mirror else 1))
-                line((78,108,117),[(cx,y),(cx+18*math.cos(a),y+18*math.sin(a))],2)
-            pygame.draw.circle(surface,(152,176,178),point(cx,y),3)
-        label("TURBO",cx-28,271,(166,153,130),9)
+                line(chrome["edge"],[(cx,y),(cx+18*math.cos(a),y+18*math.sin(a))],2)
+            pygame.draw.circle(surface,chrome["ink"],point(cx,y),3)
+        label("TURBO",cx-28,271,chrome["muted"],9)
         # Finned cylinder bank leans outward from the shared crankcase.
         polygon,fins=cylinder_geometry(side)
         pygame.draw.polygon(surface,tuple(max(15,int(c*.23)) for c in heat("HEAD_METAL_"+side)),[point(*v) for v in polygon])
         pygame.draw.polygon(surface,heat("HEAD_METAL_"+side),[point(*v) for v in polygon],2)
         for endpoints in fins:
-            line((17,35,40),endpoints,3)
-            line((112,156,153),endpoints,1)
+            line(chrome["shadow"],endpoints,3)
+            line(chrome["ink"],endpoints,1)
     # Shared water/meth treatment, plenum and V-twin crankcase.
     pipe([(500,104),(500,164)],charge)
-    pygame.draw.ellipse(surface,(121,172,175),rect(488,145,24,14),1)
-    line((168,199,194),[(491,146),(509,157)],2)
-    pygame.draw.rect(surface,(11,38,42),rect(426,149,148,30),border_radius=7)
+    pygame.draw.ellipse(surface,chrome["edge"],rect(488,145,24,14),1)
+    line(chrome["ink"],[(491,146),(509,157)],2)
+    pygame.draw.rect(surface,chrome["component"],rect(426,149,148,30),border_radius=7)
     label("WMI",570,117,charge,10)
     line(charge,[(565,124),(559,124),(540,134)],1)
-    pygame.draw.ellipse(surface,(23,36,44),rect(427,272,146,66))
-    pygame.draw.ellipse(surface,(92,111,118),rect(427,272,146,66),2)
-    pygame.draw.ellipse(surface,(40,55,62),rect(460,282,80,42),2)
-    label("GL500 / V-TWIN",439,287,(170,191,190),10)
-    pygame.draw.rect(surface,(20,30,31),rect(355,349,290,40),border_radius=4)
-    for x in range(360,642,9):line((54,58,47),[(x,352),(x,386)],1)
+    pygame.draw.ellipse(surface,chrome["component"],rect(427,272,146,66))
+    pygame.draw.ellipse(surface,chrome["edge"],rect(427,272,146,66),2)
+    pygame.draw.ellipse(surface,chrome["centerline"],rect(460,282,80,42),2)
+    label("GL500 / V-TWIN",439,287,chrome["ink"],10)
+    pygame.draw.rect(surface,chrome["component"],rect(355,349,290,40),border_radius=4)
+    for x in range(360,642,9):line(chrome["centerline"],[(x,352),(x,386)],1)
     label("OIL COOLER",448,389,oil,9)
     line(oil,[(500,318),(500,340),(425,340),(425,365)])
     line(oil,[(575,365),(602,365),(602,318),(535,318)])
@@ -217,19 +219,19 @@ def draw_architecture(surface, area, state, selected, dev, score_color, animatio
         box=rect(x-62,y-12,124,24);rectangles[key]=box
         reading=state.thermal.get(key);valid=bool(reading and reading.valid)
         color=heat(key);focus=key==selected
-        pygame.draw.rect(surface,(12,23,29),box,border_radius=3)
+        pygame.draw.rect(surface,chrome["surface"],box,border_radius=3)
         pygame.draw.rect(surface,color,box,1,border_radius=3)
         if focus:
             # A steady acquisition bracket, not a flashing warning indicator.
             for bx,by,dx,dy in ((box.left,box.top,1,1),(box.right-1,box.top,-1,1),
                                 (box.left,box.bottom-1,1,-1),(box.right-1,box.bottom-1,-1,-1)):
-                pygame.draw.lines(surface,(234,249,243),False,
+                pygame.draw.lines(surface,chrome["bright"],False,
                                   [(bx+dx*9,by),(bx,by),(bx,by+dy*5)],2)
         pygame.draw.rect(surface,color,(box.x+2,box.y+2,3,box.height-4))
         value=f"{reading.temperature_c:.0f}" if valid else "--"
-        vs=font(10,bold=True).render(value,True,(238,248,243) if focus else color)
+        vs=font(10,bold=True).render(value,True,color)
         size=fit_font_size(name,box.width-vs.get_width()-16,box.height-5,start_size=10,bold=True)
-        ts=font(size,bold=True).render(name,True,(221,237,236) if focus else (160,187,192))
+        ts=font(size,bold=True).render(name,True,chrome["bright"] if focus else chrome["ink"])
         surface.blit(ts,(box.x+8,box.centery-ts.get_height()//2))
         surface.blit(vs,(box.right-vs.get_width()-5,box.centery-vs.get_height()//2))
     surface.set_clip(old_clip)

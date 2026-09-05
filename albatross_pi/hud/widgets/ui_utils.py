@@ -14,6 +14,21 @@ THEME_FONT_PREFERRED = (
 THEME_FONT_QUERY = ",".join(THEME_FONT_PREFERRED)
 
 Color = list[int]
+ThemeColors = tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]
+
+# Overlay palettes: background, bright, glow, fault. Keep these separate from
+# the mutable legacy widget colors applied by apply_theme below.
+THEME_COLORS: dict[str, ThemeColors] = {
+    "AMBER": ((24, 14, 0), (255, 198, 64), (185, 134, 39), (255, 72, 36)),
+    "NIGHT": ((14, 18, 28), (130, 190, 255), (88, 135, 190), (255, 90, 90)),
+    "NIGHT OPS": ((1, 7, 10), (132, 245, 214), (58, 134, 130), (255, 92, 72)),
+    "HIGH-CON": ((0, 0, 0), (255, 255, 255), (220, 220, 220), (255, 80, 80)),
+}
+
+
+def theme_colors(theme: str) -> ThemeColors:
+    """Return the selected overlay palette, falling back to the original amber."""
+    return THEME_COLORS.get(theme, THEME_COLORS["AMBER"])
 
 # 80s amber monochrome-ish palette.
 BLACK: Color = [0, 0, 0]

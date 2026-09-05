@@ -6,6 +6,7 @@ import pygame
 
 from .widgets.ui_utils import fit_font_size, font
 from .thermal_architecture import draw_architecture, neighbor, FlowAnimation
+from .thermal_style import thermal_chrome
 from ..state.snapshot import StateSnapshot
 from ..thermal.model import SensorStatus, ThermalReading
 
@@ -63,7 +64,7 @@ class ThermalViews:
         width = min(440, sw-48)
         panel = pygame.Rect(0, 0, width, row_h * len(THERMAL_MENU_ITEMS) + 60)
         panel.center = surface.get_rect().center
-        shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((6, 8, 8, 235))
+        shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((*thermal_chrome(colors)["panel"], 235))
         surface.blit(shade, panel.topleft); pygame.draw.rect(surface, bright, panel, 2, border_radius=7)
         surface.blit(font(15, bold=True).render("TEMPS", True, bright), (panel.x + 12, panel.y + 8))
         for index, (label, _page) in enumerate(THERMAL_MENU_ITEMS):
@@ -77,7 +78,7 @@ class ThermalViews:
         bg, bright, glow, fault = colors
         sw, sh = surface.get_size()
         panel = pygame.Rect(20, 54, sw - 40, sh - 82)
-        shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((5, 8, 9, 246))
+        shade = pygame.Surface(panel.size, pygame.SRCALPHA); shade.fill((*thermal_chrome(colors)["panel"], 246))
         surface.blit(shade, panel.topleft)
         if page in {"thermal_abs", "thermal_dev"}:
             # Chamfered multi-function-display bezel; no decorative alert colors.
@@ -137,7 +138,7 @@ class ThermalViews:
         detail_w = max(255, area.width // 4)
         map_area = pygame.Rect(area.x, area.y, area.width-detail_w-12, area.height-18)
         self.animation.advance(state.engine,pygame.time.get_ticks())
-        self.map_rects = draw_architecture(surface, map_area, state, self.map_selected, dev, self._score_color,self.animation)
+        self.map_rects = draw_architecture(surface, map_area, state, self.map_selected, dev, self._score_color,self.animation,colors)
         self._draw_detail(surface, state, pygame.Rect(map_area.right+12, area.y, detail_w, area.height), self.map_selected, dev, colors)
         x=map_area.x+5
         for label,color in (("CHARGE AIR",(57,169,184)),("EXHAUST",(195,108,60)),("COOLANT",(72,125,175)),("OIL",(167,143,66))):
@@ -148,7 +149,7 @@ class ThermalViews:
 
     def _draw_detail(self, surface: pygame.Surface, state: StateSnapshot, rect: pygame.Rect, key: str, dev: bool, colors: tuple[tuple[int, int, int], ...]) -> None:
         _bg, bright, glow, fault = colors
-        pygame.draw.rect(surface, (9, 14, 16), rect, border_radius=6); pygame.draw.rect(surface, glow, rect, 1, border_radius=6)
+        pygame.draw.rect(surface, thermal_chrome(colors)["surface"], rect, border_radius=6); pygame.draw.rect(surface, glow, rect, 1, border_radius=6)
         reading = state.thermal.get(key)
         if reading is None: return
         title_size = fit_font_size(reading.name.upper(), rect.width-20, 20, start_size=14, bold=True)

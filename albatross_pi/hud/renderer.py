@@ -42,7 +42,7 @@ from .widgets.speed_gear import SpeedGear
 from .widgets.temps_grid import TempsGrid
 from .widgets.thermal_summary import ThermalSummary
 from .widgets.traction_panel import TractionPanel
-from .widgets.ui_utils import apply_theme, fit_font_size, font
+from .widgets.ui_utils import apply_theme, fit_font_size, font, theme_colors
 from .preferences import HUDPreferences
 from .thermal_views import THERMAL_MENU_ITEMS, ThermalViews
 from .airshot_view import draw_airshot
@@ -3196,14 +3196,7 @@ class HUDRenderer:
         self.screen.blit(dim, (0, 0))
 
     def _theme_colors(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
-        theme = self._themes[self._theme_index]
-        if theme == "NIGHT OPS":
-            return (1, 7, 10), (132, 245, 214), (58, 134, 130), (255, 92, 72)
-        if theme == "NIGHT":
-            return (14, 18, 28), (130, 190, 255), (88, 135, 190), (255, 90, 90)
-        if theme == "HIGH-CON":
-            return (0, 0, 0), (255, 255, 255), (220, 220, 220), (255, 80, 80)
-        return (24, 14, 0), (255, 198, 64), (185, 134, 39), (255, 72, 36)
+        return theme_colors(self._themes[self._theme_index])
 
     def _apply_theme_overlay_pre_ui(self) -> None:
         theme = self._themes[self._theme_index]

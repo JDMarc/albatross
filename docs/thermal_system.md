@@ -39,6 +39,8 @@ While either heat map is open, animated arrows travel along the charge-air, exha
 
 The map uses a restrained avionics treatment: a chamfered bezel, subtle background raster with a slow CRT sweep, edge graduations and steady corner brackets on the selected sensor. The sweep stays behind components and sensor text, and data and alert colors retain their meaning. Cylinder fins are derived from the same bank polygons as the castings, inset within each bank and mirrored together; `tests/run_thermal_geometry_checks.py` guards their alignment.
 
+Backgrounds, raster/sweep, grid, neutral mechanical details, labels and focus brackets follow the selected AMBER, NIGHT, NIGHT OPS or HIGH-CON theme. Diagnostic heat colors, gray unavailable readings and the four fluid-path colors remain fixed. Theme changes do not reset sensor selection or animation. `tests/run_thermal_theme_checks.py` verifies the rendered colors across all four themes, both map modes and both supported display sizes.
+
 All four D-pad directions select a visible neighbor, preferring nearby aligned sensors and stopping at the edge. Navigation and rendering share the same sensor coordinates. The selected sensor remains selected when switching ABS/DEV pages. Select or Back returns to the TEMPS menu; Back from that menu returns to the vitals/TEMP tile. Tests in `tests/run_thermal_navigation_checks.py` cover menu entry, all five drive modes, complete sensor reachability, non-overlapping callout geometry at 1280×480 and 1920×720, and animation bounds, fallback and timing.
 
 ## Commissioning sequence
@@ -60,10 +62,11 @@ Synthetic 1280×480 architecture preview (sample temperatures; indicative compon
 ```text
 py -3.12 tests/run_thermal_checks.py
 py -3.12 tests/run_thermal_navigation_checks.py
+py -3.12 tests/run_thermal_theme_checks.py
 py -3.12 tools/check_thermal_config.py
 py -3.12 main.py --simulator --thermal-scenario full_boost_pull
 ```
 
-Optional offline animation preview (requires Pygame and Pillow, opens no CAN/network connection): `py -3.12 tools/render_thermal_motion.py thermal-motion.gif`. The synthetic 0–20 psi sweep demonstrates visual spool-up/down only; it is not calibration or test evidence for the motorcycle.
+Optional offline animation preview (requires Pygame and Pillow, opens no CAN/network connection): `py -3.12 tools/render_thermal_motion.py thermal-motion.gif`. Add `--theme "NIGHT OPS"` to choose a theme or `--cycle-themes` to preview all four. The synthetic 0–20 psi sweep demonstrates visual spool-up/down only; it is not calibration or test evidence for the motorcycle.
 
 Thermal logs are written independently of the selected page under `logs/thermal`. Every record carries the configuration version and vehicle-state context.

@@ -154,6 +154,8 @@ TCS/AWC now has a larger panel with separate levels and intervention status.
   V-twin schematic with separate charge/exhaust, cooling and oil paths. Moving
   flow arrows and smoothly rotating turbo rotors animate the map; each bank's
   boost drives its visual speed (common-boost fallback, not measured shaft RPM).
+  Backgrounds, scanlines and decorative details follow the selected HUD theme;
+  temperature and fluid-path colors stay consistent across themes.
   All four D-pad directions move to visible neighboring sensor callouts. Select or Back
   returns to the menu; Back again
   returns to the focused vitals/TEMP tile. TEMP label color reflects thermal
