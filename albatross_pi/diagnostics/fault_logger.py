@@ -52,6 +52,19 @@ def _snapshot_dict(snapshot: StateSnapshot) -> dict[str, Any]:
 
 
 def fault_reason(fault: str, snapshot: StateSnapshot) -> str:
+    for key, reading in snapshot.thermal.readings.items():
+        if fault.startswith(key + " "):
+            value = "unavailable" if not reading.valid else f"{reading.temperature_c:.1f} C"
+            return f"{reading.name}: {value}; sensor status {reading.status.name}. {fault[len(key)+1:]}. Thresholds use the thermal configuration; deviation uses the learned healthy baseline."
+    thermal_reasons = {
+        "THERMAL NODE OFFLINE": "The dedicated thermal Teensy heartbeat is missing, stale or has an incompatible protocol version.",
+        "HEAD L/R IMBALANCE": "Valid head coolant temperatures differ by at least 10 C for two seconds.",
+        "IC-L PERFORMANCE LOW": "Left intercooler effectiveness is below 45% for three seconds at engine load above 50%.",
+        "IC-R PERFORMANCE LOW": "Right intercooler effectiveness is below 45% for three seconds at engine load above 50%.",
+        "WMI THERMAL RESPONSE LOW": "WMI is commanded but the valid pre/post temperature drop stays below 2 C for three seconds.",
+    }
+    if fault in thermal_reasons:
+        return thermal_reasons[fault]
     engine = snapshot.engine
     temps = snapshot.temps
     env = snapshot.environment
@@ -99,6 +112,10 @@ def fault_reason(fault: str, snapshot: StateSnapshot) -> str:
 
 
 def fault_action(fault: str, snapshot: StateSnapshot) -> str:
+    if fault in snapshot.thermal.alerts:
+        if "SENSOR" in fault or fault == "THERMAL NODE OFFLINE":
+            return "Check thermal-node power, CAN, probe wiring and front-end diagnostics. Unavailable temperature is not evidence that the component is cool."
+        return "Reduce load and inspect the indicated thermal channel and cooling system. For critical temperature, stop safely and investigate. Ignoring this HUD error does not disable protection."
     actions = {
         "WMI FLOW LOW": "Boost request is derated; WMI status remains faulted until measured flow recovers.",
         "EGT HIGH": "Boost is reduced and limp can be requested if exhaust temperature keeps rising.",

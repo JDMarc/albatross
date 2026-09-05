@@ -24,6 +24,9 @@ Before vehicle use, review thresholds with the engine builder/tuner, prove every
 
 ## Pi architecture
 
+See the [thermal error catalogue and Ignore Error controls](thermal_alerts.md)
+for main-HUD warning conditions, audio mapping, clearing and recurrence behavior.
+
 `albatross_pi/thermal/service.py` is the single live model. SocketCAN, simulation, and JSONL replay all feed this model. It owns timestamps, stale/offline behavior, component-specific ABS normalization, ambient deltas, left/right and stage deltas, intercooler effectiveness, diagnostic compressor-efficiency estimates, filtered derivatives, persistent/hysteretic alerts, and protected condition bins.
 
 Baseline learning starts disabled. It must be deliberately authorized only during known-healthy commissioning. Factory, long-term, and recent dictionaries remain separate so degradation cannot silently redefine the only good baseline.

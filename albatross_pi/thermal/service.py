@@ -53,7 +53,6 @@ class ThermalService:
         self._config_crc32 = 0
         self._vehicle: dict[str, float] = {}
         self._alert_since: dict[str, float] = {}
-        self._alert_latch_until: dict[str, float] = {}
 
     @property
     def can_ids(self) -> set[int]:
@@ -204,29 +203,32 @@ class ThermalService:
             reading = readings[definition.key]
             score = severity(reading, definition)
             max_severity = max(max_severity, score)
-            if definition.enabled and reading.status != SensorStatus.VALID:
+            if online and definition.enabled and reading.status != SensorStatus.VALID:
                 has_data_fault = True
                 conditions[f"{definition.key} SENSOR {reading.status.name.replace('_', ' ')}"] = (True, 0.25)
             if reading.valid and reading.temperature_c is not None:
-                conditions[f"{definition.key} TEMP HIGH"] = (reading.temperature_c >= definition.warning_c, 1.0)
+                conditions[f"{definition.key} TEMP HIGH"] = (definition.warning_c <= reading.temperature_c < definition.critical_c, 1.0)
+                conditions[f"{definition.key} TEMP CRITICAL"] = (reading.temperature_c >= definition.critical_c, 0.0)
                 conditions[f"{definition.key} DEVIATION"] = (reading.thermal_dev >= 80.0, 2.0)
         head_delta = derived.get("HEAD_COOLANT_LR_DELTA")
         conditions["HEAD L/R IMBALANCE"] = (head_delta is not None and abs(head_delta) >= 10.0, 2.0)
-        ic_r = derived.get("IC_EFFECTIVENESS_RIGHT")
-        conditions["IC-R PERFORMANCE LOW"] = (ic_r is not None and ic_r < 45.0 and self._vehicle.get("load_pct", 0) > 50, 3.0)
+        for side, short in (("LEFT", "L"), ("RIGHT", "R")):
+            effectiveness = derived.get(f"IC_EFFECTIVENESS_{side}")
+            conditions[f"IC-{short} PERFORMANCE LOW"] = (effectiveness is not None and effectiveness < 45.0 and self._vehicle.get("load_pct", 0) > 50, 3.0)
         wmi_drop = derived.get("WMI_DROP")
         conditions["WMI THERMAL RESPONSE LOW"] = (self._vehicle.get("wmi_command", 0) > 0 and wmi_drop is not None and wmi_drop < 2.0, 3.0)
 
         active: list[str] = []
+        # A disappearing condition (invalid -> valid, or valid -> unavailable)
+        # must end its episode as well as reset its persistence timer.
+        self._alert_since = {name: since for name, since in self._alert_since.items() if name in conditions}
         for name, (condition, persistence_s) in conditions.items():
             if condition:
                 since = self._alert_since.setdefault(name, now)
                 if now - since >= persistence_s:
-                    self._alert_latch_until[name] = now + 2.0
+                    active.append(name)
             else:
                 self._alert_since.pop(name, None)
-            if self._alert_latch_until.get(name, 0.0) >= now:
-                active.append(name)
         if max_severity >= 100:
             overall = "CRITICAL"
         elif has_data_fault:

@@ -132,6 +132,11 @@ and recovery requirements described in the dynamics document.
 HUD controls and calibration
 ----------------------------
 
+Thermal warning catalogue and confirmed IGNORE ERROR behavior:
+docs/thermal_alerts.md. Thermal errors now join the main HUD/audio warning path.
+Ignoring silences only the current occurrence; a resolved error warns again if
+it returns. ECU/controller protections and fault logging remain active.
+
 Left/right moves home focus; the ride modes run ECO, NORMAL, SPORT, RACE,
 ALBATROSS, then SETTINGS and MEDIA. Settings retains its stopped/neutral gate.
 TCS/AWC now has a larger panel with separate levels and intervention status.

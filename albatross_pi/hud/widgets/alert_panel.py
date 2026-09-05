@@ -38,6 +38,12 @@ class AlertPanel(Widget):
         else:
             lines = sorted(self._advisory_latch_until.keys())
         highlight = bool(lines) and bool(active_faults or self._fault_latch_until)
+        # Keep a large batch of sensor faults readable on the compact HUD.
+        # The detail menu exposes every error; the home tile cycles two at once.
+        count = len(lines)
+        if count > 2:
+            start = (int(now / 2) * 2) % count
+            lines = [lines[start], lines[(start + 1) % count]]
         advisory_display = bool(lines) and not highlight
         is_active_fault_display = bool(active_faults)
         if not lines:
@@ -47,7 +53,7 @@ class AlertPanel(Widget):
         # Reserve space for the GL500 heritage label at the top
         header_height = int(self.rect.height * 0.2)
         header_size = fit_font_size("GL500 ALERT", self.rect.width - 10, header_height - 4, start_size=max(12, int(header_height * 0.6)), bold=True)
-        header_surface = font(header_size, bold=True).render("GL500 ALERT", True, AMBER_BRIGHT)
+        header_surface = font(header_size, bold=True).render(f"ALERTS ({count})" if count else "GL500 ALERT", True, AMBER_BRIGHT)
         surface.blit(
             header_surface,
             (

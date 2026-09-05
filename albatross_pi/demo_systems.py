@@ -118,7 +118,7 @@ class DemoReceiver:
         if not self.active:return state
         for fid,data in parsed:
             self.dynamics.ingest(fid,data);self.air.ingest(fid,data);self.thermal.apply_can_frame(fid,data)
-        self.thermal.set_vehicle_context({"rpm":state.engine.rpm,"load_pct":state.engine.engine_load_pct,"boost_psi":state.engine.boost_psi,"ambient_c":(state.environment.ambient_temp_f-32)*5/9})
+        self.thermal.set_vehicle_context({"rpm":state.engine.rpm,"load_pct":state.engine.engine_load_pct,"boost_psi":state.engine.boost_psi,"ambient_c":(state.environment.ambient_temp_f-32)*5/9,"wmi_command":state.wmi.commanded_flow_cc_min})
         d,a,t=self.dynamics.snapshot(),self.air.snapshot(),self.thermal.snapshot()
         alerts=set(d.alerts)|set(a.alerts)|set(t.alerts);faults=(set(state.faults)-self.alerts)|alerts;self.alerts=alerts
         return replace(state,dynamics=d,air_shot=replace(state.air_shot,v2=a),thermal=t,faults=tuple(sorted(faults)))

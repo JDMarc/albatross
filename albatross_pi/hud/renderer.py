@@ -69,6 +69,7 @@ class EvaAlertAudio:
         self._active_faults: set[str] = set()
         self._played_faults: set[str] = set()
         self._pending_faults: list[str] = []
+        self._playing_fault: str | None = None
         self._mapping = {
             "CRITICAL OIL PRESS": "your_engine_oil_pressure_is_critical_engine_damage_may_occur.wav",
             "LOW OIL PRESS": "LOW-OIL-PRESS.wav",
@@ -159,6 +160,23 @@ class EvaAlertAudio:
             sound = loaded_by_name.get(name)
             if sound is not None:
                 self._sounds[fault] = sound
+        self._sounds[RETRO_ERROR_BEEP] = loaded_by_name.get(RETRO_ERROR_BEEP)
+
+    def _sound_for_fault(self, fault: str):
+        alias = fault
+        if fault == "THERMAL NODE OFFLINE":
+            alias = "CAN TIMEOUT"
+        elif " SENSOR " in fault:
+            alias = "SENSOR RANGE FAULT"
+        elif fault.endswith((" TEMP HIGH", " TEMP CRITICAL")):
+            key = fault.split(" TEMP ")[0]
+            if key.startswith(("EGT_", "TURBINE_OUT_")):
+                alias = "EGT HIGH"
+            elif key.startswith(("HEAD_", "RAD_")):
+                alias = "COOLANT HOT"
+            elif key.startswith(("COMP_", "IC_", "RUNNER_IAT", "PLENUM_IAT", "PRE_WMI", "POST_WMI")):
+                alias = "INTAKE AIR HOT"
+        return self._sounds.get(alias) or self._sounds.get(RETRO_ERROR_BEEP)
 
     @staticmethod
     def _transcode_au_to_pcm_wav(source_path: Path, dest_path: Path) -> None:
@@ -188,27 +206,35 @@ class EvaAlertAudio:
             out.writeframes(frames)
 
     def update(self, faults: tuple[str, ...], *, allow_playback: bool) -> None:
-        if not self._enabled or not allow_playback:
+        if not self._enabled:
             return
         current_faults = set(faults)
         cleared_faults = self._active_faults - current_faults
         for fault in cleared_faults:
             self._played_faults.discard(fault)
         self._active_faults = current_faults
+        self._pending_faults = [name for name in self._pending_faults if name in current_faults]
+        if self._playing_fault and self._playing_fault not in current_faults:
+            if self._channel is not None:
+                self._channel.stop()
+            self._playing_fault = None
+        if not allow_playback:
+            return
 
         for fault in faults:
             if fault in self._played_faults or fault in self._pending_faults:
                 continue
-            if fault in self._sounds:
+            if self._sound_for_fault(fault) is not None:
                 self._pending_faults.append(fault)
 
         if self._channel is None or self._channel.get_busy() or not self._pending_faults:
             return
         fault = self._pending_faults.pop(0)
-        sound = self._sounds.get(fault)
+        sound = self._sound_for_fault(fault)
         if sound is None:
             return
         self._channel.play(sound)
+        self._playing_fault = fault
         self._played_faults.add(fault)
 
 
@@ -303,6 +329,10 @@ class HUDRenderer:
         self._thermal_views = ThermalViews()
         self._fault_detail_index = 0
         self._visible_faults: tuple[str, ...] = ()
+        self._ignored_faults: set[str] = set()
+        self._fault_menu_action = 0
+        self._ignore_target: str | None = None
+        self._ignore_confirm_yes = False
         self._settings_cursor = 0
         self._media_items = ["PREV", "PLAY", "NEXT", "DEVICES"]
         self._media_index = 0
@@ -392,7 +422,7 @@ class HUDRenderer:
         return math.isfinite(float(value))
 
     def _runtime_faults(self, state: StateSnapshot, now_s: float) -> tuple[str, ...]:
-        active: set[str] = set()
+        active: set[str] = set(state.faults) | set(state.thermal.alerts) | set(state.air_shot.v2.alerts) | set(state.dynamics.alerts)
         engine = state.engine
         temps = state.temps
         wmi = state.wmi
@@ -1298,7 +1328,7 @@ class HUDRenderer:
                     self._post_fault_active = False
             self._log_new_faults(state)
             self._audio.update(
-                state.faults,
+                self._presentation_faults(state.faults),
                 allow_playback=self._post_complete and not self._post_fault_active,
             )
             self._render_frame(state)
@@ -1335,6 +1365,7 @@ class HUDRenderer:
         return self.screen.copy()
 
     def _render_frame(self, state: StateSnapshot, *, present: bool = True) -> None:
+        state = replace(state, faults=self._presentation_faults(tuple(sorted(set(state.faults) | set(state.thermal.alerts)))))
         self._dynamics_menu.sync(state.dynamics)
         if state.air_shot.v2.online and state.air_shot.v2.mode==self._air_requested_mode:
             self._air_requested_mode=None
@@ -1347,6 +1378,10 @@ class HUDRenderer:
         previous_focus_target = self._home_focus_target() if self._active_menu == "home" else ""
         previous_had_faults = bool(self._visible_faults)
         self._visible_faults = tuple(state.faults)
+        if self._active_menu == "fault_ignore_confirm" and self._ignore_target not in self._visible_faults:
+            self._ignore_target = None
+            self._ignore_confirm_yes = False
+            self._active_menu = "fault_detail"
         self._normalize_home_focus(previous_focus_target, previous_had_faults)
         apply_theme(self._themes[self._theme_index])
         self.screen.fill((0, 0, 0))
@@ -1383,6 +1418,9 @@ class HUDRenderer:
             self._render_settings_overlay()
         elif self._active_menu == "media":
             self._render_media_overlay()
+        elif self._active_menu == "fault_ignore_confirm":
+            self._render_modal_dimmer()
+            self._render_ignore_confirmation()
         elif self._active_menu == "fault_detail":
             self._render_modal_dimmer()
             self._render_fault_detail_overlay(state)
@@ -1462,6 +1500,10 @@ class HUDRenderer:
     def _active_faults_for_detail(self, state: StateSnapshot) -> list[str]:
         return sorted(set(state.faults))
 
+    def _presentation_faults(self, faults: tuple[str, ...]) -> tuple[str, ...]:
+        self._ignored_faults.intersection_update(faults)
+        return tuple(name for name in faults if name not in self._ignored_faults)
+
     def _cycle_fault_detail(self, delta: int) -> None:
         count = len(set(self._visible_faults))
         if count <= 0:
@@ -1469,6 +1511,9 @@ class HUDRenderer:
         self._fault_detail_index = (self._fault_detail_index + delta) % count
 
     def _handle_dpad_right(self) -> None:
+        if self._active_menu == "fault_ignore_confirm":
+            self._ignore_confirm_yes = not self._ignore_confirm_yes
+            return
         if self._active_menu=="dynamics":
             self._dynamics_menu.adjust(1,self.state.engine.speed_mph<=1);return
         if self._active_menu == "airshot_calibration":
@@ -1555,6 +1600,9 @@ class HUDRenderer:
         self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu == "fault_ignore_confirm":
+            self._ignore_confirm_yes = not self._ignore_confirm_yes
+            return
         if self._active_menu=="dynamics":
             self._dynamics_menu.adjust(-1,self.state.engine.speed_mph<=1);return
         if self._active_menu == "airshot_calibration":
@@ -1641,6 +1689,12 @@ class HUDRenderer:
         self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
 
     def _handle_up(self) -> None:
+        if self._active_menu == "fault_ignore_confirm":
+            self._ignore_confirm_yes = not self._ignore_confirm_yes
+            return
+        if self._active_menu == "fault_detail":
+            self._fault_menu_action = 1 - self._fault_menu_action
+            return
         if self._active_menu=="dynamics":self._dynamics_menu.move(-1);return
         if self._active_menu == "airshot_switch":
             self._air_switch.cursor=(self._air_switch.cursor-1)%3
@@ -1682,6 +1736,9 @@ class HUDRenderer:
             self._focus_index = (self._focus_index - 1) % len(self._home_focus_targets())
 
     def _handle_down(self) -> None:
+        if self._active_menu in {"fault_ignore_confirm", "fault_detail"}:
+            self._handle_up()
+            return
         if self._active_menu=="dynamics":self._dynamics_menu.move(1);return
         if self._active_menu == "airshot_switch":
             self._air_switch.cursor=(self._air_switch.cursor+1)%3
@@ -1723,6 +1780,19 @@ class HUDRenderer:
             self._focus_index = (self._focus_index + 1) % len(self._home_focus_targets())
 
     def _handle_select(self) -> None:
+        if self._active_menu == "fault_ignore_confirm":
+            if self._ignore_confirm_yes and self._ignore_target in self._visible_faults:
+                self._ignored_faults.add(self._ignore_target)
+                for widget in self.widgets:
+                    if isinstance(widget, AlertPanel):
+                        widget._fault_latch_until.pop(self._ignore_target, None)
+                self._visible_faults = tuple(f for f in self._visible_faults if f != self._ignore_target)
+                self._audio.update(self._visible_faults, allow_playback=False)
+            self._ignore_target = None
+            self._ignore_confirm_yes = False
+            self._fault_menu_action = 0
+            self._active_menu = "fault_detail"
+            return
         if self._active_menu=="dynamics":self._dynamics_menu.select();return
         if self._active_menu=="home" and self._home_focus_target()=="DYNAMICS":
             self._active_menu="dynamics";self._dynamics_menu.page="controls";return
@@ -1760,6 +1830,7 @@ class HUDRenderer:
             if target == "FAULTS":
                 if self._visible_faults:
                     self._fault_detail_index = 0
+                    self._fault_menu_action = 0
                     self._active_menu = "fault_detail"
                 return
             if target == "TEMPS":
@@ -1785,7 +1856,13 @@ class HUDRenderer:
             self._activate_media_action()
             return
         if self._active_menu == "fault_detail":
-            self._cycle_fault_detail(1)
+            if self._fault_menu_action == 1 and self._visible_faults:
+                faults = sorted(set(self._visible_faults))
+                self._ignore_target = faults[self._fault_detail_index % len(faults)]
+                self._ignore_confirm_yes = False
+                self._active_menu = "fault_ignore_confirm"
+            else:
+                self._cycle_fault_detail(1)
             return
         if self._active_menu == "nav_waypoints":
             self._activate_navigation_menu_item()
@@ -2025,6 +2102,11 @@ class HUDRenderer:
             self._network_password_text += key
 
     def _handle_back(self) -> None:
+        if self._active_menu == "fault_ignore_confirm":
+            self._ignore_target = None
+            self._ignore_confirm_yes = False
+            self._active_menu = "fault_detail"
+            return
         if self._active_menu=="dynamics":
             self._dynamics_menu.stop_confirm_at=None
             if self._dynamics_menu.page!="controls":self._dynamics_menu.page="controls"
@@ -2190,7 +2272,8 @@ class HUDRenderer:
         status = engine_status(state)
         title = f"EVA FAULT DETAIL {self._fault_detail_index + 1}/{len(faults)}"
         self.screen.blit(font(22, bold=True).render(title, True, bright), (panel.x + 18, panel.y + 12))
-        self.screen.blit(font(24, bold=True).render(name, True, fault_color), (panel.x + 18, panel.y + 48))
+        name_size = fit_font_size(name, panel.width-36, 30, start_size=24, bold=True)
+        self.screen.blit(font(name_size, bold=True).render(name, True, fault_color), (panel.x + 18, panel.y + 48))
 
         text_x = panel.x + 18
         grid_x = panel.x + int(panel.width * 0.62)
@@ -2203,7 +2286,7 @@ class HUDRenderer:
             self.screen.blit(font(15, bold=True).render(heading, True, bright), (text_x, y))
             y += 18
             for line in self._wrap_words(body, text_max_w - 10, 14):
-                if y > panel.bottom - 42:
+                if y > panel.bottom - 76:
                     break
                 self.screen.blit(font(14).render(line, True, glow), (text_x + 10, y))
                 y += 17
@@ -2228,7 +2311,7 @@ class HUDRenderer:
         grid_y = panel.y + 88
         label_w = max(70, int(panel.width * 0.12))
         value_max_w = max(90, panel.right - grid_x - label_w - 24)
-        row_h = max(18, min(25, (panel.bottom - grid_y - 42) // len(rows)))
+        row_h = max(16, min(25, (panel.bottom - grid_y - 70) // len(rows)))
         self.screen.blit(font(15, bold=True).render("CURRENT VALUES", True, bright), (grid_x, panel.y + 64))
         for idx, (label, value) in enumerate(rows):
             row_y = grid_y + idx * row_h
@@ -2236,9 +2319,28 @@ class HUDRenderer:
             value_size = fit_font_size(value, value_max_w, row_h, start_size=14, bold=True)
             self.screen.blit(font(value_size, bold=True).render(value, True, bright), (grid_x + label_w, row_y))
 
-        hint = "ARROWS: NEXT FAULT  |  ENTER: NEXT  |  ESC: BACK"
+        actions = ("NEXT ERROR", "IGNORE ERROR")
+        for index, action in enumerate(actions):
+            text = ("> " if self._fault_menu_action == index else "  ") + action
+            self.screen.blit(font(14, bold=True).render(text, True, bright if self._fault_menu_action == index else glow), (panel.x + 18 + index * 215, panel.bottom - 48))
+        hint = "LEFT/RIGHT: ERROR | UP/DOWN: ACTION | SELECT: ACTIVATE | BACK: HOME"
         hint_surface = font(12, bold=True).render(hint, True, glow)
         self.screen.blit(hint_surface, (panel.right - hint_surface.get_width() - 18, panel.bottom - 24))
+
+    def _render_ignore_confirmation(self) -> None:
+        _bg, bright, glow, fault = self._theme_colors()
+        panel = pygame.Rect(0, 0, min(880, self.screen.get_width()-48), 200)
+        panel.center = self.screen.get_rect().center
+        pygame.draw.rect(self.screen, (12, 8, 0), panel)
+        pygame.draw.rect(self.screen, fault, panel, 2)
+        lines = ["IGNORE ERROR — ARE YOU SURE?", self._ignore_target or "ERROR CLEARED",
+                 "Hide and silence this occurrence. Logging and protection remain active.",
+                 "It will warn again if it clears and then returns."]
+        for n, text in enumerate(lines):
+            size = fit_font_size(text, panel.width-32, 24, start_size=20 if n==0 else 15, bold=True)
+            self.screen.blit(font(size, bold=True).render(text, True, bright if n==0 else glow), (panel.x+16, panel.y+16+n*29))
+        choice = "CANCEL     > YES, IGNORE" if self._ignore_confirm_yes else "> CANCEL     YES, IGNORE"
+        self.screen.blit(font(17, bold=True).render(choice, True, bright), (panel.x+16, panel.bottom-42))
 
     def _render_navigation_waypoint_overlay(self) -> None:
         _bg, bright, glow, fault = self._theme_colors()
