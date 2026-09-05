@@ -5,7 +5,14 @@ Start `python main.py` without a CAN interface or simulator, then run
 Dry-run prints CAN frames instead of transmitting them, but intentionally sends
 local UDP demo data to the HUD. The HUD uses the production telemetry decoders.
 
-The original ECU/bike controls remain in the first tab. Additional tabs provide:
+The original ECU/bike controls remain in the first tab.
+
+The first tab's ECU coolant/IAT/oil temperatures represent independent ECU
+telemetry. Change the Thermal tab channels to change primary HUD temperatures.
+Legacy ECU EGT sliders/transmission have been removed. Thermal-node loss must
+make primary temperatures unavailable rather than fall back to the ECU sliders.
+
+Additional tabs provide:
 
 - **Dynamics:** independent TCS/AWC levels, throttle-curve selection, torque limits,
   wheel speeds, pitch/lean/rate, traction and wheelie confidence, DBW target/actual,

@@ -11,6 +11,7 @@ from typing import Callable, Iterator
 
 from albatross_pi.boost_strategy import calculate_boost_target
 from albatross_pi.thermal.simulation import ThermalSimulator
+from albatross_pi.thermal.summary import primary_temperatures
 from .snapshot import (
     AirShotState,
     ClutchState,
@@ -212,7 +213,7 @@ class StateSimulator:
 
         next_snapshot = StateSnapshot(
             engine=engine,
-            temps=temps,
+            temps=primary_temperatures(temps,thermal),
             air_shot=air_shot,
             wmi=wmi,
             traction=traction,

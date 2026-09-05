@@ -13,16 +13,20 @@ class TempsGrid(Widget):
         self.rect = rect
         self.split = split
         self.rows = [
-            ("Coolant", lambda s: f"{s.temps.coolant_temp_f:5.1f}F"),
-            ("Oil", lambda s: f"{s.temps.oil_temp_f:5.1f}F"),
+            ("CLT max", lambda s: self._temperature(s.temps.coolant_temp_f)),
+            ("Oil", lambda s: self._temperature(s.temps.oil_temp_f)),
             ("Oil P", lambda s: f"{s.temps.oil_pressure_psi:5.1f}psi"),
             ("Battery", lambda s: f"{s.temps.battery_voltage:4.2f}V"),
-            ("IAT", lambda s: f"{s.temps.intake_temp_f:5.1f}F"),
-            ("EGT", lambda s: f"{s.temps.exhaust_temp_f:5.0f}F"),
+            ("Plenum", lambda s: self._temperature(s.temps.intake_temp_f)),
+            ("EGT max", lambda s: self._temperature(s.temps.exhaust_temp_f)),
             ("WMI Tank", lambda s: f"{s.wmi.tank_level_pct:4.0f}%"),
             ("WMI Flow", lambda s: f"{s.wmi.actual_flow_cc_min:4.0f}/{s.wmi.commanded_flow_cc_min:4.0f}"),
             ("WMI Stat", lambda s: "FAULT" if s.wmi.fault_active else "OK"),
         ]
+
+    @staticmethod
+    def _temperature(value):
+        return "--" if value == -1.0 else f"{value:.0f}F"
 
     def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
         pygame.draw.rect(surface, AMBER_BG, self.rect)

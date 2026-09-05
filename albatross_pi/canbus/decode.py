@@ -21,6 +21,7 @@ from .ids import (
     ThermalNodeToNetworkID,
 )
 from ..thermal import ThermalService
+from ..thermal.summary import primary_temperatures
 from ..airshot import AirShotService
 from ..dynamics import DynamicsService
 from ..state.snapshot import (
@@ -211,6 +212,7 @@ class CANStateAggregator:
                 shift_light=self._shift_light,
                 faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts) | set(air_v2.alerts) | set(self.dynamics_service.snapshot().alerts))),
             )
+            self._last_snapshot = replace(self._last_snapshot,temps=primary_temperatures(self._last_snapshot.temps,thermal_snapshot))
             self._dirty = True
             self._condition.notify_all()
 
@@ -236,6 +238,7 @@ class CANStateAggregator:
         previous = set(self._last_snapshot.thermal.alerts) | set(self._last_snapshot.air_shot.v2.alerts) | set(self._last_snapshot.dynamics.alerts)
         faults = (set(self._last_snapshot.faults) - previous) | set(thermal.alerts) | set(air.alerts) | set(dynamics.alerts)
         return replace(self._last_snapshot, thermal=thermal,dynamics=dynamics,
+            temps=primary_temperatures(self._last_snapshot.temps,thermal),
             air_shot=replace(self._last_snapshot.air_shot,v2=air), faults=tuple(sorted(faults)))
 
     def rx_age_s(self) -> float:
@@ -329,11 +332,11 @@ class CANStateAggregator:
         self._engine_data["knock_events"] = int(bin(flags).count("1"))
 
     def _update_oil(self, data: bytes) -> None:
-        if len(data) < 4:
+        if len(data) < 2:
             return
-        pressure_raw, temp_raw = struct.unpack_from(">HH", data)
+        (pressure_raw,) = struct.unpack_from(">H", data)
         self._temps_data["oil_pressure_psi"] = pressure_raw / 10.0
-        self._temps_data["oil_temp_f"] = _c_to_f(temp_raw / 10.0)
+        # Oil temperature now comes exclusively from THERMAL_NODE/OIL_GALLERY.
 
     def _update_arduino_oil_pressure(self, data: bytes) -> None:
         if len(data) < 2:
@@ -345,7 +348,8 @@ class CANStateAggregator:
         if len(data) < 2:
             return
         (temp_raw,) = struct.unpack_from(">H", data)
-        self._temps_data["coolant_temp_f"] = _c_to_f(temp_raw / 10.0)
+        # Independent MS3 fallback CLT is not substituted into thermal-node data.
+        self._temps_data["ms3_coolant_temp_f"] = _c_to_f(temp_raw / 10.0)
 
     def _update_fuel(self, data: bytes) -> None:
         if not data:
@@ -376,20 +380,10 @@ class CANStateAggregator:
         self._engine_data["engine_load_pct"] = min(100.0, data[0])
 
     def _update_intake_temp(self, data: bytes) -> None:
-        if len(data) < 2:
-            return
-        (temp_raw,) = struct.unpack_from(">H", data)
-        self._temps_data["intake_temp_f"] = _c_to_f(temp_raw / 10.0)
+        pass  # Independent ECU IAT does not overwrite THERMAL_NODE/PLENUM_IAT.
 
     def _update_exhaust_temp(self, data: bytes) -> None:
-        if len(data) < 4:
-            return
-        bank1, bank2 = struct.unpack_from(">HH", data[:4])
-        left_f = _c_to_f(bank1 / 10.0)
-        right_f = _c_to_f(bank2 / 10.0)
-        self._temps_data["exhaust_left_temp_f"] = left_f
-        self._temps_data["exhaust_right_temp_f"] = right_f
-        self._temps_data["exhaust_temp_f"] = (left_f + right_f) / 2.0
+        pass  # Retired ECU EGT frame; primary sources are THERMAL_NODE/EGT L/R.
 
 
     def _update_battery_voltage(self, data: bytes) -> None:

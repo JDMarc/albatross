@@ -2,20 +2,25 @@
 import pygame
 import time
 from .widgets.ui_utils import font, fit_font_size
+from .airshot_status import airshot_status
 
-def draw_airshot(surface,state,colors):
+def draw_airshot(surface,state,colors,request=None):
     bg,bright,glow,fault=colors
     w,h=surface.get_size();panel=pygame.Rect(22,56,w-44,h-88)
     pygame.draw.rect(surface,bg,panel,border_radius=8);pygame.draw.rect(surface,glow,panel,2,border_radius=8)
     air=state.air_shot.v2
+    intent,result,explanation=airshot_status(air,request)
     surface.blit(font(19,bold=True).render("AIR SHOT / CONTROL & DIAGNOSTICS",True,bright),(panel.x+14,panel.y+10))
     def number(v,suffix=""): return "--" if v is None else f"{v:.1f}{suffix}"
     permission=air.input_context.get("0x192",{})
-    data=bytes.fromhex(permission.get("data",""))
+    try:data=bytes.fromhex(permission.get("data",""))
+    except (TypeError,ValueError):data=b""
     fresh=len(data)==8 and time.monotonic()-permission.get("at",0)<=.3
     rows=[
-        ("MODE / STATE",f"{air.mode} / {air.state}" if air.online else "OFFLINE"),
-        ("REASON",air.reason),("PROFILE",air.profile),("DEMAND / AIR",f"{air.demand_pct}% / {air.available_pct}%"),
+        ("RIDER REQUEST",intent), ("RESULT",result), ("WHY",explanation),
+        ("CONTROLLER MODE / STATE",f"{air.mode} / {air.state}" if air.online else "OFFLINE"),
+        ("CONTROLLER REASON",air.reason if air.online else "UNKNOWN"),
+        ("PROFILE",air.profile),("DEMAND / AIR",f"{air.demand_pct}% / {air.available_pct}%"),
         ("TANK / REG",number(air.tank_psi," psi")+" / "+number(air.regulated_psi," psi")),
         ("INTAKE L / R",f"{air.valves_pct[0]}% / {air.valves_pct[1]}%"),
         ("TURBINE L / R",f"{air.valves_pct[2]}% / {air.valves_pct[3]}%"),

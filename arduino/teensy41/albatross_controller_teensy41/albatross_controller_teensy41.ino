@@ -6,7 +6,10 @@
 vdc::IO VDC;
 static volatile uint32_t g_front_pulse_at=0,g_rear_pulse_at=0;
 airshot::IO AIR_V2;
-static uint32_t g_air_required_rx[8]={0};
+#include "primary_thermal.h"
+static uint32_t g_air_required_rx[7]={0};
+static uint32_t g_ms3_coolant_rx=0;
+static uint32_t g_ms3_iat_rx=0, g_ms3_oil_rx=0;
 static uint32_t g_thermal_values_rx[8]={0}, g_thermal_status_rx[4]={0};
 static float g_boost_banks[2]={0,0};
 static uint32_t g_boost_banks_rx=0;
@@ -102,12 +105,9 @@ struct Inputs {
   uint8_t tps_pct = 0;
   uint16_t boost_psi_x10 = 0;
   uint16_t knock_bits = 0;
-  uint16_t iat_c_x10 = 250;
-  uint16_t egt_left_c_x10 = 7500;
-  uint16_t egt_right_c_x10 = 7500;
   uint16_t oil_pressure_psi_x10 = 0;
-  uint16_t oil_temp_c_x10 = 900;
-  uint16_t coolant_c_x10 = 900;
+  uint16_t coolant_c_x10 = 0; // Independent MS3 fallback; requires fresh timestamp.
+  uint16_t ecu_iat_c_x10 = 0, ecu_oil_c_x10 = 0;
   uint16_t battery_mv = 13800;
   uint8_t engine_load_pct = 0;
   uint8_t engine_status = 0;
@@ -337,9 +337,9 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
   const uint32_t now = millis();
   AIR_V2.receive(id,len,data,now);
   VDC.receive(id,len,data,now);
-  const uint16_t required_ids[8]={0x100,0x101,0x102,0x105,0x106,0x104,0x108,0x10C};
-  const uint8_t required_len[8]={2,1,2,4,2,1,1,2};
-  for(int k=0;k<8;k++) if(id==required_ids[k] && len>=required_len[k]) g_air_required_rx[k]=now;
+  const uint16_t required_ids[7]={0x100,0x101,0x102,0x105,0x104,0x108,0x10C};
+  const uint8_t required_len[7]={2,1,2,2,1,1,2};
+  for(int k=0;k<7;k++) if(id==required_ids[k] && len>=required_len[k]) g_air_required_rx[k]=now;
   if(id==0x10F && len==4) {g_boost_banks[0]=((uint16_t(data[0])<<8)|data[1])/10.0f;g_boost_banks[1]=((uint16_t(data[2])<<8)|data[3])/10.0f;g_boost_banks_rx=now;}
   if (isEcuFrame(id)) {
     g_last_ecu_frame_ms = now;
@@ -389,22 +389,19 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       else if (len >= 1) g_inputs.knock_bits = data[0];
       break;
     case CanId::ECU_OIL:
-      if (len >= 4) {
+      if (len >= 2) {
         g_inputs.oil_pressure_psi_x10 = (uint16_t(data[0]) << 8) | data[1];
-        g_inputs.oil_temp_c_x10 = (uint16_t(data[2]) << 8) | data[3];
+        if(len>=4) {g_inputs.ecu_oil_c_x10=(uint16_t(data[2])<<8)|data[3];g_ms3_oil_rx=now;}
       }
       break;
     case CanId::ECU_CLT:
-      if (len >= 2) g_inputs.coolant_c_x10 = (uint16_t(data[0]) << 8) | data[1];
+      if (len >= 2) {g_inputs.coolant_c_x10 = (uint16_t(data[0]) << 8) | data[1];g_ms3_coolant_rx=now;}
       break;
     case CanId::ECU_IAT:
-      if (len >= 2) g_inputs.iat_c_x10 = (uint16_t(data[0]) << 8) | data[1];
+      if(len>=2) {g_inputs.ecu_iat_c_x10=(uint16_t(data[0])<<8)|data[1];g_ms3_iat_rx=now;}
       break;
     case CanId::ECU_EGT:
-      if (len >= 4) {
-        g_inputs.egt_left_c_x10 = (uint16_t(data[0]) << 8) | data[1];
-        g_inputs.egt_right_c_x10 = (uint16_t(data[2]) << 8) | data[3];
-      }
+      // Retired legacy temperature source; use the dedicated thermal node.
       break;
     case CanId::ECU_GEAR:
       if (len >= 1) g_inputs.gear = data[0];
@@ -746,26 +743,25 @@ void updateControllers() {
   const bool pi_can_stale = elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now);
   const bool control_link_stale = ecu_can_stale || pi_can_stale;
   const bool thermal_node_offline = !g_thermal.ever_seen || elapsedSince(g_last_thermal_heartbeat_ms, THERMAL_CAN_TIMEOUT_MS, now);
+  auto thermal_valid = [now](uint8_t index) {
+    return primary_thermal::valid(index,now,g_thermal.ever_seen,g_last_thermal_heartbeat_ms,
+        g_thermal.temperature_c_x10,g_thermal.status,g_thermal_values_rx,g_thermal_status_rx);
+  };
+  auto thermal_c = [&](uint8_t index) {return thermal_valid(index)?g_thermal.temperature_c_x10[index]/10.0f:NAN;};
+  bool primary_thermal_missing=false;
+  const uint8_t primary_indices[]={0,1,14,17,18,23};
+  for(uint8_t index:primary_indices) if(!thermal_valid(index)) primary_thermal_missing=true;
   const uint16_t cap = modeBoostCap(g_commands.mode);
   uint16_t target = min(g_commands.boost_target_psi_x10, cap);
   if (thermal_node_offline) target = min(target, THERMAL_DEGRADED_BOOST_CAP_PSI_X10);
 
   const bool knock = g_inputs.knock_bits != 0;
-  const bool hot =
-      (g_inputs.iat_c_x10 > 650) ||
-      (g_inputs.egt_left_c_x10 > 9300) ||
-      (g_inputs.egt_right_c_x10 > 9300) ||
-      (g_inputs.coolant_c_x10 > 1160) ||
-      (g_inputs.oil_temp_c_x10 > 1400);
-  // Supplemental thermal-node protection. Status 0 means VALID; failed or
-  // stale channels never become fabricated temperatures. Primary CLT/IAT/EGT
-  // remain wired to and enforced by the ECU regardless of this node.
-  const bool supplemental_hot =
-      (g_thermal.status[0] == 0 && g_thermal.temperature_c_x10[0] > 9800) ||
-      (g_thermal.status[1] == 0 && g_thermal.temperature_c_x10[1] > 9800) ||
-      (g_thermal.status[17] == 0 && g_thermal.temperature_c_x10[17] > 1180) ||
-      (g_thermal.status[18] == 0 && g_thermal.temperature_c_x10[18] > 1180) ||
-      (g_thermal.status[23] == 0 && g_thermal.temperature_c_x10[23] > 1450);
+  // Preserve existing protection thresholds; replace only their sensor sources.
+  const bool hot = thermal_c(14)>65 || thermal_c(0)>930 || thermal_c(1)>930 ||
+      thermal_c(17)>116 || thermal_c(18)>116 || thermal_c(23)>140 ||
+      (g_ms3_coolant_rx && now-g_ms3_coolant_rx<=THERMAL_CAN_TIMEOUT_MS && g_inputs.coolant_c_x10>1160) ||
+      (g_ms3_iat_rx && now-g_ms3_iat_rx<=THERMAL_CAN_TIMEOUT_MS && g_inputs.ecu_iat_c_x10>650) ||
+      (g_ms3_oil_rx && now-g_ms3_oil_rx<=THERMAL_CAN_TIMEOUT_MS && g_inputs.ecu_oil_c_x10>1400);
   const bool low_oil_pressure = (g_inputs.rpm > 2200) && (g_inputs.oil_pressure_psi_x10 > 0) && (g_inputs.oil_pressure_psi_x10 < 80);
   const bool voltage_fault = (g_inputs.battery_mv > 0) && (g_inputs.battery_mv < 10500 || g_inputs.battery_mv > 15500);
   const bool low_auth = !g_commands.nfc_ok;
@@ -777,7 +773,7 @@ void updateControllers() {
   else if (g_commands.limp_mode) limp_reason = g_commands.limp_reason != LIMP_NONE ? g_commands.limp_reason : LIMP_PI_REQUEST;
   else if (ecu_can_stale) limp_reason = LIMP_ECU_CAN_STALE;
   else if (pi_can_stale) limp_reason = LIMP_PI_COMMAND_STALE;
-  else if (hot || supplemental_hot) limp_reason = LIMP_THERMAL;
+  else if (hot || primary_thermal_missing) limp_reason = LIMP_THERMAL;
   else if (low_oil_pressure) limp_reason = LIMP_LOW_OIL_PRESS;
   else if (voltage_fault) limp_reason = LIMP_BATTERY_VOLTAGE;
   else if (knock && g_inputs.boost_psi_x10 > target) limp_reason = LIMP_KNOCK;
@@ -797,10 +793,11 @@ void updateControllers() {
     if (hot) target = (target > 30) ? target - 30 : target;
     if (knock) target = (target > 20) ? target - 20 : target;
   }
-  if (thermal_node_offline) {
+  if (thermal_node_offline || primary_thermal_missing) {
     // Explicit degraded mode: no flame or Air Shot and no boost above 8 psi.
-    // WMI remains available because its independent pressure/flow checks and
-    // the ECU's directly wired sensors still own fundamental engine survival.
+    // Missing primary temperature data also enters thermal limp above. The
+    // independent MS3 CLT/IAT/oil sensors retain ECU authority, but do not mask
+    // missing primary thermal-node channels on the main controller.
     g_commands.flame_mode = false;
     g_airshot_latched = false;
   }
@@ -877,17 +874,15 @@ void updateControllers() {
   ai.speed=max(g_front_wheel_mps,g_rear_wheel_mps)*2.236936f;
   ai.boost[0]=g_boost_banks[0];ai.boost[1]=g_boost_banks[1];
   ai.tank=g_outputs.tank_psi_x10/10.0f;
-  ai.coolant=g_inputs.coolant_c_x10/10.0f;ai.oil=g_inputs.oil_temp_c_x10/10.0f;
+  ai.coolant=fminf(thermal_c(17),thermal_c(18));ai.oil=thermal_c(23);
   ai.can_valid=g_boost_banks_rx && now-g_boost_banks_rx<=AIR_V2.c.timeout_ms;
   for(uint32_t stamp:g_air_required_rx) if(!stamp || now-stamp>AIR_V2.c.timeout_ms) ai.can_valid=false;
   const uint16_t tank_raw=analogRead(AIR_TANK_PRESSURE_SENSOR_PIN);
   ai.pressure_valid=ai.pressure_valid && tank_raw>=AIR_TANK_SENSOR_MIN_RAW && tank_raw<=AIR_TANK_SENSOR_MAX_RAW;
-  ai.thermal_valid=!thermal_node_offline;
-  const uint8_t indices[]={0,1,2,3,6,7,10,11,19,20};
+  ai.thermal_valid=!thermal_node_offline && !primary_thermal_missing;
+  const uint8_t indices[]={0,1,2,3,6,7,10,11,14,17,18,19,20,23};
   for(uint8_t idx:indices) {
-    if(g_thermal.status[idx]!=0 || g_thermal.temperature_c_x10[idx]==INT16_MIN ||
-       !g_thermal_values_rx[idx/4] || now-g_thermal_values_rx[idx/4]>750 ||
-       !g_thermal_status_rx[idx/8] || now-g_thermal_status_rx[idx/8]>750) ai.thermal_valid=false;
+    if(!thermal_valid(idx)) ai.thermal_valid=false;
   }
   for(int n=0;n<2;n++) {
     ai.egt[n]=g_thermal.temperature_c_x10[n]/10.0f;

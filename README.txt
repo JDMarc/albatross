@@ -143,7 +143,12 @@ NAV, System Vitals (where present), TCS/AWC, then AIR. The bottom does not wrap
 back to NAV. ECO/NORMAL place TEMP and AIR side by side; left/right moves between
 them. Up from NAV or Back from the home panels returns to the last top-bar item.
 Left from the panel column accesses active errors, otherwise the top bar;
-Right from errors returns to the previous panel. Settings retains its stopped/neutral gate.
+Right from errors returns to the previous panel. Settings always opens for browsing;
+editing requires stopped speed and either neutral/park or an engine-off bench state.
+Air Shot separates requested mode/FIRE, confirmed controller mode, and the reported
+inhibit reason. Missing acknowledgements are shown as unconfirmed, not as success.
+HUD coolant/oil/plenum/EGT now come from the dedicated thermal Teensy, not legacy
+ECU temperature frames. See docs/thermal_system.md for source and failure behavior.
 TCS/AWC now has a larger panel with separate levels and intervention status.
 
 - TEMPS: Focus System Vitals (SPORT/RACE/ALBATROSS) or the small TEMP tile

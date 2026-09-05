@@ -186,8 +186,8 @@ class NavigationPanel(Widget):
         pygame.draw.rect(surface, (7, 5, 0), rect)
         pygame.draw.line(surface, AMBER_DARK, (rect.x, rect.y), (rect.right, rect.y), 1)
         values = (
-            f"CLT {state.temps.coolant_temp_f:.0f}F",
-            f"OIL {state.temps.oil_temp_f:.0f}F",
+            "CLT --" if state.temps.coolant_temp_f == -1 else f"CLT {state.temps.coolant_temp_f:.0f}F",
+            "OIL --" if state.temps.oil_temp_f == -1 else f"OIL {state.temps.oil_temp_f:.0f}F",
             f"OIL P {state.temps.oil_pressure_psi:.0f}",
             f"BAT {state.temps.battery_voltage:.1f}V",
         )

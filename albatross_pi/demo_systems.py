@@ -7,6 +7,7 @@ from . import airshot as air
 from .thermal import ThermalService,SensorStatus
 from .thermal.simulation import ThermalSimulator,SCENARIOS
 from .thermal.config import DEFAULT_CONFIG_PATH
+from .thermal.summary import primary_temperatures
 
 # key, label, initial value, choices (None = numeric entry). Values are DEMO ONLY.
 DYNAMICS_FIELDS=[
@@ -121,4 +122,5 @@ class DemoReceiver:
         self.thermal.set_vehicle_context({"rpm":state.engine.rpm,"load_pct":state.engine.engine_load_pct,"boost_psi":state.engine.boost_psi,"ambient_c":(state.environment.ambient_temp_f-32)*5/9,"wmi_command":state.wmi.commanded_flow_cc_min})
         d,a,t=self.dynamics.snapshot(),self.air.snapshot(),self.thermal.snapshot()
         alerts=set(d.alerts)|set(a.alerts)|set(t.alerts);faults=(set(state.faults)-self.alerts)|alerts;self.alerts=alerts
-        return replace(state,dynamics=d,air_shot=replace(state.air_shot,v2=a),thermal=t,faults=tuple(sorted(faults)))
+        return replace(state,dynamics=d,air_shot=replace(state.air_shot,v2=a),thermal=t,
+                       temps=primary_temperatures(state.temps,t),faults=tuple(sorted(faults)))

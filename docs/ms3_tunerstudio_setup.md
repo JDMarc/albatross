@@ -22,7 +22,7 @@ TunerStudio MS Lite is sufficient for ECU setup, CAN parameters, sensor calibrat
 Current build wiring assumption:
 
 - Oil pressure: wired to MS3Pro Mini analog input and published to HUD/CAN by MS3-side telemetry.
-- Oil temperature: wired to MS3Pro Mini sensor input and published to HUD/CAN by MS3-side telemetry.
+- ECU oil temperature: retain its dedicated input pending validated CAN replacement. HUD/main-controller oil temperature instead comes from the thermal Teensy's OIL_GALLERY channel.
 - Flex fuel: wired to MS3Pro Mini flex input; HUD consumes ethanol percentage as ECU flex telemetry. Flex content verifies/derates the E85 boost strategy, but it does not upgrade an 87/91/93 manual selection into E85 boost by itself.
 - Wheel speed: handled by Teensy hall inputs and published on controller HUD wheel-speed frames.
 - WMI tank, flow, and status: handled by Teensy and published on controller WMI status frames.
@@ -57,7 +57,32 @@ Current build wiring assumption:
 
 1. Keep MS3Pro boost target ceilings conservative to act as ECU-side safety envelope.
 2. Allow Teensy to execute real-time electronic actuator positioning and derates.
-3. Ensure MAP, TPS, RPM, gear, knock, oil pressure, oil temperature, CLT, IAT, EGT, battery voltage, flex content, and injector pulse width/duty are available to the HUD/Pi over CAN. Teensy should not be the source of truth for oil pressure/temp on this build.
+3. Publish MAP, TPS, RPM, gear, knock, oil pressure, battery voltage, flex content, and injector pulse width/duty over CAN. Oil pressure remains ECU telemetry. Primary HUD/main-controller coolant, plenum IAT, oil temperature and EGT now come from the dedicated thermal Teensy. Independent ECU coolant/IAT/oil telemetry does not overwrite these HUD readings.
+
+## Thermal-node input replacement
+
+Preferred direction: reuse thermal-node sensors where the ECU supports it. The
+[manufacturer's Mini firmware 1.6.1 manual](https://cdn.shopify.com/s/files/1/0960/0014/7754/files/MS3Pro_User_Manual_Firmware_1.6.1_Mini.pdf?v=1760643335)
+documents CAN ADC sources for generic sensors (§7.8.4), CAN EGT (§7.8.3), and
+CAN receiving (§7.10.5). This supports an oil-temperature integration path; it
+does not establish a CAN replacement for the primary fueling MAT/IAT input.
+The installed ECU model/firmware and tune have not yet been verified. MicroSquirt
+and MS3Pro Mini must not be treated as interchangeable hardware/firmware.
+
+Existing Albatross oil telemetry is standard ID `0x166`, zero-based bytes 6–7,
+signed big-endian °C × 10 (channel 24, OIL_GALLERY). Its authoritative status is
+the low nibble of byte 3 in `0x16B`; heartbeat is `0x160`. `-32768` means invalid.
+These are protocol facts, **not a ready-to-burn TunerStudio receive recipe**.
+Do not interpret the payload as an unscaled 0–1023 ADC reading or allow an invalid
+sentinel to become a plausible temperature.
+
+Before removing the ECU oil sensor, verify the exact receiving destination,
+signed scaling, units, every protection consumer, and stale/status handling in
+the installed firmware. Bench-test sensor open/short, node power loss, frozen
+values, missing status and CAN disconnect with actuators isolated; prove the ECU
+does not silently retain a healthy value. Keep dedicated coolant and primary IAT
+until their actual ECU input replacement and failure strategy are established.
+No ECU tune, analog emulation hardware, or ECU-targeted bridge was enabled here.
 
 ## 5) Launch control
 

@@ -20,6 +20,13 @@ difference alone is not a throttle-cut criterion.
 
 ## Main Teensy pin map
 
+Temperature protection now uses the dedicated thermal node's CAN measurements,
+not the old basic ECU temperature frames. Missing core temperatures enter thermal
+limp; heartbeat, value and status freshness are checked independently. The ECU
+retains dedicated coolant/IAT/oil sensors pending verified ECU receiving setup.
+This migration adds no main-controller temperature pins. See
+[`thermal_system.md`](../docs/thermal_system.md) for the channel/source policy.
+
 Source: `albatross_controller_teensy41.ino` and `airshot_io.cpp`.
 
 | Pin | Direction | Function / connection |

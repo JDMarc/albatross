@@ -18,7 +18,11 @@ The current configuration enables 29 of the 32 stable sensor IDs; three are rese
 
 ## Safety ownership
 
-Primary coolant, MAT/IAT, and any ECU-required EGT remain directly available to MS3/main control. The Pi is never in the protection chain. The main Teensy consumes valid supplemental thermal values directly and enters an explicit degraded state when the thermal heartbeat is absent: boost is capped at 8 psi, CAN-level flame intent and Air Shot are inhibited, while independent WMI and ECU protections remain available. Flame implementation remains intentionally provisional and has no dedicated Teensy output pin. A valid supplemental critical temperature requests the existing thermal limp path. Invalid channels never become `0°C`.
+The dedicated thermal Teensy is now the primary temperature source for the HUD and main controller. HUD coolant is the hotter head-coolant channel, oil is OIL_GALLERY, intake is PLENUM_IAT, and EGT is the hotter exhaust bank. Both bank values must be valid for a paired summary; unavailable summaries display `--`, never a fabricated temperature. Air Shot warmup uses the colder head-coolant channel.
+
+The Pi is never in the protection chain. The main Teensy requires fresh heartbeat, value and status frames for both EGT banks, both head-coolant channels, plenum IAT and oil gallery. Missing/invalid core data requests the existing thermal limp path and inhibits Air Shot and CAN-level flame intent. Heartbeat loss also retains the existing 8 psi ceiling; that ceiling is not permission to make boost when other limp protections demand less. Fresh independently wired ECU coolant/IAT/oil overtemperature can also request thermal limp. No new thermal calibration thresholds were introduced. Flame architecture remains provisional with no dedicated output pin.
+
+ECU wiring currently retains dedicated coolant, IAT and oil-temperature sensors. Replacement with thermal-node CAN data is preferred where supported, but is not enabled in this update: generic CAN oil-temperature reception and replacement of the primary fueling MAT input are different capabilities. See [ECU receiving boundary](ms3_tunerstudio_setup.md#thermal-node-input-replacement). Do not remove ECU sensors based only on a working HUD or TunerStudio gauge.
 
 Before vehicle use, review thresholds with the engine builder/tuner, prove every failure mode on a bench, validate CAN loading, and verify that disconnecting the Pi does not remove overtemperature protection.
 

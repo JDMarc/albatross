@@ -229,17 +229,15 @@ class App:
             ("AFR Right", "afr_r", 8.0, 20.0),
             ("Knock Bitmask", "knock_mask", 0, 255),
             ("Oil P psi", "oilp", 0, 120),
-            ("Oil T F", "oilt", 70, 320),
-            ("Coolant F", "clt", 70, 280),
+            ("ECU Oil T F", "oilt", 70, 320),
+            ("ECU Coolant F", "clt", 70, 280),
             ("Battery V", "batt_v", 8.0, 16.0),
             ("Fuel %", "fuel", 0, 100),
             ("Flex Ethanol %", "ethanol_pct", 0, 100),
             ("Injector PW ms", "inj_pw_ms", 0.0, 30.0),
             ("Injector Duty %", "inj_duty_pct", 0.0, 100.0),
             ("Engine Load %", "load", 0, 100),
-            ("Intake F", "iat", 40, 250),
-            ("EGT Bank1 F", "egt_b1", 500, 2000),
-            ("EGT Bank2 F", "egt_b2", 500, 2000),
+            ("ECU Intake F", "iat", 40, 250),
             ("Speed mph", "speed", 0, 220),
         ]
         for row, (label, key, lo, hi) in enumerate(ecu_sliders):
@@ -524,7 +522,7 @@ class App:
         self._send(int(ECUToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
         self._send(int(ECUToHudID.ENGINE_LOAD), bytes((max(0, min(100, int(self.vars["load"].get()))),)))
         self._send(int(ECUToHudID.INTAKE_AIR_TEMP), struct.pack(">H", iat_c10))
-        self._send(int(ECUToHudID.EXHAUST_GAS_TEMP), struct.pack(">HH", egt1_c10, egt2_c10))
+        # EGT now comes from the dedicated thermal module, not legacy 0x10B.
 
         airshot_flags = 0x01 if bool(self.vars["airshot_firing"].get()) else 0x00
         self._send(int(ArduinoToHudID.AIR_SHOT_STATUS), bytes((max(0, min(3, int(self.vars["airshot_charges"].get()))), airshot_flags)))

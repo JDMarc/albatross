@@ -46,6 +46,7 @@ from .widgets.ui_utils import apply_theme, fit_font_size, font, theme_colors
 from .preferences import HUDPreferences
 from .thermal_views import THERMAL_MENU_ITEMS, ThermalViews
 from .airshot_view import draw_airshot
+from .airshot_status import AirShotRequest
 from ..airshot import MODES as AIR_MODES
 from ..airshot_calibration import CalibrationEditor, draw_calibration
 from ..airshot_switch import AirModeSwitch
@@ -302,6 +303,8 @@ class HUDRenderer:
         self._air_switch = AirModeSwitch()
         self._dynamics_menu = DynamicsMenu()
         self._air_requested_mode = None
+        self._air_mode_send_error = False
+        self._air_fire_send_error = False
         self._air_mode_requested_at = 0.0
         self._air_fire_held = False
         self._last_air_request = 0.0
@@ -1057,7 +1060,7 @@ class HUDRenderer:
 
         bottom_limit = message_rect.y - panel_gap
         compact_strip_height = max(36, min(46, int(height * 0.065)))
-        airshot_height = compact_strip_height
+        airshot_height = max(62, min(76, int(height * .13)))
         # The dynamics strip contains two independently selectable levels plus
         # live intervention feedback. Give those rows enough vertical room at
         # the supported compact 1280x480 resolution.
@@ -1210,9 +1213,7 @@ class HUDRenderer:
         while self.running:
             switched = self._air_switch.poll((self._joy_select_button,self._joy_back_button,self._joy_air_shot_button)) if self._post_complete and not self._post_fault_active else None
             if switched and self._post_complete and not self._post_fault_active:
-                self._air_requested_mode=switched
-                self._air_mode_requested_at=time.monotonic()
-                self._invoke_control_callback("Air mode switch",self._air_mode_callback,switched)
+                self._set_air_mode_request(switched)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -1276,9 +1277,7 @@ class HUDRenderer:
                     self._request_air_shot(False)
                     self._air_switch.device = None
                     self._air_switch.last = "OFF"
-                    self._air_requested_mode = "OFF"
-                    self._air_mode_requested_at = time.monotonic()
-                    self._invoke_control_callback("Air controller disconnected",self._air_mode_callback,"OFF")
+                    self._set_air_mode_request("OFF")
                 elif event.type == pygame.JOYBUTTONUP and event.button == self._joy_air_shot_button:
                     self._air_fire_held = False
                     self._request_air_shot(False)
@@ -1377,6 +1376,7 @@ class HUDRenderer:
         self._dynamics_menu.sync(state.dynamics)
         if state.air_shot.v2.online and state.air_shot.v2.mode==self._air_requested_mode:
             self._air_requested_mode=None
+            self._air_mode_send_error=False
         if self._air_fire_held and time.monotonic()-self._last_air_request >= 0.05:
             self._request_air_shot(True)
         self._navigation.update_position(state.environment.gps_latitude, state.environment.gps_longitude)
@@ -1394,6 +1394,7 @@ class HUDRenderer:
         apply_theme(self._themes[self._theme_index])
         self.screen.fill((0, 0, 0))
         for widget in self.widgets:
+            if isinstance(widget, AirShotPanel):widget.request=self._air_request_context()
             widget.draw(self.screen, state)
         self._render_home_mode_hover_underline(state)
         self._render_home_fault_focus_outline(state)
@@ -1417,7 +1418,7 @@ class HUDRenderer:
             draw_calibration(self.screen,self._air_calibration,self._theme_colors())
         elif self._active_menu == "airshot":
             self._render_modal_dimmer()
-            draw_airshot(self.screen,state,self._theme_colors())
+            draw_airshot(self.screen,state,self._theme_colors(),self._air_request_context())
         elif self._active_menu == "thermal_menu":
             self._render_modal_dimmer()
             self._thermal_views.draw_focus_submenu(self.screen, self._theme_colors())
@@ -1522,6 +1523,7 @@ class HUDRenderer:
         self._fault_detail_index = (self._fault_detail_index + delta) % count
 
     def _handle_dpad_right(self) -> None:
+        if self._active_menu == "settings" and self._settings_edit_reason():return
         if self._active_menu == "thermal_menu":
             return
         if self._active_menu in {"thermal_abs", "thermal_dev"}:
@@ -1616,6 +1618,7 @@ class HUDRenderer:
         self._move_home_focus(dx=1)
 
     def _handle_dpad_left(self) -> None:
+        if self._active_menu == "settings" and self._settings_edit_reason():return
         if self._active_menu == "thermal_menu":
             return
         if self._active_menu in {"thermal_abs", "thermal_dev"}:
@@ -1811,6 +1814,7 @@ class HUDRenderer:
             self._move_home_focus(dy=1)
 
     def _handle_select(self) -> None:
+        if self._active_menu == "settings" and self._settings_edit_reason():return
         if self._active_menu == "thermal_menu":
             self._active_menu = self._thermal_views.selected_page()
             return
@@ -1877,11 +1881,7 @@ class HUDRenderer:
                 self._active_menu = "nav_waypoints"
                 return
             if target == "SETTINGS":
-                cur = self.state
-                gear = (cur.engine.gear or "").strip().upper()
-                stopped = cur.engine.speed_mph <= 1.0
-                if gear in {"N", "P", "?"} and stopped:
-                    self._active_menu = "settings"
+                self._active_menu = "settings"
             elif target == "MEDIA":
                 self._active_menu = "media"
             return
@@ -1955,14 +1955,29 @@ class HUDRenderer:
             self._air_fire_held = False
             return
         self._last_air_request = time.monotonic()
-        self._invoke_control_callback("Air Shot request", self._air_shot_callback, pressed)
+        self._air_fire_send_error = not self._invoke_control_callback("Air Shot request", self._air_shot_callback, pressed)
+
+    def _air_request_context(self):
+        return AirShotRequest(self._air_requested_mode,self._air_mode_requested_at,
+                              self._air_fire_held,self._air_mode_send_error,self._air_fire_send_error)
+
+    def _set_air_mode_request(self, mode):
+        self._air_requested_mode = mode
+        self._air_mode_requested_at = time.monotonic()
+        self._air_mode_send_error = not self._invoke_control_callback("Air Shot mode",self._air_mode_callback,mode)
 
     def _change_air_mode(self, delta: int) -> None:
         current = self._air_requested_mode or self.state.air_shot.v2.mode
         mode = AIR_MODES[(AIR_MODES.index(current)+delta)%3]
-        self._air_requested_mode = mode
-        self._air_mode_requested_at = time.monotonic()
-        self._invoke_control_callback("Air Shot mode",self._air_mode_callback,mode)
+        self._set_air_mode_request(mode)
+
+    def _settings_edit_reason(self):
+        engine=self.state.engine
+        if not math.isfinite(engine.speed_mph) or abs(engine.speed_mph)>1:
+            return "READ ONLY: STOP TO EDIT"
+        if str(engine.gear).strip().upper() not in {"N", "P"} and engine.rpm != 0:
+            return "READ ONLY: NEUTRAL OR ENGINE OFF"
+        return ""
 
     def _navigation_menu_items(self) -> list[tuple[str, str | None]]:
         items: list[tuple[str, str | None]] = [("SAVE CURRENT LOCATION", None), ("SEARCH ADDRESS", None)]
@@ -2594,11 +2609,13 @@ class HUDRenderer:
         panel = pygame.Rect(0, 0, min(760, sw - 80), min(520, sh - 80))
         panel.center = (sw // 2, sh // 2)
         overlay = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
-        overlay.fill((12, 8, 0, 230))
+        overlay.fill((*bg, 230))
         self.screen.blit(overlay, panel.topleft)
         pygame.draw.rect(self.screen, glow, panel, width=2, border_radius=8)
         title = font(20, bold=True).render("SETTINGS", True, bright)
         self.screen.blit(title, (panel.x + 16, panel.y + 10))
+        access=self._settings_edit_reason() or "UP/DOWN: BROWSE | SELECT / LEFT/RIGHT: EDIT"
+        self.screen.blit(font(11,bold=True).render(access,True,glow),(panel.x+16,panel.y+35))
         row_h = 34
         first_row_y = panel.y + 52
         footer_h = 42
@@ -2984,6 +3001,8 @@ class HUDRenderer:
             hint = self._home_navigation_hint()
         elif self._active_menu == "thermal_menu":
             hint = "UP/DOWN: CHOOSE PAGE | SELECT: OPEN | BACK: VITALS"
+        elif self._active_menu == "settings":
+            hint=(self._settings_edit_reason()+" | " if self._settings_edit_reason() else "")+"UP/DOWN: BROWSE | BACK: HOME"
         elif self._active_menu.startswith("thermal_"):
             hint = "D-PAD: MOVE BETWEEN SENSORS | SELECT / BACK: TEMPS MENU" if self._active_menu in {"thermal_abs", "thermal_dev"} else "LEFT/RIGHT: PAGE | SELECT / BACK: TEMPS MENU"
         if self._active_menu=="air_selected":

@@ -42,6 +42,7 @@ class ThermalService:
             for definition in self.config.sensors
         ]
         self._last_value_s: list[float | None] = [None] * 32
+        self._last_status_s: list[float | None] = [None] * 32
         self._derivatives: list[float] = [0.0] * 32
         self._maxima: list[float | None] = [None] * 32
         self._last_heartbeat_s: float | None = None
@@ -96,6 +97,8 @@ class ThermalService:
                 definition = self.config.sensors[index]
                 if not (definition.valid_c[0] <= value <= definition.valid_c[1]):
                     self._statuses[index] = SensorStatus.OUT_OF_RANGE
+                    self._temperatures[index] = None
+                    self._last_value_s[index] = now
                     continue
                 previous = self._temperatures[index]
                 previous_at = self._last_value_s[index]
@@ -113,6 +116,7 @@ class ThermalService:
             for byte_index, packed in enumerate(data[:4]):
                 for nibble_index, status_raw in enumerate((packed >> 4, packed & 0x0F)):
                     index = offset + byte_index * 2 + nibble_index
+                    self._last_status_s[index] = now
                     try:
                         self._statuses[index] = SensorStatus(status_raw)
                     except ValueError:
@@ -150,11 +154,13 @@ class ThermalService:
         for index, definition in enumerate(self.config.sensors):
             last = self._last_value_s[index]
             age_s = math.inf if last is None else max(0.0, now - last)
+            last_status = self._last_status_s[index]
+            status_age_s = math.inf if last_status is None else max(0.0, now - last_status)
             stale_limit = max(timeout_s, 3.0 / max(0.1, definition.report_hz))
             status = self._statuses[index]
             if not definition.enabled:
                 status = SensorStatus.NOT_CONFIGURED
-            elif not online or age_s > stale_limit:
+            elif not online or age_s > stale_limit or status_age_s > timeout_s:
                 status = SensorStatus.STALE
             elif status == SensorStatus.VALID and self._temperatures[index] is None:
                 status = SensorStatus.FRONT_END_FAULT
