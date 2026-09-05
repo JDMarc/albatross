@@ -13,7 +13,7 @@ DYNAMICS_FIELDS=[
  ("vdc_stream","Transmit dynamics telemetry",True,None),
  ("vdc_state","State","TCS MONITOR",vd.STATES),("vdc_event","Event","NORMAL",vd.EVENTS),
  ("vdc_tcs","TCS","MED",vd.LEVELS),("vdc_awc","AWC","MED",vd.LEVELS),
- ("vdc_curve","Curve",0,(0,1,2)),("vdc_weather","Weather","UNKNOWN",vd.WEATHER),
+ ("vdc_curve","Curve",0,(0,1,2,3)),("vdc_weather","Weather","UNKNOWN",vd.WEATHER),
  ("vdc_weather_assist","Weather assist",True,None),("vdc_calibrated","Simulated calibration-valid flag",False,None),
  ("vdc_hash_match","Match local config fingerprint",True,None),
  ("vdc_flags","Flags: TCS=1 AWC=2 lift=4 air=8 DBW=16",16,None),
@@ -66,7 +66,7 @@ class DemoSystems:
         if v["vdc_stream"]:
             flags=n("vdc_flags",0,31);faults=self.faults
             out += [(0x229,self.fingerprint if v["vdc_hash_match"] else bytes(8)),
-             (0x220,bytes((1,vd.STATES.index(v["vdc_state"]),vd.EVENTS.index(v["vdc_event"]),vd.LEVELS.index(v["vdc_tcs"]),vd.LEVELS.index(v["vdc_awc"]),n("vdc_curve",0,2),flags,n("vdc_ack",0,255)))),
+             (0x220,bytes((1,vd.STATES.index(v["vdc_state"]),vd.EVENTS.index(v["vdc_event"]),vd.LEVELS.index(v["vdc_tcs"]),vd.LEVELS.index(v["vdc_awc"]),n("vdc_curve",0,3),flags,n("vdc_ack",0,255)))),
              (0x221,bytes([1]+[n("vdc_"+k) for k in ("rider","permitted","tcs_limit","awc_limit","lean_limit","engine_limit","mode_limit")])),
              (0x222,struct.pack(">BHHHB",1,*[n("vdc_"+k,0,655.35,100) for k in ("front","rear","speed")],n("vdc_sensor_confidence"))),
              (0x223,struct.pack(">BhhhB",1,*[n("vdc_"+k,-327.68,327.67,100) for k in ("pitch","lean","pitch_rate")],0)),

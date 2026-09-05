@@ -125,7 +125,7 @@ class DynamicsService:
         if direction!="RX" or fid not in IDS or len(data)!=8 or data[0]!=1:return
         v=self.value
         if fid==0x220:
-            if data[1]>=len(STATES) or data[2]>=len(EVENTS) or data[3]>3 or data[4]>3 or data[5]>2:return
+            if data[1]>=len(STATES) or data[2]>=len(EVENTS) or data[3]>3 or data[4]>3 or data[5]>3:return
             v=replace(v,state=STATES[data[1]],event=EVENTS[data[2]],tcs=data[3],awc=data[4],curve=data[5],flags=data[6],ack=data[7])
         elif fid==0x221:
             if any(x>100 for x in data[1:]):return

@@ -14,12 +14,15 @@ class DynamicsMenu:
         self.values=dict(tcs=2,awc=2,curve=0,weather=True,target=None,maximum=None,left=None,right=None,persistence=self.engineering["rider_persistence"])
         self.restored=False;self.restore_queue=[];self.configuration_matches=False
         self.stop_confirm_at=None;self.stop_requested=False;self.stop_sent_at=-1e9
+        self.engineering_path=ROOT/"config/vdc_engineering.json"
+        self.edit_curve=0;self.edit_cursor=0;self.edit_points=[]
+        self.source_changed=False
         try:
             saved=json.loads(self.path.read_text(encoding="utf-8"))
             if saved.get("persistence")=="remember":
                 for key in ("tcs","awc","curve"):
                     value=saved.get(key)
-                    if type(value) is int and 0<=value<(3 if key=="curve" else 4):self.values[key]=value
+                    if type(value) is int and 0<=value<4:self.values[key]=value
                 if type(saved.get("weather")) is bool:self.values["weather"]=saved["weather"]
                 self.values["persistence"]="remember"
                 for n,key in enumerate(("target","maximum","left","right")):
@@ -29,7 +32,8 @@ class DynamicsMenu:
                         self.values[key]=value;self.restore_queue.append((n,value))
         except (OSError,ValueError,TypeError):pass
     def sync(self,d):
-        self.configuration_matches=d.calibration_matches
+        self.configuration_matches=d.calibration_matches and not self.source_changed
+        if self.page=="curve_editor":return
         if d.online and d.faults&8192:
             self.status="POWERTRAIN STOP LATCHED / KEY OFF AND INSPECT";self.pending=None;self.restore_queue=[];return
         if self.stop_requested:
@@ -62,16 +66,25 @@ class DynamicsMenu:
         else:self.status="PREVIEW / CAN UNAVAILABLE"
     def move(self,delta):
         self.stop_confirm_at=None
+        if self.page=="curve_editor":self.edit_cursor=(self.edit_cursor+delta)%8;return
         if self.page=="controls":self.cursor=(self.cursor+delta)%len(self.labels)
     def adjust(self,delta,stopped=True):
         self.stop_confirm_at=None
+        if self.page=="curve_editor":
+            if not stopped:self.status="STOP ENGINE TO EDIT CURVES";return
+            if self.edit_cursor==0:
+                self.edit_curve=(self.edit_curve+delta)%4;self._load_curve_draft()
+            elif 2<=self.edit_cursor<=4 and self.edit_curve<3:
+                k=self.edit_cursor-1
+                self.edit_points[k]=round(max(self.edit_points[k-1],min(self.edit_points[k+1],self.edit_points[k]+delta*.01)),2)
+            return
         if self.page!="controls":return
         if self.pending is not None and time.monotonic()-self.sent_at<=1:self.status="WAITING FOR CONTROLLER ACK";return
         keys=("tcs","awc","curve","weather","target","maximum","left","right","persistence")
         if self.cursor>=len(keys):return
         key=keys[self.cursor]
         if key=="curve" and not self.configuration_matches:self.status="CALIBRATION VERSION NOT CONFIRMED";return
-        if key in ("tcs","awc","curve"):self.values[key]=(self.values[key]+delta)%(3 if key=="curve" else 4)
+        if key in ("tcs","awc","curve"):self.values[key]=(self.values[key]+delta)%4
         elif key=="weather":self.values[key]=not self.values[key]
         elif key=="persistence":
             if not stopped:self.status="STOP TO CHANGE RESTART POLICY";return
@@ -83,7 +96,31 @@ class DynamicsMenu:
             self.values[key]=max(0,min(cap,(self.values[key] or 0)+delta))
             self.send(("target","maximum","left","right").index(key),self.values[key]);self.save();return
         self.send();self.save()
-    def select(self):
+    def _load_curve_draft(self):
+        self.edit_points=[k/4 for k in range(5)] if self.edit_curve==3 else [self.engineering["values"][f"curves[{self.edit_curve}][{k}]"] for k in range(5)]
+    def select(self,stopped=True):
+        if self.page=="curve_editor":
+            if not stopped:self.status="STOP ENGINE TO SAVE CURVES";return
+            if self.edit_cursor==6:
+                self.edit_points=list(((0,.15,.35,.65,1),(0,.2,.45,.7,1),(0,.3,.55,.8,1),(0,.25,.5,.75,1))[self.edit_curve])
+            elif self.edit_cursor==7 and self.edit_curve<3:
+                points=self.edit_points
+                if points[0]!=0 or points[-1]!=1 or any(not math.isfinite(v) or not 0<=v<=1 for v in points) or any(a>b for a,b in zip(points,points[1:])):
+                    self.status="INVALID CURVE POINTS";return
+                try:
+                    data=json.loads(self.engineering_path.read_text(encoding="utf-8"))
+                    for k,value in enumerate(points):data["values"][f"curves[{self.edit_curve}][{k}]"]=value
+                    data["validated"]=False
+                    temp=self.engineering_path.with_suffix(".tmp")
+                    temp.write_text(json.dumps(data,indent=2)+"\n",encoding="utf-8");temp.replace(self.engineering_path)
+                    self.engineering=data;self.configuration_matches=False
+                    self.source_changed=True
+                    self.status="SOURCE SAVED / REBUILD + FLASH MAIN TEENSY, RESTART HUD"
+                except (OSError,ValueError):self.status="CURVE SAVE FAILED"
+            return
+        if self.page=="controls" and self.cursor==2:
+            self.edit_curve=self.values["curve"];self.edit_cursor=0;self._load_curve_draft()
+            self.page="curve_editor";self.status="DRAFT PREVIEW / SAVE REQUIRES ENGINE STOPPED";return
         if self.page!="controls":self.page="controls";return
         if self.cursor==9:self.page="telemetry"
         elif self.cursor==10:self.page="events"
@@ -124,8 +161,6 @@ def draw_curves(surface,rect,menu,colors,d):
     bg,bright,glow,fault=colors
     pygame.draw.rect(surface,bg,rect);pygame.draw.rect(surface,glow,rect,1)
     surface.blit(font(18,bold=True).render("RIDER INPUT / REQUESTED TORQUE",True,bright),(rect.x+20,rect.y+14))
-    if not menu.configuration_matches and not menu.preview_only:
-        surface.blit(font(16,bold=True).render("CALIBRATION VERSION NOT CONFIRMED",True,fault),(rect.x+20,rect.centery));return
     plot=pygame.Rect(rect.x+60,rect.y+60,rect.width-100,rect.height-115)
     for n in range(5):
         x=plot.x+plot.width*n/4;y=plot.bottom-plot.height*n/4
@@ -133,31 +168,40 @@ def draw_curves(surface,rect,menu,colors,d):
         pygame.draw.line(surface,(70,46,10),(plot.x,y),(plot.right,y),1)
         surface.blit(font(12).render(str(n*25),True,glow),(plot.x-34,y-6))
         surface.blit(font(12).render(str(n*25),True,glow),(x-10,plot.bottom+8))
-    palette=[(115,91,36),(232,166,29),(255,225,120)]
+    palette=[(115,155,180),(232,166,29),(255,225,120),(100,220,160)]
     missing=False
     for n,name in enumerate(menu.engineering["curve_names"]):
-        values=[menu.engineering["values"].get(f"curves[{n}][{k}]") for k in range(5)]
-        chosen=n==menu.values["curve"]
+        values=[k/4 for k in range(5)] if n==3 else [menu.engineering["values"].get(f"curves[{n}][{k}]") for k in range(5)]
+        chosen=n==(menu.edit_curve if menu.page=="curve_editor" else menu.values["curve"])
+        if menu.page=="curve_editor" and chosen:values=menu.edit_points
         if any(v is None for v in values):missing=True;continue
         points=[(plot.x+plot.width*k/4,plot.bottom-plot.height*v) for k,v in enumerate(values)]
         pygame.draw.lines(surface,palette[n],False,points,4 if chosen else 2)
         if chosen:
             for p in points:pygame.draw.rect(surface,bright,pygame.Rect(p[0]-3,p[1]-3,6,6))
     for n,name in enumerate(menu.engineering["curve_names"]):
-        x=rect.x+20+n*(rect.width-30)//3
+        x=rect.x+20+n*(rect.width-30)//4
         surface.blit(font(12,bold=True).render(name,True,palette[n]),(x,rect.bottom-26))
     if missing:surface.blit(font(16,bold=True).render("CALIBRATION POINTS NOT SET",True,fault),(plot.x+20,plot.centery))
+    if not menu.configuration_matches and not menu.preview_only:
+        surface.blit(font(11,bold=True).render("LOCAL PREVIEW / NOT CONFIRMED ON CONTROLLER",True,fault),(rect.x+16,rect.y+38))
     if menu.preview_only:surface.blit(font(12,bold=True).render("SYNTHETIC PREVIEW — NOT VEHICLE CALIBRATION",True,fault),(plot.x,plot.y-22))
 
 def draw_dynamics(surface,state,menu,colors):
     bg,bright,glow,fault=colors;d=state.dynamics;w,h=surface.get_size()
     panel=pygame.Rect(24,60,w-48,h-102);pygame.draw.rect(surface,bg,panel);pygame.draw.rect(surface,glow,panel,2)
-    title="DYNAMICS / "+{"controls":"RIDER AIDS","telemetry":"LIVE TELEMETRY","events":"EVENT RECORDER"}[menu.page]
+    title="DYNAMICS / "+{"controls":"RIDER AIDS","telemetry":"LIVE TELEMETRY","events":"EVENT RECORDER","curve_editor":"CURVE POINTS"}[menu.page]
     surface.blit(font(24,bold=True).render(title,True,bright),(panel.x+18,panel.y+14))
     status=("SYNTHETIC PREVIEW / " if menu.preview_only else "")+(d.state if d.online else "VDC DATA STALE")
     text=font(16,bold=True).render(status,True,fault if not d.online or d.faults else glow)
     surface.blit(text,(panel.right-text.get_width()-18,panel.y+18))
-    if menu.page=="controls":
+    if menu.page=="curve_editor":
+        labels=["CURVE: "+menu.engineering["curve_names"][menu.edit_curve]]+[f"GRIP {k*25}%: {v*100:.0f}% TORQUE" for k,v in enumerate(menu.edit_points)]+["RESET BASELINE","SAVE CALIBRATION SOURCE"]
+        for n,label in enumerate(labels):
+            surface.blit(font(15,bold=True).render(("> " if n==menu.edit_cursor else "  ")+label,True,bright if n==menu.edit_cursor else glow),(panel.x+18,panel.y+65+n*27))
+        graph=pygame.Rect(panel.x+int(panel.width*.40),panel.y+60,int(panel.width*.58),panel.height-120)
+        draw_curves(surface,graph,menu,colors,d)
+    elif menu.page=="controls":
         left=pygame.Rect(panel.x+18,panel.y+62,int(panel.width*.38),panel.height-118)
         rowh=max(22,left.height//len(menu.labels))
         for n,(label,value) in enumerate(zip(menu.labels,menu.display_values())):
@@ -186,7 +230,7 @@ def draw_dynamics(surface,state,menu,colors):
             col,row=divmod(n,8);x=panel.x+26+col*panel.width//2;y=panel.y+65+row*(panel.height-118)//8
             surface.blit(font(14,bold=True).render(label,True,glow),(x,y))
             surface.blit(font(20,bold=True).render(value,True,bright),(x,y+19))
-    footer="UP/DOWN: ROW | LEFT/RIGHT: CHANGE | SELECT: PAGE | BACK: HOME"
+    footer="UP/DOWN: ROW | LEFT/RIGHT: CHANGE | SELECT: EDIT CURVE / ACTION | BACK: RETURN"
     surface.blit(font(13).render(footer,True,glow),(panel.x+18,panel.bottom-20))
-    if menu.page=="controls":
+    if menu.page in {"controls","curve_editor"}:
         text=font(12).render(menu.status,True,bright);surface.blit(text,(panel.x+18,panel.bottom-42))

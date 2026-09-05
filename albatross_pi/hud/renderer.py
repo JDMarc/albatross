@@ -1528,7 +1528,7 @@ class HUDRenderer:
             self._ignore_confirm_yes = not self._ignore_confirm_yes
             return
         if self._active_menu=="dynamics":
-            self._dynamics_menu.adjust(1,self.state.engine.speed_mph<=1);return
+            self._dynamics_menu.adjust(1,self.state.engine.speed_mph<=1 and (self._dynamics_menu.page!="curve_editor" or self.state.engine.rpm==0));return
         if self._active_menu == "airshot_calibration":
             self._air_calibration.adjust(1)
             return
@@ -1622,7 +1622,7 @@ class HUDRenderer:
             self._ignore_confirm_yes = not self._ignore_confirm_yes
             return
         if self._active_menu=="dynamics":
-            self._dynamics_menu.adjust(-1,self.state.engine.speed_mph<=1);return
+            self._dynamics_menu.adjust(-1,self.state.engine.speed_mph<=1 and (self._dynamics_menu.page!="curve_editor" or self.state.engine.rpm==0));return
         if self._active_menu == "airshot_calibration":
             self._air_calibration.adjust(-1)
             return
@@ -1822,7 +1822,7 @@ class HUDRenderer:
             self._fault_menu_action = 0
             self._active_menu = "fault_detail"
             return
-        if self._active_menu=="dynamics":self._dynamics_menu.select();return
+        if self._active_menu=="dynamics":self._dynamics_menu.select(self.state.engine.speed_mph<=1 and self.state.engine.rpm==0);return
         if self._active_menu=="home" and self._home_focus_target()=="DYNAMICS":
             self._active_menu="dynamics";self._dynamics_menu.page="controls";return
         if self._active_menu == "airshot_switch":

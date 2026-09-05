@@ -126,7 +126,8 @@ const Output& Controller::update(const Inputs& i){
  if(evidence){if(!slip_since)slip_since=i.now;if(i.now-slip_since>=c.confirm_ms)slipping=true;}else slip_since=0;
  if(out.slip<out.slip_target-c.slip_hysteresis)slipping=false;
  out.slip_confidence=slipping?1:evidence?.5f:0;
- out.rider=curve(c.torque_axis,c.curves[settings.curve<3?settings.curve:0],5,aps);
+ static const float grip_axis[5]={0,.25f,.5f,.75f,1};
+ out.rider=settings.curve==3?aps:curve(grip_axis,c.curves[settings.curve<3?settings.curve:0],5,aps);
  out.tcs_limit=settings.tcs==Level::OFF||!slipping?1:clamp(1-t.slip_gain*fmaxf(0,out.slip-out.slip_target)-t.rate_gain*fmaxf(0,out.slip_rate));
  float prediction=out.pitch+fmaxf(0,out.pitch_rate)*c.attitude_tau;
  out.awc_limit=settings.awc==Level::OFF?1:clamp(1-a.pitch_gain*fmaxf(0,prediction-out.wheelie_target)-a.pitch_rate_gain*fmaxf(0,out.pitch_rate-a.pitch_rate_max));

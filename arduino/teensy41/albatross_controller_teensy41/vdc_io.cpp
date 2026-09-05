@@ -45,7 +45,7 @@ void IO::receive(uint16_t id,uint8_t len,const uint8_t* d,uint32_t now){
  }
  if(!len||d[0]!=1)return;
  if(id==0x207&&len==4&&d[1]<=4){weather_state=d[1];inputs.weather_valid=d[1]==0;inputs.rain=d[2]==1;stamps[5]=now;}
- if(id==0x208&&len==8&&d[7]==0xA5&&d[1]<=3&&d[2]<=3&&d[3]<3&&d[4]<=1){
+ if(id==0x208&&len==8&&d[7]==0xA5&&d[1]<=3&&d[2]<=3&&d[3]<4&&d[4]<=1){
   controller.settings.tcs=Level(d[1]);controller.settings.awc=Level(d[2]);controller.settings.curve=d[3];controller.settings.weather=d[4];request_ack=d[6];
  }
  if(id==0x209&&len==8&&d[7]==0xA5&&d[1]<4){

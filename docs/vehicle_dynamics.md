@@ -29,6 +29,8 @@ RaceGrade signed axis scaling is 0.001 g/bit for acceleration and 0.001 Hz/bit f
 
 ## Calibration and rider controls
 
+The [rider-curve editor](throttle_curves.md) now provides baseline COMFORT/ROAD/RESPONSE shapes and a fixed 1:1 option. These are source calibration edits with immediate local preview; applying edited points requires a rebuilt main-controller image and matching Pi configuration. They are not actuator calibration or a live CAN point-upload protocol.
+
 `config/vdc_engineering.json` is the service source. Generate/check the firmware header with `python tools/generate_vdc_config.py` / `--check`. All missing physical numbers remain null. The only retained aid numbers are the repository's previous LOW/MED/HIGH slip thresholds; retaining them does **not** validate the new classifier. Synthetic test constants live only in `tests/vdc_fixture.h`, never in the vehicle configuration.
 
 Measure APS/TPS endpoints, rails, disagreement/rate thresholds, actuator travel/current/tracking limits, IMU mounting/bias/ranges, wheel geometry, plausible accelerations, slip targets/gains, pitch/rate envelopes, lean envelopes, torque ramps, weather factors and both actuator maps. Set `validated` only after reviewing the complete set. The Pi cannot casually change those engineering fields. `degraded_torque` is reserved; current sensor degradation uses zero authority, not an unvalidated limp-throttle map.

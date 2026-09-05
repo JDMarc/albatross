@@ -152,6 +152,9 @@ TCS/AWC now has a larger panel with separate levels and intervention status.
 - TCS/AWC: Select opens Dynamics. Up/down chooses a row; left/right requests
   levels, throttle curve, weather assist or bounded rider envelopes. Telemetry,
   event history and confirmed latched-stop controls are available here.
+  Select on THROTTLE CURVE opens the five-point editor with COMFORT/ROAD/RESPONSE
+  baselines and fixed 1:1. Saved points require rebuilding/flashing the main
+  Teensy and restarting the HUD. See docs/throttle_curves.md.
 - AIR: Select once, then left/right requests OFF/MANUAL/AUTO. Select again opens
   detailed Air Shot information. The USB three-position switch also sends modes.
 - SETTINGS: AIR SHOT CALIBRATION edits drafts and transfers while stopped;
