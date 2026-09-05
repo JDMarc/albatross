@@ -1,0 +1,1000 @@
+{
+  "version": 1,
+  "notes": [
+    "Only existing 8 psi thermal degraded ceiling and existing zero-authority hard protection responses are populated. Null limits require engineering calibration; capability removal alone is not proof of an applied actuator action.",
+    "Known definitive electrical/timeout flags use immediate confirmation after their source timeout. New plausibility rules are inactive until separately calibrated. Recovery inherits VDC self_test_ms only when that calibration is valid.",
+    "No ECU MAT replacement, PDM command protocol, RPM-cut protocol, fan control or master-valve pin is assumed."
+  ],
+  "master_air_isolation": {
+    "pin": null,
+    "active_high": true,
+    "driver_verified": false,
+    "closure_feedback_verified": false
+  },
+  "fuel_fusion_enabled": false,
+  "rules": [
+    {
+      "id": "PI_OFFLINE",
+      "name": "PI OFFLINE",
+      "source": "PI",
+      "class": "COMMUNICATION",
+      "remove": [],
+      "actions": [],
+      "severity": "ADVISORY",
+      "ride": "FULL",
+      "clear": "AUTO_CLEAR",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "THERMAL_OFFLINE",
+      "name": "THERMAL OFFLINE",
+      "source": "THERMAL_NODE",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": 8,
+      "rpm": null
+    },
+    {
+      "id": "THERMAL_BLIND",
+      "name": "THERMAL BLIND",
+      "source": "THERMAL",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "STOP_REQUIRED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": 0,
+      "boost": 0,
+      "rpm": null
+    },
+    {
+      "id": "THERMAL_HOT",
+      "name": "THERMAL HOT",
+      "source": "THERMAL",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "STOP_REQUIRED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": 0,
+      "boost": 0,
+      "rpm": null
+    },
+    {
+      "id": "EGT_SENSOR",
+      "name": "EGT SENSOR",
+      "source": "THERMAL_NODE",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": 8,
+      "rpm": null
+    },
+    {
+      "id": "COOLANT_SENSOR",
+      "name": "COOLANT SENSOR",
+      "source": "THERMAL_NODE",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": 8,
+      "rpm": null
+    },
+    {
+      "id": "MAT_SENSOR",
+      "name": "MAT SENSOR",
+      "source": "THERMAL_NODE",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": 8,
+      "rpm": null
+    },
+    {
+      "id": "MS3_OFFLINE",
+      "name": "MS3 OFFLINE",
+      "source": "MS3",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "STOP_REQUIRED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": 0,
+      "boost": 0,
+      "rpm": null
+    },
+    {
+      "id": "MAP_INVALID",
+      "name": "MAP INVALID",
+      "source": "MAP",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "STOP_REQUIRED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": 0,
+      "boost": 0,
+      "rpm": null
+    },
+    {
+      "id": "IMU_FAULT",
+      "name": "IMU FAULT",
+      "source": "VDC",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "TCS",
+        "AWC",
+        "LEAN",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "FRONT_WSS",
+      "name": "FRONT WSS",
+      "source": "VDC",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "TCS",
+        "AWC",
+        "LEAN",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "REAR_WSS",
+      "name": "REAR WSS",
+      "source": "VDC",
+      "class": "SENSOR_DATA",
+      "remove": [
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "TCS",
+        "AWC",
+        "LEAN",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "DBW_FAULT",
+      "name": "DBW FAULT",
+      "source": "DBW",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "FULL_DBW",
+        "TCS",
+        "AWC",
+        "LEAN"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "CRITICAL",
+      "ride": "STOP_REQUIRED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": 0,
+      "boost": 0,
+      "rpm": null
+    },
+    {
+      "id": "WMI_FAILED",
+      "name": "WMI FAILED",
+      "source": "WMI",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "AIR_DRIVER",
+      "name": "AIR DRIVER",
+      "source": "AIR",
+      "class": "SYSTEM",
+      "remove": [
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "AIR_STUCK",
+      "name": "AIR STUCK",
+      "source": "AIR",
+      "class": "SYSTEM",
+      "remove": [
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "HIGH_BOOST"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR",
+        "OPEN_EWG"
+      ],
+      "severity": "CRITICAL",
+      "ride": "STOP_REQUIRED",
+      "clear": "SERVICE_CLEAR",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "FUEL_DP_LOW",
+      "name": "FUEL DP LOW",
+      "source": "FUEL",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "FUEL_DP_CRITICAL",
+      "name": "FUEL DP CRITICAL",
+      "source": "FUEL",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW",
+        "FULL_RPM"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR",
+        "OPEN_EWG",
+        "ECU_PROTECT_REQUEST"
+      ],
+      "severity": "CRITICAL",
+      "ride": "ENGINE_PROTECT",
+      "clear": "SERVICE_CLEAR",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "OIL_LOW",
+      "name": "OIL LOW",
+      "source": "OIL",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "STOP_REQUIRED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": 0,
+      "boost": 0,
+      "rpm": null
+    },
+    {
+      "id": "OIL_CRITICAL",
+      "name": "OIL CRITICAL",
+      "source": "OIL",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW",
+        "FULL_RPM"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR",
+        "OPEN_EWG",
+        "ECU_PROTECT_REQUEST"
+      ],
+      "severity": "CRITICAL",
+      "ride": "ENGINE_PROTECT",
+      "clear": "SERVICE_CLEAR",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "EWG_LEFT",
+      "name": "EWG LEFT",
+      "source": "EWG",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "EWG_RIGHT",
+      "name": "EWG RIGHT",
+      "source": "EWG",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "OVERBOOST",
+      "name": "OVERBOOST",
+      "source": "OVERBOOST",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR",
+        "OPEN_EWG"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "BOOST_UNCONTAINED",
+      "name": "BOOST UNCONTAINED",
+      "source": "BOOST",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL",
+        "WMI_POWER",
+        "FULL_DBW",
+        "FULL_RPM"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR",
+        "OPEN_EWG",
+        "ECU_PROTECT_REQUEST"
+      ],
+      "severity": "CRITICAL",
+      "ride": "ENGINE_PROTECT",
+      "clear": "SERVICE_CLEAR",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "CHARGING",
+      "name": "CHARGING",
+      "source": "CHARGING",
+      "class": "ELECTRICAL",
+      "remove": [
+        "NORMAL_LOAD"
+      ],
+      "actions": [
+        "SHED_OPTIONAL",
+        "STOP_COMPRESSOR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "COOLING",
+      "name": "COOLING",
+      "source": "COOLING",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "FAN_MAX",
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "LAMBDA_LEFT",
+      "name": "LAMBDA LEFT",
+      "source": "LAMBDA",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "LAMBDA_RIGHT",
+      "name": "LAMBDA RIGHT",
+      "source": "LAMBDA",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "CYLINDER_LEFT",
+      "name": "CYLINDER LEFT",
+      "source": "CYLINDER",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "CYLINDER_RIGHT",
+      "name": "CYLINDER RIGHT",
+      "source": "CYLINDER",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "KNOCK",
+      "name": "KNOCK",
+      "source": "KNOCK",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    },
+    {
+      "id": "TURBO_OVERSPEED",
+      "name": "TURBO OVERSPEED",
+      "source": "TURBO",
+      "class": "SYSTEM",
+      "remove": [
+        "HIGH_BOOST",
+        "AIR_AUTO",
+        "AIR_MANUAL"
+      ],
+      "actions": [
+        "CLOSE_AIR",
+        "ISOLATE_AIR",
+        "STOP_COMPRESSOR",
+        "OPEN_EWG"
+      ],
+      "severity": "WARNING",
+      "ride": "DEGRADED",
+      "clear": "CLEAR_AFTER_STABLE",
+      "confirm_ms": 0,
+      "recover_ms": null,
+      "torque": null,
+      "boost": null,
+      "rpm": null
+    }
+  ],
+  "monitors": {
+    "fuel_dp": {
+      "fault": "FUEL_DP_LOW",
+      "a": "RAIL",
+      "b": "MAP",
+      "operation": "DIFFERENCE",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "fuel_dp_critical": {
+      "fault": "FUEL_DP_CRITICAL",
+      "a": "RAIL",
+      "b": "MAP",
+      "operation": "DIFFERENCE",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "oil_error": {
+      "fault": "OIL_LOW",
+      "a": "OIL_PRESSURE",
+      "b": "RPM",
+      "operation": "OIL_ERROR",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "oil_critical": {
+      "fault": "OIL_CRITICAL",
+      "a": "OIL_PRESSURE",
+      "b": "RPM",
+      "operation": "OIL_ERROR",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "oil_rate": {
+      "fault": "OIL_CRITICAL",
+      "a": "OIL_PRESSURE",
+      "b": "RPM",
+      "operation": "RATE",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "ewg_left": {
+      "fault": "EWG_LEFT",
+      "a": "WG_CMD_L",
+      "b": "WG_POS_L",
+      "operation": "ABS_DIFFERENCE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "ewg_right": {
+      "fault": "EWG_RIGHT",
+      "a": "WG_CMD_R",
+      "b": "WG_POS_R",
+      "operation": "ABS_DIFFERENCE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "air_decay_closed": {
+      "fault": "AIR_STUCK",
+      "a": "TANK",
+      "b": "TANK",
+      "operation": "RATE",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "charging": {
+      "fault": "CHARGING",
+      "a": "VOLTAGE",
+      "b": "VOLTAGE",
+      "operation": "VALUE",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "imu_norm": {
+      "fault": "IMU_FAULT",
+      "a": "ACCEL_NORM",
+      "b": "ACCEL_NORM",
+      "operation": "VALUE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "turbo_left": {
+      "fault": "TURBO_OVERSPEED",
+      "a": "TURBO_L",
+      "b": "TURBO_L",
+      "operation": "VALUE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "turbo_right": {
+      "fault": "TURBO_OVERSPEED",
+      "a": "TURBO_R",
+      "b": "TURBO_R",
+      "operation": "VALUE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "lambda_left": {
+      "fault": "LAMBDA_LEFT",
+      "a": "LAMBDA_L",
+      "b": "LAMBDA_L",
+      "operation": "VALUE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "lambda_right": {
+      "fault": "LAMBDA_RIGHT",
+      "a": "LAMBDA_R",
+      "b": "LAMBDA_R",
+      "operation": "VALUE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "cooling": {
+      "fault": "COOLING",
+      "a": "HEAD_L",
+      "b": "HEAD_L",
+      "operation": "RATE",
+      "high": true,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    },
+    "wmi_pressure": {
+      "fault": "WMI_FAILED",
+      "a": "WMI_PRESSURE",
+      "b": "WMI_PRESSURE",
+      "operation": "VALUE",
+      "high": false,
+      "enabled": false,
+      "trip": null,
+      "clear": null,
+      "confirm_ms": null,
+      "require_running": true,
+      "context_verified": false
+    }
+  },
+  "oil_envelope": {
+    "rpm_axis": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "minimum_psi": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "reference_temp_c": null,
+    "temp_slope_psi_per_c": null
+  }
+}

@@ -23,10 +23,11 @@ struct Config {
 };
 struct Settings {Level tcs=Level::MED,awc=Level::MED;uint8_t curve=0;bool weather=true;float wheelie_target=NAN,wheelie_max=NAN,lean_left=NAN,lean_right=NAN;};
 struct Inputs {
- uint32_t now=0;float front=0,rear=0,rpm=0,boost=0,boost_request=0,engine_limit=1,mode_limit=1;
+ uint32_t now=0;float front=0,rear=0,rpm=0,boost=0,boost_request=0,engine_limit=1,mode_limit=1,fault_limit=1;
  float accel[3]={0,0,0},gyro[3]={0,0,0},aps[2]={0,0},tps[2]={0,0},motor_current=0;
  uint8_t gear=0;bool front_valid=false,rear_valid=false,imu_valid=false,aps_valid=false,tps_valid=false,dbw_valid=false,engine_valid=false,driver_fault=false;
  bool rain=false,weather_valid=false; // advisory only; no connectivity dependency
+ bool fault_air_allowed=true;
 };
 struct Output {
  State state=State::INIT;Event event=Event::UNKNOWN_DYNAMIC_STATE;uint32_t faults=0;

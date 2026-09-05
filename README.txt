@@ -158,6 +158,15 @@ DEVICES opens a scrolling picker; Back returns to the player before exiting to
 the HUD. Unknown duration and unavailable controls are explicit. Media requests
 do not assert successful playback or connection. No seek/volume/shuffle support
 is assumed. Run python tests/run_media_checks.py for UI/command regressions.
+
+FAULT MANAGEMENT: main-Teensy capabilities and fault torque/boost ceilings now
+coordinate existing protections without changing the error HUD. Pi loss is
+noncritical; thermal redundancy and calibrated dynamics-only degradation retain
+limited rideability where supported. Optional master NC Air Shot isolation uses
+reserved pin 12 after explicit hardware configuration. Read docs/fault_management.md
+before commissioning: many additional detectors require sensor mappings and
+engineering limits, and requested PDM/fan/RPM/EWG actions are not assumed applied.
+The Pi receives atomic fault telemetry and records bounded pre/post CAN windows.
 HUD coolant/oil/plenum/EGT now come from the dedicated thermal Teensy, not legacy
 ECU temperature frames. See docs/thermal_system.md for source and failure behavior.
 TCS/AWC now has a larger panel with separate levels and intervention status.

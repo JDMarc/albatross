@@ -1010,6 +1010,7 @@ def main() -> None:
             can_interface.stop()
         if aggregator:
             aggregator.airshot_service.close()
+            aggregator.fault_windows.close()
             aggregator.dynamics_service.close()
 
 

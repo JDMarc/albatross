@@ -50,7 +50,12 @@ int main(int argc,char** argv){
    const auto& o=control.update(i);
    assert(isfinite(o.permitted)&&o.permitted>=0&&o.permitted<=1);
    assert(o.permitted<=o.rider+.0001f || o.state==State::SELF_TEST);
-   if(o.faults)assert(!o.dbw_enable&&!o.air_allowed&&o.permitted==0);
+   if(o.faults){
+    assert(!o.air_allowed&&o.boost_target==0);
+    const uint32_t dynamics_only=FRONT_WSS|REAR_WSS|IMU_LOST|IMU_IMPLAUSIBLE|IMU_DRIFT;
+    if(o.faults&~dynamics_only)assert(!o.dbw_enable&&o.permitted==0);
+    else assert(o.permitted<=cfg.degraded_torque);
+   }
    if(test==15)assert(fabsf(o.pitch)<cfg.drift_error); // slow pitch drift corrected by trusted gravity
    if(o.tcs_active||o.awc_active)assert(!o.air_allowed);
    if(event){saw_slip|=o.slip_confidence==1;saw_lift|=o.front_airborne;saw_awc|=o.awc_active;saw_touchdown|=o.event==Event::WHEELIE_TOUCHDOWN;saw_fault|=o.faults!=0;saw_air|=o.front_airborne&&o.air_allowed;}

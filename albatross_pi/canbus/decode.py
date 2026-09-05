@@ -24,6 +24,9 @@ from ..thermal import ThermalService
 from ..thermal.summary import primary_temperatures
 from ..airshot import AirShotService
 from ..dynamics import DynamicsService
+from ..fault_manager import FaultService
+from ..fault_manager.snapshot_logger import SnapshotLogger
+from ..fault_manager.signal_substitution import temperature_estimates
 from ..state.snapshot import (
     AirShotState,
     CANFrameRecord,
@@ -115,6 +118,8 @@ class CANStateAggregator:
         }
         self._airshot = AirShotState()
         self.airshot_service = AirShotService(airshot_log_directory)
+        self.fault_service = FaultService()
+        self.fault_windows = SnapshotLogger(Path(airshot_log_directory).parent/'fault_windows' if airshot_log_directory else None)
         self.dynamics_service = DynamicsService(Path(airshot_log_directory).parent/"dynamics" if airshot_log_directory else None)
         self._wmi = WMIState()
         self._traction = TractionState()
@@ -161,6 +166,9 @@ class CANStateAggregator:
             self._record_can_frame(arbitration_id, data, direction)
             self.airshot_service.ingest(arbitration_id,data,direction.upper())
             self.dynamics_service.ingest(arbitration_id,data,direction.upper())
+            self.fault_service.ingest(arbitration_id,data,direction.upper())
+            fault_management=self.fault_service.snapshot()
+            self.fault_windows.observe(arbitration_id,data,direction.upper(),fault_management)
             thermal_handled = self._thermal.apply_can_frame(arbitration_id, data) if direction.upper() == "RX" else False
             if handler is not None and not thermal_handled:
                 handler(self, data)
@@ -183,9 +191,11 @@ class CANStateAggregator:
                 "speed_mph": float(self._engine_data.get("speed_mph", 0.0)),
             })
             thermal_snapshot = self._thermal.snapshot()
+            fault_management=replace(fault_management,estimates=temperature_estimates(thermal_snapshot))
             air_v2 = self.airshot_service.snapshot()
             self._airshot = replace(self._airshot, v2=air_v2)
             self._last_snapshot = StateSnapshot(
+                fault_management=fault_management,
                 dynamics=self.dynamics_service.snapshot(),
                 engine=EngineState(**self._engine_data),
                 temps=TemperaturesState(
@@ -210,7 +220,8 @@ class CANStateAggregator:
                 system=self._system,
                 thermal=thermal_snapshot,
                 shift_light=self._shift_light,
-                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts) | set(air_v2.alerts) | set(self.dynamics_service.snapshot().alerts))),
+                faults=tuple(sorted(set(self._faults.values()) | set(thermal_snapshot.alerts) | set(air_v2.alerts) | set(self.dynamics_service.snapshot().alerts) | set(fault_management.alerts))),
+                advisories=fault_management.advisories,
             )
             self._last_snapshot = replace(self._last_snapshot,temps=primary_temperatures(self._last_snapshot.temps,thermal_snapshot))
             self._dirty = True
@@ -235,9 +246,15 @@ class CANStateAggregator:
         thermal = self._thermal.snapshot()
         air = self.airshot_service.snapshot()
         dynamics = self.dynamics_service.snapshot()
+        fault_management=self.fault_service.snapshot()
+        fault_management=replace(fault_management,estimates=temperature_estimates(thermal))
+        old_fm=self._last_snapshot.fault_management
         previous = set(self._last_snapshot.thermal.alerts) | set(self._last_snapshot.air_shot.v2.alerts) | set(self._last_snapshot.dynamics.alerts)
         faults = (set(self._last_snapshot.faults) - previous) | set(thermal.alerts) | set(air.alerts) | set(dynamics.alerts)
-        return replace(self._last_snapshot, thermal=thermal,dynamics=dynamics,
+        faults=(faults-set(old_fm.alerts if old_fm else ()))|set(fault_management.alerts)
+        if self.fault_windows.failed:faults.add('FAULT SNAPSHOT LOGGING FAILED')
+        return replace(self._last_snapshot, thermal=thermal,dynamics=dynamics,fault_management=fault_management,
+            advisories=fault_management.advisories,
             temps=primary_temperatures(self._last_snapshot.temps,thermal),
             air_shot=replace(self._last_snapshot.air_shot,v2=air), faults=tuple(sorted(faults)))
 

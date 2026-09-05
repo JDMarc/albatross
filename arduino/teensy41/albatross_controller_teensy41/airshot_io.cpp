@@ -6,7 +6,7 @@ static uint16_t u16(const uint8_t* p) {return (uint16_t(p[0])<<8)|p[1];}
 static void put16(uint8_t* p,uint16_t v) {p[0]=v>>8;p[1]=v;}
 static bool validPins(const Config& c) {
   bool configured_pins=validConfig(c);
-  const int reserved[]={0,1,2,3,4,5,6,9,10,14,15,16,18,19,20,22,23,24,25,26,27,28,29,30,31};
+  const int reserved[]={0,1,2,3,4,5,6,9,10,12,14,15,16,18,19,20,22,23,24,25,26,27,28,29,30,31};
   for(int n=0;n<4;n++) {
     const auto& v=c.valves[n];
     if(v.pin<0 || v.pin>41 || !digitalPinHasPWM(v.pin)) configured_pins=false;

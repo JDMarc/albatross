@@ -7,6 +7,12 @@ vdc::IO VDC;
 static volatile uint32_t g_front_pulse_at=0,g_rear_pulse_at=0;
 airshot::IO AIR_V2;
 #include "primary_thermal.h"
+#include "fault_manager/policies.h"
+#include "fault_manager/telemetry.h"
+#include "fault_manager/air_isolation.h"
+fm::Manager FAULT_MANAGER;
+fm::SubsystemMonitors FAULT_MONITORS;
+fm::AirIsolation AIR_ISOLATION;
 static uint32_t g_air_required_rx[7]={0};
 static uint32_t g_ms3_coolant_rx=0;
 static uint32_t g_ms3_iat_rx=0, g_ms3_oil_rx=0;
@@ -196,7 +202,7 @@ static constexpr uint8_t WG2_PWM_PIN = 5;
 static constexpr uint8_t WG2_DIR_PIN = 6;
 static constexpr uint8_t WG2_EN_PIN = 9;
 static constexpr uint8_t WMI_PUMP_PIN = 10;    // Water/meth pump relay/MOSFET input (active HIGH)
-static constexpr uint8_t AIRSHOT_SOL_PIN = 12; // Air shot solenoid driver input
+static constexpr uint8_t AIRSHOT_SOL_PIN = 12; // Reclaimed for optional master NC isolation driver
 static constexpr uint8_t AIR_COMPRESSOR_RELAY_PIN = 24; // Air tank compressor relay driver input
 static constexpr uint8_t FRONT_WHEEL_HALL_PIN = 18;
 static constexpr uint8_t REAR_WHEEL_HALL_PIN = 19;
@@ -741,7 +747,9 @@ void updateControllers() {
   updateWheelSpeeds();
   const bool ecu_can_stale = elapsedSince(g_last_ecu_frame_ms, ECU_CAN_TIMEOUT_MS, now);
   const bool pi_can_stale = elapsedSince(g_last_pi_command_ms, PI_CAN_TIMEOUT_MS, now);
-  const bool control_link_stale = ecu_can_stale || pi_can_stale;
+  // Last accepted rider configuration is local state. Pi is not a heartbeat
+  // permission for engine, DBW, dynamics, boost, WMI or automatic Air Shot.
+  const bool control_link_stale = ecu_can_stale;
   const bool thermal_node_offline = !g_thermal.ever_seen || elapsedSince(g_last_thermal_heartbeat_ms, THERMAL_CAN_TIMEOUT_MS, now);
   auto thermal_valid = [now](uint8_t index) {
     return primary_thermal::valid(index,now,g_thermal.ever_seen,g_last_thermal_heartbeat_ms,
@@ -751,6 +759,11 @@ void updateControllers() {
   bool primary_thermal_missing=false;
   const uint8_t primary_indices[]={0,1,14,17,18,23};
   for(uint8_t index:primary_indices) if(!thermal_valid(index)) primary_thermal_missing=true;
+  const bool ecu_clt_valid=g_ms3_coolant_rx&&now-g_ms3_coolant_rx<=THERMAL_CAN_TIMEOUT_MS;
+  const bool ecu_iat_valid=g_ms3_iat_rx&&now-g_ms3_iat_rx<=THERMAL_CAN_TIMEOUT_MS;
+  const bool ecu_oil_valid=g_ms3_oil_rx&&now-g_ms3_oil_rx<=THERMAL_CAN_TIMEOUT_MS;
+  const bool thermal_blind=(!thermal_valid(17)&&!thermal_valid(18)&&!ecu_clt_valid)||
+      (!thermal_valid(14)&&!ecu_iat_valid)||(!thermal_valid(23)&&!ecu_oil_valid);
   const uint16_t cap = modeBoostCap(g_commands.mode);
   uint16_t target = min(g_commands.boost_target_psi_x10, cap);
   if (thermal_node_offline) target = min(target, THERMAL_DEGRADED_BOOST_CAP_PSI_X10);
@@ -762,18 +775,81 @@ void updateControllers() {
       (g_ms3_coolant_rx && now-g_ms3_coolant_rx<=THERMAL_CAN_TIMEOUT_MS && g_inputs.coolant_c_x10>1160) ||
       (g_ms3_iat_rx && now-g_ms3_iat_rx<=THERMAL_CAN_TIMEOUT_MS && g_inputs.ecu_iat_c_x10>650) ||
       (g_ms3_oil_rx && now-g_ms3_oil_rx<=THERMAL_CAN_TIMEOUT_MS && g_inputs.ecu_oil_c_x10>1400);
-  const bool low_oil_pressure = (g_inputs.rpm > 2200) && (g_inputs.oil_pressure_psi_x10 > 0) && (g_inputs.oil_pressure_psi_x10 < 80);
+  const bool low_oil_pressure = (g_inputs.rpm > 2200) && (g_inputs.oil_pressure_psi_x10 < 80);
   const bool voltage_fault = (g_inputs.battery_mv > 0) && (g_inputs.battery_mv < 10500 || g_inputs.battery_mv > 15500);
   const bool low_auth = !g_commands.nfc_ok;
   const bool ecu_sensor_fault = (g_inputs.rpm == 0 && g_inputs.tps_pct > 20);
+  FAULT_MANAGER.begin(now);
+  auto& fmgr=FAULT_MANAGER;
+  // Existing local protections provide definitive evidence after their own
+  // timeout/plausibility checks. Unwired optional monitors remain UNKNOWN.
+  fmgr.observe(fm::Id::PI_OFFLINE,pi_can_stale);
+  fmgr.observe(fm::Id::THERMAL_OFFLINE,thermal_node_offline);
+  fmgr.observe(fm::Id::THERMAL_BLIND,thermal_blind);
+  fmgr.observe(fm::Id::THERMAL_HOT,hot);
+  fmgr.observe(fm::Id::EGT_SENSOR,!thermal_valid(0)||!thermal_valid(1));
+  fmgr.observe(fm::Id::COOLANT_SENSOR,!thermal_valid(17)||!thermal_valid(18));
+  fmgr.observe(fm::Id::MAT_SENSOR,!thermal_valid(14));
+  fmgr.observe(fm::Id::MS3_OFFLINE,ecu_can_stale);
+  fmgr.observe(fm::Id::MAP_INVALID,!g_air_required_rx[2]||now-g_air_required_rx[2]>ECU_CAN_TIMEOUT_MS);
+  const bool boost_fresh=g_air_required_rx[2]&&now-g_air_required_rx[2]<=ECU_CAN_TIMEOUT_MS;
+  if(airshot::validConfig(AIR_V2.c)&&boost_fresh){
+    const float ceiling=target/10.0f+AIR_V2.c.overboost_margin;
+    bool excessive=g_inputs.boost_psi_x10/10.0f>ceiling;
+    if(g_boost_banks_rx&&now-g_boost_banks_rx<=AIR_V2.c.timeout_ms)
+      excessive=excessive||g_boost_banks[0]>ceiling||g_boost_banks[1]>ceiling;
+    fmgr.observe(fm::Id::OVERBOOST,excessive);
+  }
+  fmgr.observe(fm::Id::OIL_LOW,g_air_required_rx[3]&&now-g_air_required_rx[3]<=ECU_CAN_TIMEOUT_MS?
+      (low_oil_pressure?fm::Evidence::BAD:fm::Evidence::GOOD):fm::Evidence::UNKNOWN);
+  fmgr.observe(fm::Id::WMI_FAILED,g_outputs.wmi_commanded_flow_cc_min>0?
+      (g_outputs.wmi_fault?fm::Evidence::BAD:fm::Evidence::GOOD):fm::Evidence::UNKNOWN);
+  fmgr.observe(fm::Id::AIR_DRIVER,AIR_V2.inputs.driver_faults!=0);
+  if(!airshot::validConfig(AIR_V2.c)||!AIR_V2.configured_pins)
+    fmgr.observe(fm::Id::AIR_DRIVER,fm::Evidence::BAD,100); // no commissioned output path
+  const uint32_t dynamics_faults=VDC.controller.out.faults;
+  fmgr.observe(fm::Id::IMU_FAULT,(dynamics_faults&(vdc::IMU_LOST|vdc::IMU_IMPLAUSIBLE|vdc::IMU_DRIFT))!=0);
+  fmgr.observe(fm::Id::FRONT_WSS,(dynamics_faults&vdc::FRONT_WSS)!=0);
+  fmgr.observe(fm::Id::REAR_WSS,(dynamics_faults&vdc::REAR_WSS)!=0);
+  fmgr.observe(fm::Id::DBW_FAULT,!vdc::valid(VDC.c)||(dynamics_faults&(vdc::APS_DISAGREEMENT|vdc::TPS_DISAGREEMENT|vdc::DBW_COMM|vdc::DBW_POSITION|vdc::DBW_DRIVER|vdc::APS_RATE))!=0);
+  fmgr.observe(fm::Id::CHARGING,g_air_required_rx[6]&&now-g_air_required_rx[6]<=ECU_CAN_TIMEOUT_MS?
+      (voltage_fault?fm::Evidence::BAD:fm::Evidence::GOOD):fm::Evidence::UNKNOWN);
+  // A dry-boost ceiling has not been supplied: no requested boost is the
+  // conservative existing fallback, not an invented WMI-safe performance map.
+  fmgr.policies[unsigned(fm::Id::WMI_FAILED)].boost=0;
+  for(auto id:{fm::Id::IMU_FAULT,fm::Id::FRONT_WSS,fm::Id::REAR_WSS})
+    fmgr.policies[unsigned(id)].torque=vdc::valid(VDC.c)?VDC.c.degraded_torque:0;
+  for(auto& p:fmgr.policies)if(!p.recovery_configured&&vdc::valid(VDC.c)){
+    p.recover_ms=VDC.c.self_test_ms;p.recovery_configured=true;
+  }
+  auto signal=[&](fm::Channel channel,float value,uint32_t stamp,uint32_t timeout,bool valid){
+    auto& s=FAULT_MONITORS.signals[unsigned(channel)];s.value=value;s.at=stamp;s.max_age_ms=timeout;s.seen=stamp!=0;s.quality=valid?fm::Quality::VALID:fm::Quality::INVALID;
+  };
+  signal(fm::Channel::RPM,g_inputs.rpm,g_air_required_rx[0],ECU_CAN_TIMEOUT_MS,true);
+  // MAP is gauge pressure here. Any future rail-pressure adapter MUST use the
+  // same pressure reference before enabling the differential-pressure monitor.
+  signal(fm::Channel::MAP,g_inputs.boost_psi_x10/10.0f,g_air_required_rx[2],ECU_CAN_TIMEOUT_MS,true);
+  signal(fm::Channel::OIL_PRESSURE,g_inputs.oil_pressure_psi_x10/10.0f,g_air_required_rx[3],ECU_CAN_TIMEOUT_MS,true);
+  signal(fm::Channel::OIL_TEMP,thermal_c(23),g_thermal_values_rx[23/4],THERMAL_CAN_TIMEOUT_MS,thermal_valid(23));
+  signal(fm::Channel::VOLTAGE,g_inputs.battery_mv/1000.0f,g_air_required_rx[6],ECU_CAN_TIMEOUT_MS,true);
+  for(unsigned n=0;n<2;n++){
+    signal(fm::Channel(unsigned(fm::Channel::EGT_L)+n),thermal_c(n),g_thermal_values_rx[0],THERMAL_CAN_TIMEOUT_MS,thermal_valid(n));
+    signal(fm::Channel(unsigned(fm::Channel::HEAD_L)+n),thermal_c(19+n),g_thermal_values_rx[(19+n)/4],THERMAL_CAN_TIMEOUT_MS,thermal_valid(19+n));
+    signal(fm::Channel(unsigned(fm::Channel::WG_CMD_L)+n),AIR_V2.inputs.wg_command[n],AIR_V2.wg_at,AIR_V2.c.timeout_ms,AIR_V2.inputs.wg_valid);
+    signal(fm::Channel(unsigned(fm::Channel::WG_POS_L)+n),AIR_V2.inputs.wg_position[n],AIR_V2.wg_at,AIR_V2.c.timeout_ms,AIR_V2.inputs.wg_valid);
+  }
+  FAULT_MONITORS.update(fmgr,now);
+  const auto& fault_caps=fmgr.finish(now);
+  if(fault_caps.actions&fm::ISOLATE_AIR)AIR_ISOLATION.update(false);
+  if(isfinite(fault_caps.boost))target=min(target,uint16_t(fault_caps.boost*10));
+  else if(!(fault_caps.available&fm::HIGH_BOOST))target=0;
   uint8_t limp_reason = LIMP_NONE;
   if (!g_commands.engine_run_enabled) VDC.controller.stop();
   if (VDC.controller.stopped()) g_commands.engine_run_enabled=false;
   if (VDC.controller.stopped()) limp_reason = LIMP_ENGINE_RUN_OFF;
   else if (g_commands.limp_mode) limp_reason = g_commands.limp_reason != LIMP_NONE ? g_commands.limp_reason : LIMP_PI_REQUEST;
   else if (ecu_can_stale) limp_reason = LIMP_ECU_CAN_STALE;
-  else if (pi_can_stale) limp_reason = LIMP_PI_COMMAND_STALE;
-  else if (hot || primary_thermal_missing) limp_reason = LIMP_THERMAL;
+  else if (hot || thermal_blind) limp_reason = LIMP_THERMAL;
   else if (low_oil_pressure) limp_reason = LIMP_LOW_OIL_PRESS;
   else if (voltage_fault) limp_reason = LIMP_BATTERY_VOLTAGE;
   else if (knock && g_inputs.boost_psi_x10 > target) limp_reason = LIMP_KNOCK;
@@ -795,9 +871,8 @@ void updateControllers() {
   }
   if (thermal_node_offline || primary_thermal_missing) {
     // Explicit degraded mode: no flame or Air Shot and no boost above 8 psi.
-    // Missing primary temperature data also enters thermal limp above. The
-    // independent MS3 CLT/IAT/oil sensors retain ECU authority, but do not mask
-    // missing primary thermal-node channels on the main controller.
+    // Only loss of all basic coverage enters thermal limp above. Independent
+    // ECU CLT/IAT/oil can retain coverage, without hiding the advanced-data loss.
     g_commands.flame_mode = false;
     g_airshot_latched = false;
   }
@@ -805,6 +880,8 @@ void updateControllers() {
   auto& vi=VDC.inputs;
   vi.rpm=g_inputs.rpm;vi.gear=g_inputs.gear;vi.boost=g_inputs.boost_psi_x10/10.0f;
   vi.boost_request=target/10.0f;vi.engine_limit=limp?0:1;vi.mode_limit=1;
+  vi.fault_limit=fault_caps.torque;
+  vi.fault_air_allowed=(fault_caps.available&(fm::AIR_AUTO|fm::AIR_MANUAL))==(fm::AIR_AUTO|fm::AIR_MANUAL);
   vi.front=g_front_wheel_mps;vi.rear=g_rear_wheel_mps;
   bool near_stop=isfinite(VDC.c.speed_floor)&&max(vi.front,vi.rear)<VDC.c.speed_floor;
   vi.front_valid=near_stop||VDC.controller.out.front_airborne||(g_front_pulse_at&&now-g_front_pulse_at<=VDC.c.timeout_ms);
@@ -892,7 +969,7 @@ void updateControllers() {
     ai.head[n]=g_thermal.temperature_c_x10[19+n]/10.0f;
   }
   ai.tcs=vo.tcs_active;ai.awc=vo.awc_active;ai.traction_fault=vo.faults!=0;
-  ai.vdc_valid=vo.dbw_enable;ai.vdc_permitted=vo.air_allowed;ai.vdc_margin=vo.air_margin;
+  ai.vdc_valid=vo.dbw_enable;ai.vdc_permitted=vo.air_allowed&&vi.fault_air_allowed;ai.vdc_margin=vo.air_margin;
   ai.rider=vo.rider*100;ai.dbw_command=vo.permitted*100;
   ai.dbw_actual=VDC.c.throttle_max>VDC.c.throttle_min?(vo.throttle_actual-VDC.c.throttle_min)/(VDC.c.throttle_max-VDC.c.throttle_min)*100:0;
   ai.dbw_valid=vo.dbw_enable;AIR_V2.dbw_at=now;
@@ -904,11 +981,22 @@ void updateControllers() {
   AIR_V2.update(now);
   g_airshot_latched=false;
   for(float valve:AIR_V2.controller.output().valve) if(valve>0) g_airshot_latched=true;
-  updateAirCompressorRelay(now, bike_stationary, low_throttle, limp);
+  AIR_ISOLATION.update(g_airshot_latched&&!limp&&!VDC.controller.stopped()&&
+      !(fault_caps.actions&fm::ISOLATE_AIR));
+  for(unsigned n=0;n<fm::count;n++)if(fmgr.faults[n].active){
+    const auto& policy=fmgr.policies[n];
+    const bool unsupported=(policy.actions&(fm::OPEN_EWG|fm::FAN_MAX|fm::SHED_OPTIONAL|fm::ECU_PROTECT_REQUEST))||
+        ((policy.actions&fm::ISOLATE_AIR)&&!AIR_ISOLATION.configured)||isfinite(policy.rpm);
+    // These are commanded mitigations. Physical containment requires validated
+    // response signals; never label a write to an output as verified recovery.
+    if(unsupported)fmgr.verify(fm::Id(n),fm::Result::UNAVAILABLE);
+  }
+  updateAirCompressorRelay(now, bike_stationary, low_throttle, limp||(fault_caps.actions&fm::STOP_COMPRESSOR));
   g_outputs.air_shot_remaining=calculateShotsRemaining(g_outputs.tank_psi_x10);
   // A dynamics fault must not turn the existing ECU cut request back to zero.
   // This is still a request; the independent physical kill circuit is mandatory.
-  const uint8_t torque_cut_pct = (!g_commands.engine_run_enabled || VDC.controller.stopped() || g_outputs.traction_sensor_fault) ? 100 : g_outputs.traction_torque_cut_pct;
+  const uint32_t hard_vdc_faults=vdc::CALIBRATION|vdc::APS_DISAGREEMENT|vdc::TPS_DISAGREEMENT|vdc::DBW_COMM|vdc::DBW_POSITION|vdc::DBW_DRIVER|vdc::MS3_LOST|vdc::APS_RATE|vdc::MASTER_STOP;
+  const uint8_t torque_cut_pct = (!g_commands.engine_run_enabled || VDC.controller.stopped() || (vo.faults&hard_vdc_faults)) ? 100 : g_outputs.traction_torque_cut_pct;
   uint8_t torque_cut_payload[1] = {torque_cut_pct};
   publishFrame(CanId::ARD_TO_ECU_TORQUE_CUT, torque_cut_payload, 1);
   uint8_t slip_payload[3] = {
@@ -941,6 +1029,10 @@ void updateControllers() {
 }
 
 void publishStatusFrames() {
+  fm::publish(FAULT_MANAGER,publishFrame);
+  uint8_t isolation[8]={1,uint8_t(AIR_ISOLATION.configured),uint8_t(AIR_ISOLATION.commanded_open),
+      uint8_t(fm::Quality::INVALID),0,0,0,0}; // no physical closure feedback supplied
+  publishFrame(0x245,isolation,8);
   AIR_V2.publish(publishFrame);
   VDC.publish(publishFrame);
   uint8_t airshot[2] = {g_outputs.air_shot_remaining, static_cast<uint8_t>(g_airshot_latched ? 1 : 0)};
@@ -1069,6 +1161,9 @@ void publishStatusFrames() {
 }
 
 void setup() {
+  fm::loadPolicies(FAULT_MANAGER);
+  fm::loadMonitors(FAULT_MONITORS);
+  AIR_ISOLATION.begin(fm::master_isolation_configured);
   AIR_V2.begin();
   analogReadResolution(12);
   for (uint8_t i = 0; i < 32; ++i) g_thermal.status[i] = 6; // STALE until an explicit thermal status arrives

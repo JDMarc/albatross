@@ -20,10 +20,11 @@ difference alone is not a throttle-cut criterion.
 
 ## Main Teensy pin map
 
-Temperature protection now uses the dedicated thermal node's CAN measurements,
-not the old basic ECU temperature frames. Missing core temperatures enter thermal
-limp; heartbeat, value and status freshness are checked independently. The ECU
-retains dedicated coolant/IAT/oil sensors pending verified ECU receiving setup.
+Temperature protection uses the dedicated thermal node's CAN measurements,
+with fresh independent ECU coolant/IAT/oil retained for basic fallback coverage.
+Individual auxiliary losses restrict advanced features; loss of basic thermal
+coverage retains thermal limp. Heartbeat, value and status freshness are checked
+independently. The ECU retains its own sensors pending verified ECU receiving setup.
 This migration adds no main-controller temperature pins. See
 [`thermal_system.md`](../docs/thermal_system.md) for the channel/source policy.
 
@@ -37,7 +38,7 @@ Source: `albatross_controller_teensy41.ino` and `airshot_io.cpp`.
 | 5 / 6 / 9 | Outputs | Wastegate 2 PWM / direction / enable to power driver |
 | 10 | PWM output | WMI pump driver, active high |
 | 11 | Unassigned | No dedicated flame-mode pin; flame intent remains on CAN |
-| 12 | Legacy output | Held low by initialization; not the V2 single-solenoid output. Only an explicitly validated V2 valve assignment may repurpose it |
+| 12 | Master air isolation | Reserved active-high driver for optional NC master valve; defaults LOW/unconfigured. Cannot be assigned to a performance valve |
 | 24 | Output | Compressor relay/MOSFET command |
 | 18 / 19 | Pull-up inputs | Front / rear wheel Hall pulses |
 | 20 | Pull-up input | WMI flow pulses |
@@ -55,6 +56,12 @@ The valve validator rejects reserved or duplicate pins, non-PWM outputs and
 incompatible shared-timer frequencies. Do not infer a final valve harness from
 unused GPIO numbers. Configure the actual drivers in `config/airshot_v2.json`
 or the stopped-only HUD calibration transfer.
+
+The main controller now owns a capability-based fault manager. Its matrix is
+generated from `config/fault_manager.json`; see
+[`fault_management.md`](../docs/fault_management.md) for live behavior, hardware
+boundaries, telemetry, commissioning and the master pneumatic isolation circuit.
+No PDM/fan/ECU RPM-cut protocol or physical wastegate-open command is assumed.
 
 All Teensy GPIO/ADC signals must be conditioned to 0–3.3 V; they are not 5 V
 tolerant. Use power drivers for motors, pumps and valves, and condition bike

@@ -153,6 +153,8 @@ class SystemStatus:
 
 @dataclass(frozen=True)
 class StateSnapshot:
+    # Main-controller authority; presentation remains in the existing fault HUD.
+    fault_management: object = None
     dynamics: Dynamics = field(default_factory=Dynamics)
     engine: EngineState = field(default_factory=EngineState)
     temps: TemperaturesState = field(default_factory=TemperaturesState)

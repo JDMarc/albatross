@@ -51,7 +51,7 @@ const Output& Controller::update(const Inputs& i){
  out.faults=latched;out.air_allowed=false;out.dbw_enable=false;out.tcs_active=out.awc_active=false;
  if(!valid(c)){out=Output{};out.state=State::INIT;out.faults=CALIBRATION;return out;}
  if(dt>float(c.timeout_ms)/1000){out.faults|=IMU_LOST;dt=0;}
- if(!i.engine_valid||!isfinite(i.engine_limit)||!isfinite(i.mode_limit)||!isfinite(i.rpm)||!isfinite(i.boost)||!isfinite(i.boost_request)||i.boost_request<0)out.faults|=MS3_LOST;
+ if(!i.engine_valid||!isfinite(i.engine_limit)||!isfinite(i.mode_limit)||!isfinite(i.fault_limit)||i.fault_limit<0||i.fault_limit>1||!isfinite(i.rpm)||!isfinite(i.boost)||!isfinite(i.boost_request)||i.boost_request<0)out.faults|=MS3_LOST;
  if(!i.front_valid||!isfinite(i.front)||i.front<0)out.faults|=FRONT_WSS;
  if(!i.rear_valid||!isfinite(i.rear)||i.rear<0)out.faults|=REAR_WSS;
  if(!i.imu_valid)out.faults|=IMU_LOST;
@@ -73,6 +73,23 @@ const Output& Controller::update(const Inputs& i){
  latched|=out.faults&latch_mask;
  const uint32_t hard=out.faults&(APS_DISAGREEMENT|TPS_DISAGREEMENT|DBW_COMM|DBW_POSITION|DBW_DRIVER|MS3_LOST|APS_RATE);
  if(out.faults){
+  // Valid APS/TPS/DBWX2 and engine feedback can retain the already-calibrated
+  // throttle map under a dynamics-only sensor failure. No estimated slip/lean.
+  if(!hard && armed) {
+   attitude_initialized=false;lift=slipping=false;
+   out.state=State::DEGRADED;out.event=Event::UNKNOWN_DYNAMIC_STATE;
+   out.sensor_confidence=out.slip_confidence=out.wheelie_confidence=out.front_contact=0;
+   out.front_airborne=false;out.pitch=out.lean=out.pitch_rate=out.slip=NAN;
+   static const float axis[5]={0,.25f,.5f,.75f,1};
+   out.rider=settings.curve==3?aps:curve(axis,c.curves[settings.curve<3?settings.curve:0],5,aps);
+   out.engine_limit=clamp(i.engine_limit);out.mode_limit=clamp(i.mode_limit);
+   float ceiling=fminf(c.degraded_torque,fminf(i.fault_limit,fminf(out.engine_limit,out.mode_limit)));
+   out.permitted=fminf(fminf(out.rider,ceiling),out.permitted+c.torque_rise*dt);
+   out.throttle_target=surface(c,c.throttle_map,i.rpm,out.permitted);
+   out.boost_target=out.air_margin=0;out.dbw_enable=true;
+   out.tcs_limit=out.awc_limit=out.lean_limit=1;
+   healthy_since=0;return out;
+  }
   healthy_since=0;armed=false;attitude_initialized=false;out.state=hard?State::FAULT:State::DEGRADED;out.event=Event::UNKNOWN_DYNAMIC_STATE;out.sensor_confidence=0;
   out.permitted=0;out.throttle_target=c.throttle_min;out.boost_target=0;out.air_margin=0;out.front_contact=0;
   return out; // no unsupported torque-to-throttle fallback during sensor loss
@@ -133,7 +150,7 @@ const Output& Controller::update(const Inputs& i){
  out.awc_limit=settings.awc==Level::OFF?1:clamp(1-a.pitch_gain*fmaxf(0,prediction-out.wheelie_target)-a.pitch_rate_gain*fmaxf(0,out.pitch_rate-a.pitch_rate_max));
  if((settings.awc!=Level::OFF&&out.pitch>=out.wheelie_max)||out.pitch>=c.hard_pitch||out.pitch_rate>=c.hard_pitch_rate)out.awc_limit=0; // hard protection survives AWC OFF
  out.lean_limit=1-clamp((lean_fraction-c.lean_start_fraction)/(1-c.lean_start_fraction));
- out.engine_limit=clamp(i.engine_limit);out.mode_limit=clamp(i.mode_limit);
+ out.engine_limit=clamp(i.engine_limit);out.mode_limit=fminf(clamp(i.mode_limit),clamp(i.fault_limit));
  float permitted=fminf(out.rider,fminf(out.tcs_limit,fminf(out.awc_limit,fminf(out.lean_limit,fminf(out.engine_limit,out.mode_limit)))));
  bool landing=int32_t(touchdown_until-i.now)>0;
  float rise=(landing?c.touchdown_rise:c.torque_rise)*(wet?c.weather_rise_factor:1);
@@ -152,7 +169,7 @@ const Output& Controller::update(const Inputs& i){
  out.tcs_active=out.tcs_limit<out.rider;out.awc_active=out.awc_limit<out.rider;
  out.air_margin=clamp((out.wheelie_target-prediction)/fmaxf(c.lift_angle,out.wheelie_target));
  if(!lift)out.air_margin=1;
- out.air_allowed=!limiting&&!landing&&out.air_margin>0;
+ out.air_allowed=i.fault_air_allowed&&!limiting&&!landing&&out.air_margin>0;
  out.event=slipping?(lift?Event::WHEELIE_AND_SLIP:Event::CONFIRMED_SLIP):landing?Event::WHEELIE_TOUCHDOWN:lift?(out.awc_active?Event::EXCESSIVE_WHEELIE:Event::CONTROLLED_WHEELIE):evidence?Event::POSSIBLE_SLIP:out.wheelie_confidence>0?Event::POSSIBLE_WHEELIE:fabsf(out.lean)>c.lift_angle?Event::CORNERING:out.long_accel>c.lift_accel?Event::ACCELERATING:out.long_accel<-c.lift_accel?Event::BRAKING:Event::NORMAL;
  out.state=out.tcs_active?(out.awc_active?State::TCS_AWC_ACTIVE:State::TCS_ACTIVE):out.awc_active?State::AWC_ACTIVE:lift?State::AWC_TRACKING:settings.tcs==Level::OFF?State::NORMAL:State::TCS_MONITOR;
  return out;
