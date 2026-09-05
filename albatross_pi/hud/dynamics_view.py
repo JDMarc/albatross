@@ -7,12 +7,13 @@ from .widgets.ui_utils import font,fit_font_size
 ROOT=Path(__file__).resolve().parents[2]
 
 class DynamicsMenu:
-    labels=("TCS","AWC","THROTTLE CURVE","WEATHER ASSIST","WHEELIE TARGET","WHEELIE MAX","LEAN LEFT","LEAN RIGHT","RESTART POLICY","LIVE TELEMETRY","EVENT HISTORY")
+    labels=("TCS","AWC","THROTTLE CURVE","WEATHER ASSIST","WHEELIE TARGET","WHEELIE MAX","LEAN LEFT","LEAN RIGHT","RESTART POLICY","LIVE TELEMETRY","EVENT HISTORY","POWERTRAIN STOP")
     def __init__(self,path=Path("settings/dynamics.json")):
         self.path=Path(path);self.cursor=0;self.page="controls";self.callback=None;self.sequence=0;self.pending=None;self.sent_at=0;self.status="CONTROLLER CONFIRMED SETTINGS";self.preview_only=False
         self.engineering=json.loads((ROOT/"config/vdc_engineering.json").read_text(encoding="utf-8"))
         self.values=dict(tcs=2,awc=2,curve=0,weather=True,target=None,maximum=None,left=None,right=None,persistence=self.engineering["rider_persistence"])
         self.restored=False;self.restore_queue=[];self.configuration_matches=False
+        self.stop_confirm_at=None;self.stop_requested=False;self.stop_sent_at=-1e9
         try:
             saved=json.loads(self.path.read_text(encoding="utf-8"))
             if saved.get("persistence")=="remember":
@@ -29,6 +30,12 @@ class DynamicsMenu:
         except (OSError,ValueError,TypeError):pass
     def sync(self,d):
         self.configuration_matches=d.calibration_matches
+        if d.online and d.faults&8192:
+            self.status="POWERTRAIN STOP LATCHED / KEY OFF AND INSPECT";self.pending=None;self.restore_queue=[];return
+        if self.stop_requested:
+            self.status="STOP REQUEST UNCONFIRMED / USE PHYSICAL KILL SWITCH"
+            if self.callback and time.monotonic()-self.stop_sent_at>=.1:self._send_stop()
+            return
         if not d.online:self.status="VDC DATA STALE / SETTINGS NOT CONFIRMED";return
         if not self.restored:
             self.restored=True
@@ -54,8 +61,10 @@ class DynamicsMenu:
         if self.callback:self.callback(*frame);self.status="REQUEST SENT"
         else:self.status="PREVIEW / CAN UNAVAILABLE"
     def move(self,delta):
+        self.stop_confirm_at=None
         if self.page=="controls":self.cursor=(self.cursor+delta)%len(self.labels)
     def adjust(self,delta,stopped=True):
+        self.stop_confirm_at=None
         if self.page!="controls":return
         if self.pending is not None and time.monotonic()-self.sent_at<=1:self.status="WAITING FOR CONTROLLER ACK";return
         keys=("tcs","awc","curve","weather","target","maximum","left","right","persistence")
@@ -78,10 +87,21 @@ class DynamicsMenu:
         if self.page!="controls":self.page="controls";return
         if self.cursor==9:self.page="telemetry"
         elif self.cursor==10:self.page="events"
+        elif self.cursor==11:
+            now=time.monotonic()
+            if self.stop_confirm_at is not None and now-self.stop_confirm_at<=3:
+                self.stop_requested=True;self.pending=None;self.restore_queue=[];self._send_stop()
+            else:self.stop_confirm_at=now;self.status="SELECT AGAIN WITHIN 3s TO STOP POWERTRAIN / NO RIDING BYPASS"
+    def _send_stop(self):
+        self.stop_sent_at=time.monotonic()
+        self.status="STOP REQUEST UNCONFIRMED / USE PHYSICAL KILL SWITCH"
+        if self.callback:
+            try:self.callback(0x20A,bytes((1,ord('S'),ord('T'),ord('O'),ord('P'),0xA5)))
+            except Exception:self.status="STOP TRANSMIT FAILED / USE PHYSICAL KILL SWITCH"
     def display_values(self):
         v=self.values
         def angle(x):return "ENGINEERING TBD" if x is None else f"{x:.0f} DEG"
-        return (LEVELS[v["tcs"]],LEVELS[v["awc"]],self.engineering["curve_names"][v["curve"]],"ON" if v["weather"] else "OFF",angle(v["target"]),angle(v["maximum"]),angle(v["left"]),angle(v["right"]),"REMEMBER" if v["persistence"]=="remember" else "RESET ON START","SELECT TO OPEN","SELECT TO OPEN")
+        return (LEVELS[v["tcs"]],LEVELS[v["awc"]],self.engineering["curve_names"][v["curve"]],"ON" if v["weather"] else "OFF",angle(v["target"]),angle(v["maximum"]),angle(v["left"]),angle(v["right"]),"REMEMBER" if v["persistence"]=="remember" else "RESET ON START","SELECT TO OPEN","SELECT TO OPEN","SELECT TWICE / LATCHED")
 
 def bike(surface,rect,pitch,slip,active,color,dim):
     """Code-native pixel motorcycle; rotation follows measured pitch, trail follows slip."""
@@ -160,7 +180,8 @@ def draw_dynamics(surface,state,menu,colors):
             surface.blit(font(18).render(line,True,bright),(panel.x+28,panel.y+68+n*34))
         surface.blit(font(15).render("3s PRE-TRIGGER + 3s POST / RAW CAN / BOUNDED BACKGROUND WRITER",True,glow),(panel.x+28,panel.bottom-64))
     else:
-        rows=[("FRONT / REAR SPEED",f"{d.front:.2f} / {d.rear:.2f} m/s"),("ESTIMATED SPEED",f"{d.speed:.2f} m/s"),("SLIP / TARGET",f"{d.slip:.2f} / {d.slip_target:.2f} %"),("LEAN / PITCH",f"{d.lean:+.2f} / {d.pitch:+.2f} DEG"),("PITCH RATE",f"{d.pitch_rate:+.2f} DEG/s"),("TCS / AWC",f"{LEVELS[d.tcs]} / {LEVELS[d.awc]}"),("LIMITS TCS / AWC",f"{d.tcs_limit:.0f} / {d.awc_limit:.0f} %"),("RIDER / PERMITTED",f"{d.rider:.0f} / {d.permitted:.0f} %"),("DBW CMD / ACTUAL",f"{d.throttle_target:.2f} / {d.throttle_actual:.2f} DEG"),("BOOST / AIR MARGIN",f"{d.boost_target:.1f} PSI / {d.air_margin:.0f}%"),("SLIP / LIFT CONFIDENCE",f"{d.slip_confidence:.0f} / {d.wheelie_confidence:.0f}%"),("FRONT CONTACT",f"{d.front_contact:.0f}%"),("EVENT",d.event),("FAULT MASK",f"0x{d.faults:08X}"),("WEATHER",WEATHER[d.weather]),("CALIBRATION","VALIDATED" if d.calibrated else "ENGINEERING TBD")]
+        actual="INVALID" if not d.online or d.faults&(64|128) else f"{d.throttle_actual:.2f}"
+        rows=[("FRONT / REAR SPEED",f"{d.front:.2f} / {d.rear:.2f} m/s"),("ESTIMATED SPEED",f"{d.speed:.2f} m/s"),("SLIP / TARGET",f"{d.slip:.2f} / {d.slip_target:.2f} %"),("LEAN / PITCH",f"{d.lean:+.2f} / {d.pitch:+.2f} DEG"),("PITCH RATE",f"{d.pitch_rate:+.2f} DEG/s"),("TCS / AWC",f"{LEVELS[d.tcs]} / {LEVELS[d.awc]}"),("LIMITS TCS / AWC",f"{d.tcs_limit:.0f} / {d.awc_limit:.0f} %"),("RIDER / PERMITTED",f"{d.rider:.0f} / {d.permitted:.0f} %"),("DBW CMD / ACTUAL",f"{d.throttle_target:.2f} / {actual} DEG"),("BOOST / AIR MARGIN",f"{d.boost_target:.1f} PSI / {d.air_margin:.0f}%"),("SLIP / LIFT CONFIDENCE",f"{d.slip_confidence:.0f} / {d.wheelie_confidence:.0f}%"),("FRONT CONTACT",f"{d.front_contact:.0f}%"),("EVENT",d.event),("FAULT MASK",f"0x{d.faults:08X}"),("WEATHER",WEATHER[d.weather]),("CALIBRATION","VALIDATED" if d.calibrated else "ENGINEERING TBD")]
         for n,(label,value) in enumerate(rows):
             col,row=divmod(n,8);x=panel.x+26+col*panel.width//2;y=panel.y+65+row*(panel.height-118)//8
             surface.blit(font(14,bold=True).render(label,True,glow),(x,y))

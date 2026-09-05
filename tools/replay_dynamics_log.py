@@ -14,7 +14,7 @@ def inputs(rows,timeout,accel_axis=(1,0,2),gyro_axis=(2,1,0),accel_sign=(1,1,1),
     rows=sorted((r for r in rows if "frame_id" in r),key=lambda r:r["monotonic_s"])
     if not rows:return
     at=[rows[0]["monotonic_s"]];service=DynamicsService(clock=lambda:at[0]);stamps={};requests={}
-    v=[0.]*37;v[30:33]=[2,2,0];v[33:37]=[float("nan")]*4
+    v=[0.]*38;v[30:33]=[2,2,0];v[33:37]=[float("nan")]*4
     origin=at[0];next_tick=origin;driver_fault=False;channel_fault=False
     def fresh(key):return key in stamps and at[0]-stamps[key]<=timeout
     def sample():
@@ -36,6 +36,8 @@ def inputs(rows,timeout,accel_axis=(1,0,2),gyro_axis=(2,1,0),accel_sign=(1,1,1),
             at[0]=next_tick;yield sample();next_tick+=.01
         at[0]=when;fid=row["frame_id"];data=bytes.fromhex(row["data"])
         service.ingest(fid,data,row.get("direction","RX"))
+        if (fid==0x20A and data==b'\x01STOP\xa5') or (fid==0x127 and len(data)>=1 and data[0]==0):v[37]=1
+        if fid==0x226 and len(data)==8 and data[0]==1 and int.from_bytes(data[1:5],"big")&8192:v[37]=1
         if fid in (imu_base,imu_base+1) and len(data) in (6,8):
             rate=fid==imu_base+1;raw=struct.unpack(">hhh",data[:6]);axis=gyro_axis if rate else accel_axis;sign=gyro_sign if rate else accel_sign
             v[12 if rate else 9:15 if rate else 12]=[raw[axis[n]]*sign[n]*(.36 if rate else .00980665) for n in range(3)]

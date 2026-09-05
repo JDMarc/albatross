@@ -5,7 +5,7 @@ namespace vdc {
 enum class Level:uint8_t {OFF,LOW_AID,MED,HIGH_AID};
 enum class State:uint8_t {INIT,SELF_TEST,READY,NORMAL,TCS_MONITOR,TCS_ACTIVE,AWC_TRACKING,AWC_ACTIVE,TCS_AWC_ACTIVE,DEGRADED,FAULT};
 enum class Event:uint8_t {NORMAL,ACCELERATING,BRAKING,CORNERING,POSSIBLE_SLIP,CONFIRMED_SLIP,POSSIBLE_WHEELIE,CONTROLLED_WHEELIE,EXCESSIVE_WHEELIE,WHEELIE_TOUCHDOWN,SENSOR_DISAGREEMENT,UNKNOWN_DYNAMIC_STATE,WHEELIE_AND_SLIP};
-enum Fault:uint32_t {CALIBRATION=1,FRONT_WSS=2,REAR_WSS=4,IMU_LOST=8,IMU_IMPLAUSIBLE=16,APS_DISAGREEMENT=32,TPS_DISAGREEMENT=64,DBW_COMM=128,DBW_POSITION=256,DBW_DRIVER=512,MS3_LOST=1024,APS_RATE=2048,IMU_DRIFT=4096};
+enum Fault:uint32_t {CALIBRATION=1,FRONT_WSS=2,REAR_WSS=4,IMU_LOST=8,IMU_IMPLAUSIBLE=16,APS_DISAGREEMENT=32,TPS_DISAGREEMENT=64,DBW_COMM=128,DBW_POSITION=256,DBW_DRIVER=512,MS3_LOST=1024,APS_RATE=2048,IMU_DRIFT=4096,MASTER_STOP=8192};
 struct PairCalibration {float low[2]={NAN,NAN},high[2]={NAN,NAN},rail_low=NAN,rail_high=NAN,error=NAN,max_rate=NAN;};
 struct AidCalibration {float slip=NAN,slip_gain=NAN,rate_gain=NAN,pitch_target=NAN,pitch_max=NAN,pitch_gain=NAN,pitch_rate_gain=NAN,pitch_rate_max=NAN,lean_slip_factor=NAN;};
 struct Config {
@@ -42,6 +42,8 @@ float curve(const float* x,const float* y,int count,float input);
 class Controller {
  public: explicit Controller(const Config& cfg):c(cfg){} Settings settings;Output out;
  const Output& update(const Inputs&);
+ void stop();
+ bool stopped() const {return (latched&MASTER_STOP)!=0;}
  private:Config c;bool initialized=false,armed=false,attitude_initialized=false,pairs_previous=false,lift=false,slipping=false;uint32_t last=0,healthy_since=0,slip_since=0,touchdown_until=0,error_since=0,limiting_since=0;
  uint32_t latched=0;float last_front=0,last_rear=0,front_accel=0,rear_accel=0,last_aps=0,last_tps=0,last_slip=0,estimated_speed=0;
 };

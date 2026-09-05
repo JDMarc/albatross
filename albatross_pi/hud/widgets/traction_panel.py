@@ -20,7 +20,7 @@ class TractionPanel(Widget):
                 size=fit_font_size(text,half,18,start_size=16,bold=True)
                 color=FAULT_AMBER if level==0 else AMBER_BRIGHT if d.flags&(1<<n) else AMBER_GLOW
                 surface.blit(font(size,bold=True).render(text,True,color),(self.rect.x+pad+n*half,self.rect.y+5))
-            status="DATA STALE" if not d.online else "SENSOR FAULT" if d.faults else "AWC + TCS" if d.flags&3==3 else "TCS // CORRECTING" if d.flags&1 else "AWC // CORRECTING" if d.flags&2 else f"LIFT {d.pitch:.1f} DEG" if d.flags&4 else "DYNAMICS // MONITOR"
+            status="DATA STALE" if not d.online else "POWERTRAIN STOP" if d.faults&8192 else "SENSOR FAULT" if d.faults else "AWC + TCS" if d.flags&3==3 else "TCS // CORRECTING" if d.flags&1 else "AWC // CORRECTING" if d.flags&2 else f"LIFT {d.pitch:.1f} DEG" if d.flags&4 else "DYNAMICS // MONITOR"
             size=fit_font_size(status,self.rect.width-2*pad,16,start_size=12,bold=True)
             surface.blit(font(size,bold=True).render(status,True,AMBER_BRIGHT),(self.rect.x+pad,self.rect.bottom-21))
             pygame.draw.rect(surface,AMBER_BRIGHT,(self.rect.x+pad,self.rect.bottom-5,int((self.rect.width-2*pad)*self.intensity/100),2))

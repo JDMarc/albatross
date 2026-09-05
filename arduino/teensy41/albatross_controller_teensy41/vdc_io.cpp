@@ -28,6 +28,8 @@ void IO::receiveExtended(uint32_t id,uint8_t len,const uint8_t* d,uint32_t now){
  pending=false;token=(token+1)&2047;group=(group+1)%4;
 }
 void IO::receive(uint16_t id,uint8_t len,const uint8_t* d,uint32_t now){
+ static const uint8_t stop_message[]={1,'S','T','O','P',0xA5};
+ if(id==0x20A&&len==sizeof(stop_message)&&memcmp(d,stop_message,sizeof(stop_message))==0){controller.stop();return;}
  // RaceGrade RG_SPEC-0027 v1.9 STANDARD mode. Signed big-endian axes.
  if((id==hw.racegrade_base||id==hw.racegrade_base+1)&&(len==6||len==8)){
   bool rate=id==hw.racegrade_base+1;float raw[3];
@@ -62,13 +64,13 @@ const Output& IO::update(uint32_t now){
  inputs.aps_valid=inputs.aps_valid&&stamps[0]&&now-stamps[0]<=c.timeout_ms;
  inputs.tps_valid=inputs.tps_valid&&stamps[1]&&now-stamps[1]<=c.timeout_ms;
  inputs.driver_fault=status_fault||channel_fault;
- inputs.dbw_valid=hw.dbwx2_v092_verified&&hw.dbwx2_custom_receive_verified&&hw.watchdog_verified&&current_at&&status_at&&channel_at&&now-current_at<=c.timeout_ms&&now-status_at<=c.timeout_ms&&now-channel_at<=c.timeout_ms;
+ inputs.dbw_valid=hw.throttle_body_verified&&hw.independent_kill_verified&&hw.dbwx2_v092_verified&&hw.dbwx2_custom_receive_verified&&hw.watchdog_verified&&current_at&&status_at&&channel_at&&now-current_at<=c.timeout_ms&&now-status_at<=c.timeout_ms&&now-channel_at<=c.timeout_ms;
  inputs.imu_valid=hw.mount_verified&&stamps[3]&&stamps[4]&&now-stamps[3]<=c.timeout_ms&&now-stamps[4]<=c.timeout_ms;
  if(!stamps[5]||now-stamps[5]>2000){inputs.weather_valid=false;weather_state=1;}
  return controller.update(inputs);
 }
 void IO::command(void (*send)(uint16_t,const uint8_t*,uint8_t)){
- const auto& o=controller.out;bool enable=o.dbw_enable&&hw.dbwx2_custom_receive_verified&&hw.watchdog_verified;
+ const auto& o=controller.out;bool enable=o.dbw_enable&&!controller.stopped()&&hw.throttle_body_verified&&hw.independent_kill_verified&&hw.dbwx2_custom_receive_verified&&hw.watchdog_verified;
  // DBWX2 "Custom CAN receive": unsigned16 BE at byte0, 0..1000 position x10%.
  // Its table maps this axis to throttle opening; not a torque==throttle shortcut.
  uint8_t d[8]={0};float opening=enable?(o.throttle_target-c.throttle_min)/(c.throttle_max-c.throttle_min):0;

@@ -6,6 +6,9 @@ namespace vdc {
 struct Hardware {
  uint16_t racegrade_base=0x470,dbwx2_base=0x300,command_id=0x210;
  bool mount_verified=false,dbwx2_custom_receive_verified=false,watchdog_verified=false;
+ // Intended donor: 2026 Yamaha MT-07 assembly, one driven motor/channel.
+ // Confirm actual motor/TPS wiring and independent kill circuit on hardware.
+ bool throttle_body_verified=false,independent_kill_verified=false;
  // Firmware/runtime layout must match DBWX2 0.92 INI; node IDs must be unique.
  bool dbwx2_v092_verified=false;
  uint8_t local_node=9,dbwx2_node=10;

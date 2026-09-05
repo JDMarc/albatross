@@ -2024,6 +2024,7 @@ class HUDRenderer:
 
     def _handle_back(self) -> None:
         if self._active_menu=="dynamics":
+            self._dynamics_menu.stop_confirm_at=None
             if self._dynamics_menu.page!="controls":self._dynamics_menu.page="controls"
             else:self._active_menu="home"
             return

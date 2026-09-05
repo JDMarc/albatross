@@ -444,7 +444,10 @@ void handleFrame(uint16_t id, uint8_t len, const uint8_t *data) {
       // Legacy one-byte pulse has no hold/release semantics. V2 uses 0x191.
       break;
     case CanId::PI_ENGINE_RUN_SWITCH:
-      if (len >= 1) g_commands.engine_run_enabled = data[0] != 0;
+      if (len >= 1) {
+        g_commands.engine_run_enabled = data[0] != 0;
+        if (!g_commands.engine_run_enabled) VDC.controller.stop();
+      }
       break;
     case CanId::PI_WMI_ENABLE:
       if (len >= 1) g_commands.wmi_arm = data[0] != 0;
@@ -768,7 +771,9 @@ void updateControllers() {
   const bool low_auth = !g_commands.nfc_ok;
   const bool ecu_sensor_fault = (g_inputs.rpm == 0 && g_inputs.tps_pct > 20);
   uint8_t limp_reason = LIMP_NONE;
-  if (!g_commands.engine_run_enabled) limp_reason = LIMP_ENGINE_RUN_OFF;
+  if (!g_commands.engine_run_enabled) VDC.controller.stop();
+  if (VDC.controller.stopped()) g_commands.engine_run_enabled=false;
+  if (VDC.controller.stopped()) limp_reason = LIMP_ENGINE_RUN_OFF;
   else if (g_commands.limp_mode) limp_reason = g_commands.limp_reason != LIMP_NONE ? g_commands.limp_reason : LIMP_PI_REQUEST;
   else if (ecu_can_stale) limp_reason = LIMP_ECU_CAN_STALE;
   else if (pi_can_stale) limp_reason = LIMP_PI_COMMAND_STALE;
@@ -819,8 +824,8 @@ void updateControllers() {
 
   const uint8_t wg1_pwm = map(g_outputs.wg1_duty, 0, 100, 0, 255);
   const uint8_t wg2_pwm = map(g_outputs.wg2_duty, 0, 100, 0, 255);
-  digitalWrite(WG1_EN_PIN, HIGH);
-  digitalWrite(WG2_EN_PIN, HIGH);
+  digitalWrite(WG1_EN_PIN, VDC.controller.stopped()?LOW:HIGH);
+  digitalWrite(WG2_EN_PIN, VDC.controller.stopped()?LOW:HIGH);
   digitalWrite(WG1_DIR_PIN, HIGH);
   digitalWrite(WG2_DIR_PIN, HIGH);
   analogWrite(WG1_PWM_PIN, wg1_pwm);
@@ -906,7 +911,9 @@ void updateControllers() {
   for(float valve:AIR_V2.controller.output().valve) if(valve>0) g_airshot_latched=true;
   updateAirCompressorRelay(now, bike_stationary, low_throttle, limp);
   g_outputs.air_shot_remaining=calculateShotsRemaining(g_outputs.tank_psi_x10);
-  const uint8_t torque_cut_pct = !g_commands.engine_run_enabled ? 100 : (g_outputs.traction_sensor_fault ? 0 : g_outputs.traction_torque_cut_pct);
+  // A dynamics fault must not turn the existing ECU cut request back to zero.
+  // This is still a request; the independent physical kill circuit is mandatory.
+  const uint8_t torque_cut_pct = (!g_commands.engine_run_enabled || VDC.controller.stopped() || g_outputs.traction_sensor_fault) ? 100 : g_outputs.traction_torque_cut_pct;
   uint8_t torque_cut_payload[1] = {torque_cut_pct};
   publishFrame(CanId::ARD_TO_ECU_TORQUE_CUT, torque_cut_payload, 1);
   uint8_t slip_payload[3] = {

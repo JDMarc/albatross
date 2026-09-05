@@ -14,6 +14,8 @@ Startup and recovery require a released grip and closed TPS through self-test be
 
 ## Installation prerequisites
 
+Intended donor is now the user's **2026 Yamaha MT-07 throttle-body assembly**, with one DBWX2 driven channel retained. [Yamaha's 2026 specifications](https://yamahamotorsports.com/models/mt-07/features) confirm YCC-T electronic throttle, but do not supply a motor-count/pinout drawing. Motor count, shared mechanical linkage, dual TPS outputs, connector orientation, motor polarity and spring-rest position must be checked against the actual assembly and matching Yamaha service information. Do not infer a pinout from older cable-throttle MT-07 parts. `throttle_body_verified` and `independent_kill_verified` remain false until those hardware checks are actually completed; these flags are not a substitute for the checks.
+
 1. Configure the RaceGrade device to the motorcycle's **500 kbit/s**, STANDARD two-frame mode. Verify its base ID and mounting transform in `vdc_io.h`. Defaults propose base `0x470`; they do not assert that the device has been configured. The axis transform must produce forward/lateral/up specific force and roll/pitch/yaw body rates with the signs expected by the estimator. Verify stationary gravity, positive nose-up rotation and both lean directions on a fixture. Do not auto-zero a moving motorcycle.
 2. The adapter targets the **DBWX2 0.92 runtime layout**. Verify actual firmware/INI identity before setting `dbwx2_v092_verified`. Runtime sensor words are little-endian; protocol addressing is big-endian. Read-only table-5 requests fetch offsets 0 (dual APS + channel-1 dual TPS), 64 (current), 76 (error/CPU/bridge/CAN status) and 60 (channel/calibration status). One outstanding request, exact reply address/length and bounded age prevent unrelated replies refreshing safety data. No calibration writes or flash/burn commands are sent.
 3. Proposed MegaSquirt node IDs are main Teensy 9 and DBWX2 10. Confirm uniqueness. These are node addresses inside extended CAN headers, not standard arbitration IDs. Native DBWX2 broadcast base `0x100` conflicts with Albatross ECU messages: remap it, proposed `0x300`, and update all consumers. Extended receive must remain enabled on the bus. Verify bus utilization and worst-case latency with every installed node.
@@ -46,6 +48,7 @@ All standard messages below use protocol version 1 in byte 0, except the raw fin
 | 207 | Weather validity/context (4 bytes); connectivity never grants torque authority |
 | 208 | Rider levels/curve/weather; 8 bytes, request ID byte 6, marker A5 byte 7 |
 | 209 | Bounded rider envelope; parameter byte 1, float32 bytes 2–5, ID/marker 6–7 |
+| 20A | Powertrain stop: exact 6-byte payload `01 53 54 4F 50 A5`; stop only, no clear command |
 | 210 | DBWX2 physical-position request; see installation prerequisites |
 | 220 | State, event, TCS/AWC levels, curve, intervention flags, last request ACK |
 | 221 | Rider/permitted/TCS/AWC/lean/engine/mode torque percentages |
@@ -84,6 +87,18 @@ Replay uses sampled speed/engine-limit telemetry and a cold estimator at the cli
 Host checks: `tests/vdc_scenarios.cpp` covers all 25 requested scenarios; `tests/vdc_io_checks.cpp` checks native packet endian/scaling, malformed/stale replies, command markers and missing-feedback cold-start recovery. `python tests/run_dynamics_checks.py` checks HUD navigation, telemetry, logging, weather and replay conversion. Existing Air Shot and thermal Python suites remain applicable. Teensy 4.1 compilation is checked separately. None of these replaces hardware-in-the-loop testing.
 
 ## Remaining qualification work
+
+### Latched powertrain stop (software backup)
+
+In the Dynamics menu select POWERTRAIN STOP, then Select again within three seconds. The Pi repeats the stop request until the controller reports fault bit 13 (`0x2000`, POWERTRAIN STOP LATCHED). Unconfirmed transmission explicitly directs the rider to the physical kill switch. This menu is **not an emergency substitute** for a directly accessible hardwired switch.
+
+The main Teensy latches stop immediately on the exact `0x20A` packet or an existing `0x127` engine-run OFF request. A subsequent run-ON packet, settings change, TCS/AWC OFF, fresh sensor data or phone reconnect cannot clear the latch. On following control ticks it sends zero DBWX2 travel demand, removes DBW torque/boost/Air Shot authority, stops WMI/compressor/flame intent, deasserts the existing wastegate enable pins and sends the existing 100% ECU torque-cut request. HUD, lights and logging remain operational. This disables the powertrain controls; it is **not a ride-through bypass** that turns off supervision while leaving the electronic throttle uncontrolled.
+
+Recovery requires key-off/controller restart after inspecting the cause, then released-grip/closed-throttle self-test. If the Pi is still alive with an unconfirmed stop request, it continues requesting stop, so cycling only the Teensy does not intentionally authorize a restart. The latch is volatile across a full power cycle; an independent physical latching kill circuit must provide the electrical safety boundary.
+
+Important: zero CAN demand and ECU cut are software requests, not evidence that power has been removed from a stuck actuator. Wire and validate an independent kill/interlock that removes combustion authority and safely inhibits DBWX2/pneumatic actuators even if Pi, Teensy or CAN fails. Validate wastegate behavior when its enable is removed. Do not merely cut power to the ECU/CAN sender while leaving DBWX2 able to retain a previous command. Neither the schematic nor final interlock components/pins have been supplied, so this repository does not fabricate them or assert they are installed.
+
+No road-use enable or claimed legal approval is provided by this change. DBWX2's competition/off-road designation remains an unresolved road-deployment constraint; obtain manufacturer guidance and a qualified review of the complete installation. A kill safeguard alone cannot validate unmeasured maps, sensing or actuator response.
 
 - Earn the calibration on a fixture/dynamometer and controlled test course; validate all fault trajectories before enabling torque. An abrupt protective reduction itself has riding risk.
 - Verify command loss, frozen target streams, processor resets, power/brownout, CAN bus-off/load, wiring faults, motor-stuck/slow and kill-switch behavior with DBWX2. Software flags do not prove electrical isolation.

@@ -64,6 +64,23 @@ def weather():
     status.connected=True;w.phone_status(status);assert w.poll().state==0 and len(calls)==2
     now[0]+=700;w.phone_status(status);w.fetch=lambda loc:{"temperature_2m":float("nan")};assert w.poll().state==3
 
+def shutdown():
+    with tempfile.TemporaryDirectory() as directory:
+        menu=DynamicsMenu(Path(directory)/"settings.json");sent=[];menu.callback=lambda fid,data:sent.append((fid,data));menu.cursor=11
+        now=[10.]
+        with patch("albatross_pi.hud.dynamics_view.time.monotonic",side_effect=lambda:now[0]):
+            menu.select();assert not sent
+            now[0]=14;menu.select();assert not sent # expired confirmation
+            now[0]=14.1;menu.select();assert sent==[(0x20A,b'\x01STOP\xa5')]
+            now[0]=14.3;menu.sync(Dynamics());assert len(sent)==2 and "UNCONFIRMED" in menu.status
+            menu.sync(Dynamics(online=True,faults=8192));assert "LATCHED" in menu.status
+    rows=[dict(monotonic_s=1.,frame_id=0x20A,data='0153544f50a5',direction='TX')]
+    line=list(replay_inputs(rows,.25))[-1];assert line.split(',')[-1]=='1'
+    binary=os.environ.get("ALBATROSS_VDC_REPLAY")
+    if binary:
+        result=subprocess.run([binary],input=line+'\n',text=True,capture_output=True,check=True)
+        assert int(result.stdout.splitlines()[1].split(',')[3])&8192
+
 def hud():
     with tempfile.TemporaryDirectory() as directory,patch("albatross_pi.hud.renderer.EvaAlertAudio"):
         h=HUDRenderer(use_display=False,preferences_path=None)
@@ -94,4 +111,4 @@ def hud():
         service.close();pygame.quit()
 
 if __name__=="__main__":
-    for check in (telemetry,weather,replay,hud):check();print("PASS",check.__name__)
+    for check in (telemetry,weather,replay,shutdown,hud):check();print("PASS",check.__name__)

@@ -22,6 +22,8 @@ suited to the wastegate actuator current.
 
 ## Must-Have Before Road Use
 
+The [DBWX2/RaceGrade dynamics integration](vehicle_dynamics.md) includes a latched software powertrain stop and single-channel MT-07 donor configuration intent. It remains uncalibrated and unqualified for road use. The independent physical kill circuit, actual throttle pinout and DBWX2 command-loss behavior require verification; DBWX2 is specified by its manufacturer for competition/off-road use. A software stop does not close these gaps.
+
 | Area | Status | Gap / requirement |
 | --- | --- | --- |
 | Legal lighting | Partial | Headlight high/low, tail, brake, plate lamp, reflectors, indicators if required, and visible high-beam/indicator telltales must be verified with local rules. |

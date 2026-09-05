@@ -31,7 +31,22 @@ static bool normalize(const PairCalibration& c,const float* raw,float& position)
  float v[2];for(int n=0;n<2;n++){if(!isfinite(raw[n])||raw[n]<=c.rail_low||raw[n]>=c.rail_high)return false;v[n]=(raw[n]-c.low[n])/(c.high[n]-c.low[n]);if(v[n]<-c.error||v[n]>1+c.error)return false;}
  if(fabsf(v[0]-v[1])>c.error)return false;position=clamp((v[0]+v[1])*.5f);return true;
 }
+void Controller::stop(){
+ latched|=MASTER_STOP;armed=false;out.state=State::FAULT;
+ out.dbw_enable=out.air_allowed=out.tcs_active=out.awc_active=false;
+ out.permitted=out.boost_target=out.air_margin=out.engine_limit=out.mode_limit=0;
+ out.faults=latched|(!valid(c)?CALIBRATION:0);
+ out.throttle_target=isfinite(c.throttle_min)?c.throttle_min:0;
+}
 const Output& Controller::update(const Inputs& i){
+ if(stopped()){
+  stop();float tps=0;
+  // A stopped demand must not masquerade as measured physical closure.
+  if(valid(c)&&i.tps_valid&&normalize(c.tps,i.tps,tps))out.throttle_actual=c.throttle_min+tps*(c.throttle_max-c.throttle_min);
+  else {out.throttle_actual=NAN;out.faults|=TPS_DISAGREEMENT;}
+  if(!i.dbw_valid)out.faults|=DBW_COMM;
+  return out;
+ } // no CAN or rider setting can clear this latch
  const bool first=!initialized;float dt=first?0:float(i.now-last)/1000;last=i.now;initialized=true;
  out.faults=latched;out.air_allowed=false;out.dbw_enable=false;out.tcs_active=out.awc_active=false;
  if(!valid(c)){out=Output{};out.state=State::INIT;out.faults=CALIBRATION;return out;}

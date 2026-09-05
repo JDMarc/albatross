@@ -28,7 +28,9 @@ int main(int argc,char** argv){
   if(line.empty()||line[0]=='#')continue;
   std::stringstream row(line);std::string cell;std::vector<float> v;
   try{while(std::getline(row,cell,','))v.push_back(std::stof(cell));}catch(...){std::cerr<<"Invalid CSV number\n";return 2;}
-  if(v.size()!=37||!std::isfinite(v[0])||v[0]<0||v[0]>4294967040.0f){std::cerr<<"Expected 37 input columns\n";return 2;}
+  if(v.size()!=38||!std::isfinite(v[0])||v[0]<0||v[0]>4294967040.0f){std::cerr<<"Expected 38 input columns\n";return 2;}
+  if(v[37]!=0&&v[37]!=1)return 2;
+  if(v[37])core.stop();
   if(!std::isfinite(v[4])||v[4]<0||v[4]>6)return 2;
   for(int n=30;n<33;n++)if(!std::isfinite(v[n])||v[n]!=std::floor(v[n]))return 2;
   vdc::Inputs i;i.now=uint32_t(v[0]);if(seen&&i.now<=last){std::cerr<<"Non-monotonic replay\n";return 2;}seen=true;last=i.now;
