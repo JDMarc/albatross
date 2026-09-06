@@ -1,5 +1,9 @@
 Hello All,
 
+Bench-only interface: run `python bench_hud.py`. Offline synthetic actuator
+exercises, receive-only live CAN inspection, raw-log replay and session reports
+are documented in docs/bench_hud.md. No hardware commands or calibration writes.
+
 This my major project, which has been active for years, ever since I bought my bike.
 A 1982 Honda GL500, which is exactly what this "albatross" project is for.
 In essence, we are building a twin turbocharged motorcycle in homage to the 80s and the cx500 turbo as a whole, 
