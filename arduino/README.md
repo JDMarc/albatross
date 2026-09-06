@@ -32,8 +32,8 @@ Source: `albatross_controller_teensy41.ino` and `airshot_io.cpp`.
 
 | Pin | Direction | Function / connection |
 | --- | --- | --- |
-| 22 | CAN RX | CAN1 RX to transceiver RXD |
-| 23 | CAN TX | CAN1 TX to transceiver TXD |
+| 22 | CAN TX | CAN1 TX to transceiver TXD |
+| 23 | CAN RX | CAN1 RX to transceiver RXD |
 | 2 / 3 / 4 | Outputs | Wastegate 1 PWM / direction / enable to power driver |
 | 5 / 6 / 9 | Outputs | Wastegate 2 PWM / direction / enable to power driver |
 | 10 | PWM output | WMI pump driver, active high |
@@ -84,8 +84,8 @@ hardware SPI. Each device has its own chip-select. Sources:
 | 7 | CS output | MAX31856 channel 3: TURBINE_OUT_RIGHT |
 | 6 | CS output | ADS7953 device 0: logical analog channels 0–15 |
 | 5 | CS output | ADS7953 device 1: logical analog channels 16–31 |
-| 22 | CAN RX | CAN1 RX to this board's transceiver RXD |
-| 23 | CAN TX | CAN1 TX to this board's transceiver TXD |
+| 22 | CAN TX | CAN1 TX to this board's transceiver TXD |
+| 23 | CAN RX | CAN1 RX to this board's transceiver RXD |
 | GND | Reference | Front-end, transceiver and conditioned sensor returns |
 | 3.3 V | Logic supply | Compatible logic circuitry only; size the front-end/reference power supplies for the actual PCB |
 

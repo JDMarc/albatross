@@ -4,9 +4,13 @@ The dedicated `THERMAL_NODE` is a second Teensy 4.1. It acquires and validates 3
 
 ## Hardware boundary
 
+The [thermal wiring pack](thermal_wiring.md) includes a printable 10-sheet diagram
+and full wire schedule. Its ADC reference/pipeline findings are commissioning
+blockers; the current front-end design is not fabrication-ready.
+
 The complete [thermal Teensy pin map and 32-channel connector assignment](../arduino/README.md#dedicated-thermal-teensy-pin-map)
 are maintained in the firmware README. This is a physically separate board:
-SPI 11/12/13, MAX31856 CS 10/9/8/7, ADS7953 CS 6/5, CAN1 RX/TX 22/23.
+SPI 11/12/13, MAX31856 CS 10/9/8/7, ADS7953 CS 6/5, CAN1 TX/RX 22/23.
 The current configuration enables 29 of the 32 stable sensor IDs; three are reserved.
 
 - CAN remains 500 kbit/s, 11-bit identifiers, through a 3.3 V automotive CAN transceiver. Terminate only at the two physical bus ends.

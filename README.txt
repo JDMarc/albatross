@@ -1,5 +1,9 @@
 Hello All,
 
+Thermal subsystem wiring: docs/thermal_wiring.md links the printable 10-sheet
+wiring pack and sensor wire schedule, including unresolved analog-front-end
+requirements. Review its commissioning blockers before building the harness.
+
 Bench-only interface: run `python bench_hud.py`. Offline synthetic actuator
 exercises, receive-only live CAN inspection, raw-log replay and session reports
 are documented in docs/bench_hud.md. No hardware commands or calibration writes.

@@ -1,0 +1,33 @@
+sensor_id,sensor_key,enabled,technology,location,frontend,chip_select_teensy,adc_channel,signal_net,return_net,connector_cavity_status
+1,EGT_LEFT,True,k_type,left exhaust pre-turbine,TC0,10,,T01-K+,T01-K-,TBD - logical labels only
+2,EGT_RIGHT,True,k_type,right exhaust pre-turbine,TC1,9,,T02-K+,T02-K-,TBD - logical labels only
+3,TURBINE_OUT_LEFT,True,k_type,left turbine outlet,TC2,8,,T03-K+,T03-K-,TBD - logical labels only
+4,TURBINE_OUT_RIGHT,True,k_type,right turbine outlet,TC3,7,,T04-K+,T04-K-,TBD - logical labels only
+5,COMP_IN_LEFT,True,iat_ntc,left compressor inlet,ADC0,6,0,T05-A,T05-B -> SGND,TBD - logical labels only
+6,COMP_IN_RIGHT,True,iat_ntc,right compressor inlet,ADC0,6,1,T06-A,T06-B -> SGND,TBD - logical labels only
+7,COMP_OUT_LEFT,True,iat_ntc_high,left compressor outlet,ADC0,6,2,T07-A,T07-B -> SGND,TBD - logical labels only
+8,COMP_OUT_RIGHT,True,iat_ntc_high,right compressor outlet,ADC0,6,3,T08-A,T08-B -> SGND,TBD - logical labels only
+9,IC_IN_LEFT,True,iat_ntc_high,left intercooler inlet,ADC0,6,4,T09-A,T09-B -> SGND,TBD - logical labels only
+10,IC_IN_RIGHT,True,iat_ntc_high,right intercooler inlet,ADC0,6,5,T10-A,T10-B -> SGND,TBD - logical labels only
+11,IC_OUT_LEFT,True,iat_ntc,left intercooler outlet,ADC0,6,6,T11-A,T11-B -> SGND,TBD - logical labels only
+12,IC_OUT_RIGHT,True,iat_ntc,right intercooler outlet,ADC0,6,7,T12-A,T12-B -> SGND,TBD - logical labels only
+13,PRE_WMI,True,iat_ntc,common charge path before WMI,ADC0,6,8,T13-A,T13-B -> SGND,TBD - logical labels only
+14,POST_WMI,True,iat_ntc,common charge path after WMI,ADC0,6,9,T14-A,T14-B -> SGND,TBD - logical labels only
+15,PLENUM_IAT,True,iat_ntc,throttle plenum,ADC0,6,10,T15-A,T15-B -> SGND,TBD - logical labels only
+16,RUNNER_IAT_LEFT,True,iat_ntc,left final intake runner,ADC0,6,11,T16-A,T16-B -> SGND,TBD - logical labels only
+17,RUNNER_IAT_RIGHT,True,iat_ntc,right final intake runner,ADC0,6,12,T17-A,T17-B -> SGND,TBD - logical labels only
+18,HEAD_COOLANT_LEFT,True,coolant_ntc,left head coolant outlet,ADC0,6,13,T18-A,T18-B -> SGND,TBD - logical labels only
+19,HEAD_COOLANT_RIGHT,True,coolant_ntc,right head coolant outlet,ADC0,6,14,T19-A,T19-B -> SGND,TBD - logical labels only
+20,HEAD_METAL_LEFT,True,pt1000,left cylinder head metal,ADC0,6,15,T20-A,T20-B -> SGND,TBD - logical labels only
+21,HEAD_METAL_RIGHT,True,pt1000,right cylinder head metal,ADC1,5,0,T21-A,T21-B -> SGND,TBD - logical labels only
+22,RAD_IN,True,coolant_ntc,radiator hot inlet,ADC1,5,1,T22-A,T22-B -> SGND,TBD - logical labels only
+23,RAD_OUT,True,coolant_ntc,radiator cooled outlet,ADC1,5,2,T23-A,T23-B -> SGND,TBD - logical labels only
+24,OIL_GALLERY,True,pt1000,main engine oil gallery,ADC1,5,3,T24-A,T24-B -> SGND,TBD - logical labels only
+25,OIL_COOLER_IN,True,pt1000,oil cooler inlet,ADC1,5,4,T25-A,T25-B -> SGND,TBD - logical labels only
+26,OIL_COOLER_OUT,True,pt1000,oil cooler outlet,ADC1,5,5,T26-A,T26-B -> SGND,TBD - logical labels only
+27,TURBO_OIL_DRAIN_LEFT,True,pt1000,left turbo oil drain,ADC1,5,6,T27-A,T27-B -> SGND,TBD - logical labels only
+28,TURBO_OIL_DRAIN_RIGHT,True,pt1000,right turbo oil drain,ADC1,5,7,T28-A,T28-B -> SGND,TBD - logical labels only
+29,AMBIENT_AIR,True,iat_ntc,isolated ambient inlet reference,ADC1,5,8,T29-A,T29-B -> SGND,TBD - logical labels only
+30,CHRA_TEMP_LEFT,False,pt1000,left turbo bearing housing,ADC1,5,9,,,TBD - logical labels only
+31,CHRA_TEMP_RIGHT,False,pt1000,right turbo bearing housing,ADC1,5,10,,,TBD - logical labels only
+32,RESERVED_THERMAL_32,False,disabled,future expansion,NONE,,,,,TBD - logical labels only

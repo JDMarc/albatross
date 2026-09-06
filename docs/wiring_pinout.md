@@ -132,8 +132,8 @@ an external 3.3 V CAN transceiver. Teensy pins are not CANH/CANL directly.
 
 | Teensy pin | Signal | Connects to |
 | --- | --- | --- |
-| 22 | CAN1 RX | Transceiver RXD |
-| 23 | CAN1 TX | Transceiver TXD |
+| 22 | CAN1 TX | Transceiver TXD |
+| 23 | CAN1 RX | Transceiver RXD |
 | 3.3 V | Logic power | 3.3 V transceiver VCC if required |
 | GND | Ground | Transceiver ground and common reference |
 | CANH/CANL | Bus pair | Transceiver CANH/CANL to CAN backbone |
@@ -151,7 +151,7 @@ mode switch normally connect to the Pi's USB grip controller, not new Teensy inp
 ## Additional thermal Teensy and CAN devices
 
 The second Teensy has its own transceiver and shares the CAN backbone with the
-main Teensy, Pi, ECU, DBWX2 and RaceGrade IMU. Both boards use RX 22 / TX 23,
+main Teensy, Pi, ECU, DBWX2 and RaceGrade IMU. Both boards use TX 22 / RX 23,
 but these are separate local pins. Thermal SPI uses MOSI 11 / MISO 12 / SCK 13;
 MAX31856 chip selects are 10, 9, 8, 7, and ADS7953 chip selects are 6, 5.
 See the [firmware README](../arduino/README.md#dedicated-thermal-teensy-pin-map)
