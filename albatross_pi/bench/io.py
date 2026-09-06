@@ -44,7 +44,7 @@ class ReceiveOnlyCAN:
 
 
 class Journal:
-    def __init__(self, directory, source):
+    def __init__(self, directory, source, *, hardware_tx=False):
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%f')
@@ -60,7 +60,7 @@ class Journal:
         self.thread.start()
         self.add(dict(event='SESSION', schema='albatross-bench-1', source=source,
                       utc=datetime.now(timezone.utc).isoformat(), config_sha256=hashes,
-                      hardware_tx=False, hardware_acceptance=False))
+                      hardware_tx=hardware_tx, hardware_acceptance=False))
 
     def add(self, row):
         if self.closed: return

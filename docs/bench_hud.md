@@ -1,5 +1,8 @@
 # Bench-only HUD
 
+For real DBWX2 movement, see [Powered DBW bench](powered_bench.md). It is a
+separate executable and dedicated firmware image; this observer retains no TX.
+
 Run `python bench_hud.py` from the repository root. This is a separate Pygame
 application; the riding HUD and firmware are unchanged. Requires Python 3.10+
 and Pygame; live observation additionally requires python-can and the appropriate

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "purpose": "isolated bench fixture provisioning, not road calibration",
+  "powered_outputs_implemented": false,
+  "channels": ["INTAKE_L", "INTAKE_R", "TURBINE_L", "TURBINE_R", "MASTER_NC"],
+  "compressor_testing": false,
+  "required_per_channel": {
+    "part_number": null,
+    "rated_voltage_v": null,
+    "coil_resistance_ohm": null,
+    "driver_part_number": null,
+    "driver_current_limit_a": null,
+    "flyback_strategy": null,
+    "peak_current_a": null,
+    "hold_current_a": null,
+    "pwm_frequency_hz": null,
+    "maximum_pulse_ms": null,
+    "minimum_rest_ms": null,
+    "feedback_sensor": null,
+    "working_pressure_psi": null,
+    "temperature_rating_c": null,
+    "flow_characterization": null,
+    "fixture_pin": null
+  },
+  "staging": ["unpressurized electrical pulse test", "rated guarded pneumatic fixture flow test"],
+  "requirements": ["independent electrical kill", "normally closed master isolation", "pressure relief and venting", "no direct GPIO coil drive", "single branch testing before coordinated pulses"]
+}
