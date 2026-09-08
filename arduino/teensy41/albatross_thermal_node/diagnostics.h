@@ -14,4 +14,16 @@ struct SensorRuntime {
   float derivative_c_s = 0.0f;
   SensorStatus status = SensorStatus::NOT_CONFIGURED;
   uint32_t last_sample_ms = 0;
+  uint32_t generation = 0;
+  uint8_t good_samples = 0;
+};
+
+struct AcquisitionSample {
+  uint16_t raw = 0;
+  uint32_t captured_ms = 0;
+  uint32_t generation = 0;
+  SensorStatus status = SensorStatus::STALE;
+  void set(uint16_t value, uint32_t now, SensorStatus health) {
+    raw=value; captured_ms=now; status=health; ++generation;
+  }
 };

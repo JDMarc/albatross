@@ -171,3 +171,5 @@ class StateSnapshot:
     shift_light: bool = False
     faults: Tuple[str, ...] = field(default_factory=tuple)
     advisories: Tuple[str, ...] = field(default_factory=tuple)
+    telemetry_age_s: dict[int, float] = field(default_factory=dict)
+    telemetry_observed_at: float | None = None

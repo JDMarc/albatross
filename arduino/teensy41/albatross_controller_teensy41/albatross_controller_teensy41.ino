@@ -21,7 +21,7 @@ static float g_boost_banks[2]={0,0};
 static uint32_t g_boost_banks_rx=0;
 
 // Target board: Teensy 4.1
-// CAN1 uses Teensy pins 22 (RX) and 23 (TX) through an external 3.3 V CAN transceiver.
+// CAN1 uses Teensy pins 22 (TX) and 23 (RX) through an external 3.3 V CAN transceiver.
 static constexpr uint32_t CAN_BITRATE = 500000;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> CANBUS;
@@ -978,11 +978,14 @@ void updateControllers() {
   ai.wmi_fault=g_outputs.wmi_fault;
   ai.wmi_verified=g_outputs.wmi_commanded_flow_cc_min>0 && !ai.wmi_fault &&
       g_outputs.wmi_actual_flow_cc_min>=g_outputs.wmi_commanded_flow_cc_min*0.75f && readWmiPressureOk();
+  const uint32_t air_cap=AIR_V2.controller.getMode()==airshot::Mode::AUTO?fm::AIR_AUTO:fm::AIR_MANUAL;
+  AIR_V2.isolation_permitted=AIR_ISOLATION.configured && !limp && !isEngineCranking() &&
+      !VDC.controller.stopped() && (fault_caps.available&air_cap) &&
+      !(fault_caps.actions&(fm::ISOLATE_AIR|fm::CLOSE_AIR));
   AIR_V2.update(now);
   g_airshot_latched=false;
   for(float valve:AIR_V2.controller.output().valve) if(valve>0) g_airshot_latched=true;
-  AIR_ISOLATION.update(g_airshot_latched&&!limp&&!VDC.controller.stopped()&&
-      !(fault_caps.actions&fm::ISOLATE_AIR));
+  AIR_ISOLATION.update(AIR_V2.priming.open && AIR_V2.isolation_permitted);
   for(unsigned n=0;n<fm::count;n++)if(fmgr.faults[n].active){
     const auto& policy=fmgr.policies[n];
     const bool unsupported=(policy.actions&(fm::OPEN_EWG|fm::FAN_MAX|fm::SHED_OPTIONAL|fm::ECU_PROTECT_REQUEST))||
@@ -1031,7 +1034,7 @@ void updateControllers() {
 void publishStatusFrames() {
   fm::publish(FAULT_MANAGER,publishFrame);
   uint8_t isolation[8]={1,uint8_t(AIR_ISOLATION.configured),uint8_t(AIR_ISOLATION.commanded_open),
-      uint8_t(fm::Quality::INVALID),0,0,0,0}; // no physical closure feedback supplied
+      uint8_t(fm::Quality::INVALID),1,uint8_t(AIR_V2.priming.state),0,0}; // extension v1; no closure proof
   publishFrame(0x245,isolation,8);
   AIR_V2.publish(publishFrame);
   VDC.publish(publishFrame);
@@ -1165,6 +1168,7 @@ void setup() {
   fm::loadMonitors(FAULT_MONITORS);
   AIR_ISOLATION.begin(fm::master_isolation_configured);
   AIR_V2.begin();
+  AIR_V2.prime_config=fm::primeConfig();
   analogReadResolution(12);
   for (uint8_t i = 0; i < 32; ++i) g_thermal.status[i] = 6; // STALE until an explicit thermal status arrives
   pinMode(WG1_PWM_PIN, OUTPUT);

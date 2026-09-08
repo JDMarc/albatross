@@ -27,6 +27,7 @@ static bool validPins(const Config& c) {
   return configured_pins;
 }
 void IO::begin() {
+  priming=Priming{};
   loadConfig(c); controller.configure(c);
   pinMode(12,OUTPUT); digitalWrite(12,LOW);
   configured_pins=validPins(c);
@@ -110,6 +111,11 @@ void IO::update(uint32_t now) {
   if(driver_latched) inputs.driver_faults|=0x80;
   inputs.manual=(configured_pins && c.fire_pin>=0 && digitalRead(c.fire_pin)==LOW) ||
     (remote_request && now-request_at<=c.request_lease_ms);
+  priming.update(prime_config,c,inputs,controller.getMode(),isolation_permitted);
+  // Preserve shadow predictions, which never write nonzero valve commands.
+  inputs.prime_required=!(c.auto_shadow || c.stage==7);
+  inputs.primed=priming.ready;
+  inputs.prime_fault=priming.fault();
   const auto& o=controller.update(inputs);
   for(int n=0;n<4;n++) if(configured_pins) analogWrite(c.valves[n].pin,uint8_t(o.valve[n]*255));
 }

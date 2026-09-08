@@ -3,6 +3,7 @@ namespace airshot {
 Reason permissive(const Config& c,const Inputs& i) {
   if(!validConfig(c)) return Reason::UNCALIBRATED;
   if(!i.can_valid) return Reason::CAN_STALE;
+  if(i.prime_required && !i.primed) return i.prime_fault?Reason::PRIME_FAULT:Reason::PRIMING;
   if(!isfinite(i.rpm) || !isfinite(i.speed) || !isfinite(i.target)) return Reason::CAN_STALE;
   if(!i.pressure_valid || !isfinite(i.tank) || !isfinite(i.regulated)) return Reason::PRESSURE_SENSOR;
   if(!i.driver_valid || i.driver_faults) return Reason::DRIVER;

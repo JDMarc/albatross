@@ -1,8 +1,17 @@
 Hello All,
 
-Thermal subsystem wiring: docs/thermal_wiring.md links the printable 10-sheet
-wiring pack and sensor wire schedule, including unresolved analog-front-end
-requirements. Review its commissioning blockers before building the harness.
+Current harness: docs/wiring_pinout.md.
+Complete network allocations: docs/can_id_reference.md (standard + extended CAN).
+
+HUD fonts are now bundled in albatross_pi/assets/fonts (Orbitron Bold with its
+SIL Open Font License). No separate font installation is needed on a fresh Pi
+or test machine: copy/clone the complete repository. USB update bundles include
+the assets automatically. See albatross_pi/assets/fonts/README.md for provenance.
+
+Thermal subsystem wiring: docs/thermal_wiring.md links the Revision C 10-sheet pack:
+five ADS1115 boards + seven MAX31865 PT1000 boards, retaining four MAX31856s.
+Thermal firmware 2.0.0 now implements this wiring. Review commissioning holds
+before connecting hardware; no physical bench validation is claimed.
 
 Bench-only interface: run `python bench_hud.py`. Offline synthetic actuator
 exercises, receive-only live CAN inspection, raw-log replay and session reports
@@ -85,22 +94,24 @@ This is the short version of how this stuff works:
 Two-board wiring and firmware quick reference
 ---------------------------------------------
 
-Both Teensy boards use CAN1 RX pin 22 and TX pin 23 through SEPARATE external
+Both Teensy boards use CAN1 TX pin 22 and RX pin 23 through SEPARATE external
 3.3 V CAN transceivers on the same 500 kbit/s backbone. Pin numbers are local
 to each board. Do not combine pins just because their numbers match.
 
 Thermal Teensy hardware SPI: MOSI 11, MISO 12, SCK 13.
 Thermal MAX31856 chip-select pins: 10 = left EGT, 9 = right EGT,
 8 = left turbine outlet, 7 = right turbine outlet.
-Thermal ADS7953 chip-select pins: 6 = device 0 (analog channels 0-15),
-5 = device 1 (analog channels 16-31).
+Thermal MAX31865 chip selects: 2,3,4,5,6,14,15 (PT1000 R0-R6).
+ADS1115: Wire SDA18/SCL19 addresses 0x48/49/4A; Wire1 SDA17/SCL16 0x48/49.
+N4.A2 measures NTC excitation; N4.A3 unused.
 The thermal configuration has 32 stable sensor IDs: 29 enabled, 3 reserved.
 The full pin tables and sensor-ID-to-ADC-channel map are in arduino/README.md.
 
 No dedicated flame-mode output pin is allocated. Main-controller pin 11 is
 unassigned. Air Shot V2 needs four configured PWM driver outputs; the shipped
-configuration does not invent their pin assignments. Main pin 12 is a legacy
-output initialized low, not an automatically assigned V2 solenoid output.
+configuration does not invent their pin assignments. Main pin 12 is reserved
+for the master NC isolation driver, LOW at boot and disabled until verified.
+It cannot be assigned to an individual V2 performance valve.
 See docs/wiring_pinout.md for the rest of the harness and voltage conditioning.
 
 Controller firmware notes (important)
@@ -394,3 +405,10 @@ MS3Pro-specific setup details are in docs/ms3_tunerstudio_setup.md.
 Full project vision/spec notes are in docs/albatross_pi_spec.md.
 Production NFC authorization, watchdogs, and controlled Pi shutdown hardware
 are documented in docs/power_nfc_watchdogs.md.
+
+
+Startup POST now uses 24 read-only checks, fresh received telemetry and a
+0.45-second staged result cadence. Missing data is UNVERIFIED, not a pass;
+physical actuator/wheel/pump checks are DEFER. Acknowledge with the configured
+key or grip SELECT; this dismisses the report, not controller protections.
+See docs/power_on_self_test.md and run tests/run_post_checks.py.

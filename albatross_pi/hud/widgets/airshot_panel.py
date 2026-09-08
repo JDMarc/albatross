@@ -4,7 +4,7 @@ import pygame
 from .base import Widget
 from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font
 from ...state.snapshot import StateSnapshot
-from ..airshot_status import AirShotRequest, airshot_status
+from ..airshot_status import AirShotRequest, airshot_status, airshot_pneumatic_status
 from .ui_utils import instrument_frame
 
 class AirShotPanel(Widget):
@@ -31,6 +31,15 @@ class AirShotPanel(Widget):
             actual="CTRL "+(air.mode if air.online else "--")
             size=fit_font_size(actual,self.rect.width-value.get_width()-pad*3,14,start_size=11,bold=True)
             surface.blit(font(size,bold=True).render(actual,True,AMBER_GLOW),(self.rect.x+pad,self.rect.y+23))
+            prime,compressor=airshot_pneumatic_status(air,state.fault_management)
+            # Independent half-width cells keep long compressor states away
+            # from PRIMED and the existing isolated flashing FIRING badge.
+            cell_width=(self.rect.width-pad*3)//2
+            for index,label in enumerate((prime,compressor)):
+                size=fit_font_size(label,cell_width,13,start_size=10,bold=True)
+                color=FAULT_AMBER if label in ("PRIMED ?","PRIMED SETUP","PRIME FAULT","COMP FAULT") else AMBER_GLOW
+                surface.blit(font(size,bold=True).render(label,True,color),
+                             (self.rect.x+pad+index*(cell_width+pad),self.rect.y+40))
             firing=air.online and air.state=="FIRING" and not air.flags&8
             available=self.rect.width-pad*2
             if firing:

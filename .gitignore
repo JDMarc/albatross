@@ -6,3 +6,5 @@ settings/
 work_test_logs*/
 thermal_preview.png
 tmp/pdfs/
+tmp/thermal_firmware_test.exe
+tmp/thermal_firmware_test.pdb

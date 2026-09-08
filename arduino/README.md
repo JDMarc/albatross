@@ -1,5 +1,9 @@
 # Albatross firmware: two Teensy 4.1 boards
 
+Harness reference: [wiring and pinouts](../docs/wiring_pinout.md).
+Network reference: [complete CAN ID table](../docs/can_id_reference.md),
+including standard frames, DBWX2 extended polling and unimplemented interfaces.
+
 The current architecture uses **two separate Teensy 4.1 boards**, each with its
 own firmware and external 3.3 V CAN transceiver on the shared 500 kbit/s bus.
 Pin numbers below are local to the named board; the same number on the other
@@ -69,77 +73,71 @@ lamp feeds and pressure senders. Reset-state pulldowns belong on driver inputs.
 
 ## Dedicated thermal Teensy pin map
 
-Four MAX31856 thermocouple front ends and two ADS7953 16-channel ADCs share
-hardware SPI. Each device has its own chip-select. Sources:
-`thermocouple_driver.h`, `analog_adc_driver.h`, and `can_transport.h`.
+Thermal configuration 2.0.0 implements the [wiring pack](../docs/thermal_wiring.md).
+These pins belong to the SECOND Teensy, not the main controller.
+Generated thermal_hardware.h and sensor_config.cpp derive from
+config/thermal_system.json; rerun tools/generate_thermal_config.py after edits.
 
-| Thermal Teensy pin | Direction | Connection |
+| Thermal pin(s) | Function | Connection |
 | --- | --- | --- |
-| 11 | SPI MOSI | All MAX31856 SDI and ADS7953 SDI inputs |
-| 12 | SPI MISO | Shared MAX31856 SDO and ADS7953 SDO outputs |
-| 13 | SPI SCK | All six devices' serial clocks |
-| 10 | CS output | MAX31856 channel 0: EGT_LEFT |
-| 9 | CS output | MAX31856 channel 1: EGT_RIGHT |
-| 8 | CS output | MAX31856 channel 2: TURBINE_OUT_LEFT |
-| 7 | CS output | MAX31856 channel 3: TURBINE_OUT_RIGHT |
-| 6 | CS output | ADS7953 device 0: logical analog channels 0–15 |
-| 5 | CS output | ADS7953 device 1: logical analog channels 16–31 |
-| 22 | CAN TX | CAN1 TX to this board's transceiver TXD |
-| 23 | CAN RX | CAN1 RX to this board's transceiver RXD |
-| GND | Reference | Front-end, transceiver and conditioned sensor returns |
-| 3.3 V | Logic supply | Compatible logic circuitry only; size the front-end/reference power supplies for the actual PCB |
+| 11 / 12 / 13 | MOSI / MISO / SCK | All 4 MAX31856 and 7 MAX31865 boards |
+| 10 / 9 / 8 / 7 | TC0-TC3 CS | EGT L/R, turbine outlet L/R |
+| 2 / 3 / 4 / 5 / 6 / 14 / 15 | R0-R6 CS | Seven PT1000 boards |
+| 18 / 19 | Wire SDA / SCL | N0 0x48, N1 0x49, N2 0x4A |
+| 17 / 16 | Wire1 SDA / SCL | N3 0x48, N4 0x49 |
+| 22 / 23 | CAN1 TX / RX | Separate 3.3 V logic CAN transceiver |
+| VIN / GND | Power | Protected regulated 5 V; isolate VUSB for dual supply |
 
-No data-ready or fault GPIO is allocated; front ends are polled over SPI.
-CANH/CANL connect to transceivers, never directly to Teensy pins. Terminate only
-the two physical ends of the whole CAN trunk, not every board.
+Breakouts use an independently budgeted 3.3 V rail. MAX VIN connects to that
+rail; MAX 3Vo outputs stay unconnected. DRDY/FLT/ALRT pins are not assigned.
+Initialize all chip selects high before acquisition.
 
 ## Thermal sensor/ADC connector assignment
 
-Sensor ID is the stable CAN/HUD identity, not a Teensy GPIO number. ADC channel
-numbers are zero-based. Logical analog channel = 16 × device + local channel.
-The 32-entry configuration currently enables 29 sensors and reserves three.
+Stable CAN IDs are not GPIO numbers. ADS1115 logical channel = 4 * board + AIN.
+N4.A2 (logical 18) monitors excitation and is not a temperature ID.
+N4.A3 is unused. PT1000 boards use 4300-ohm references; baseline two-wire
+jumpers tie RTD+ to F+ and RTD- to F-. Do not ground an RTD lead.
 
 | Sensor ID | Key | Technology | Front end |
 | --- | --- | --- | --- |
-| 1 | EGT_LEFT | K type | MAX31856 0, CS 10 |
-| 2 | EGT_RIGHT | K type | MAX31856 1, CS 9 |
-| 3 | TURBINE_OUT_LEFT | K type | MAX31856 2, CS 8 |
-| 4 | TURBINE_OUT_RIGHT | K type | MAX31856 3, CS 7 |
-| 5 | COMP_IN_LEFT | IAT NTC | ADC 0 / CH 0 |
-| 6 | COMP_IN_RIGHT | IAT NTC | ADC 0 / CH 1 |
-| 7 | COMP_OUT_LEFT | IAT NTC | ADC 0 / CH 2 |
-| 8 | COMP_OUT_RIGHT | IAT NTC | ADC 0 / CH 3 |
-| 9 | IC_IN_LEFT | IAT NTC | ADC 0 / CH 4 |
-| 10 | IC_IN_RIGHT | IAT NTC | ADC 0 / CH 5 |
-| 11 | IC_OUT_LEFT | IAT NTC | ADC 0 / CH 6 |
-| 12 | IC_OUT_RIGHT | IAT NTC | ADC 0 / CH 7 |
-| 13 | PRE_WMI | IAT NTC | ADC 0 / CH 8 |
-| 14 | POST_WMI | IAT NTC | ADC 0 / CH 9 |
-| 15 | PLENUM_IAT | IAT NTC | ADC 0 / CH 10 |
-| 16 | RUNNER_IAT_LEFT | IAT NTC | ADC 0 / CH 11 |
-| 17 | RUNNER_IAT_RIGHT | IAT NTC | ADC 0 / CH 12 |
-| 18 | HEAD_COOLANT_LEFT | Coolant NTC | ADC 0 / CH 13 |
-| 19 | HEAD_COOLANT_RIGHT | Coolant NTC | ADC 0 / CH 14 |
-| 20 | HEAD_METAL_LEFT | PT1000 | ADC 0 / CH 15 |
-| 21 | HEAD_METAL_RIGHT | PT1000 | ADC 1 / CH 0 |
-| 22 | RAD_IN | Coolant NTC | ADC 1 / CH 1 |
-| 23 | RAD_OUT | Coolant NTC | ADC 1 / CH 2 |
-| 24 | OIL_GALLERY | PT1000 | ADC 1 / CH 3 |
-| 25 | OIL_COOLER_IN | PT1000 | ADC 1 / CH 4 |
-| 26 | OIL_COOLER_OUT | PT1000 | ADC 1 / CH 5 |
-| 27 | TURBO_OIL_DRAIN_LEFT | PT1000 | ADC 1 / CH 6 |
-| 28 | TURBO_OIL_DRAIN_RIGHT | PT1000 | ADC 1 / CH 7 |
-| 29 | AMBIENT_AIR | IAT NTC | ADC 1 / CH 8 |
-| 30 | CHRA_TEMP_LEFT | Disabled | Reserved logical 25 (ADC 1 / CH 9); not acquired |
-| 31 | CHRA_TEMP_RIGHT | Disabled | Reserved logical 26 (ADC 1 / CH 10); not acquired |
-| 32 | RESERVED_THERMAL_32 | Disabled | No physical input assigned |
+| 1 | EGT_LEFT | k_type | TC0 / CS 10 |
+| 2 | EGT_RIGHT | k_type | TC1 / CS 9 |
+| 3 | TURBINE_OUT_LEFT | k_type | TC2 / CS 8 |
+| 4 | TURBINE_OUT_RIGHT | k_type | TC3 / CS 7 |
+| 5 | COMP_IN_LEFT | iat_ntc | N0 / A0 |
+| 6 | COMP_IN_RIGHT | iat_ntc | N0 / A1 |
+| 7 | COMP_OUT_LEFT | iat_ntc_high | N0 / A2 |
+| 8 | COMP_OUT_RIGHT | iat_ntc_high | N0 / A3 |
+| 9 | IC_IN_LEFT | iat_ntc_high | N1 / A0 |
+| 10 | IC_IN_RIGHT | iat_ntc_high | N1 / A1 |
+| 11 | IC_OUT_LEFT | iat_ntc | N1 / A2 |
+| 12 | IC_OUT_RIGHT | iat_ntc | N1 / A3 |
+| 13 | PRE_WMI | iat_ntc | N2 / A0 |
+| 14 | POST_WMI | iat_ntc | N2 / A1 |
+| 15 | PLENUM_IAT | iat_ntc | N2 / A2 |
+| 16 | RUNNER_IAT_LEFT | iat_ntc | N2 / A3 |
+| 17 | RUNNER_IAT_RIGHT | iat_ntc | N3 / A0 |
+| 18 | HEAD_COOLANT_LEFT | coolant_ntc | N3 / A1 |
+| 19 | HEAD_COOLANT_RIGHT | coolant_ntc | N3 / A2 |
+| 20 | HEAD_METAL_LEFT | pt1000 | R0 / CS 2 |
+| 21 | HEAD_METAL_RIGHT | pt1000 | R1 / CS 3 |
+| 22 | RAD_IN | coolant_ntc | N3 / A3 |
+| 23 | RAD_OUT | coolant_ntc | N4 / A0 |
+| 24 | OIL_GALLERY | pt1000 | R2 / CS 4 |
+| 25 | OIL_COOLER_IN | pt1000 | R3 / CS 5 |
+| 26 | OIL_COOLER_OUT | pt1000 | R4 / CS 6 |
+| 27 | TURBO_OIL_DRAIN_LEFT | pt1000 | R5 / CS 14 |
+| 28 | TURBO_OIL_DRAIN_RIGHT | pt1000 | R6 / CS 15 |
+| 29 | AMBIENT_AIR | iat_ntc | N4 / A1 |
+| 30 | CHRA_TEMP_LEFT | pt1000 | Disabled / no hardware |
+| 31 | CHRA_TEMP_RIGHT | pt1000 | Disabled / no hardware |
+| 32 | RESERVED_THERMAL_32 | disabled | Disabled / no hardware |
 
-Thermocouples connect to their compensated front ends, not an ADC input.
-PT1000 conditioning currently assumes 500 µA excitation; NTC channels require
-the configured pull-ups and calibration profiles. Reference, filtering,
-protection and conversion constants must match the actual acquisition PCB.
-See [thermal design](../docs/thermal_system.md) and
-[thermal protocol](../docs/thermal_can_protocol.md).
+NTC pull-up/probe profiles remain provisional. Confirm actual resistances,
+protection/filtering and lead errors before use. See
+[acquisition and bench checks](../docs/thermal_wiring.md#commissioning-holds)
+and [raw CAN semantics](../docs/thermal_can_protocol.md).
 
 ## Air Shot V2 and dynamics
 

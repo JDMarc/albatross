@@ -47,6 +47,30 @@ Driver faults latch until restart; investigate the cause before restarting.
 
 ## Firmware architecture
 
+### Master-valve precharge
+
+The on/off master is no longer tied to nonzero performance-valve demand. Main
+Teensy priming logic opens it in MANUAL/AUTO when precharge permissions and tank
+rearm pressure are satisfied, then holds it open across shots. The four metering
+valves remain closed until fresh post-master pressure is stable inside the
+existing regulated-pressure/headroom limits. Normal shot-specific checks still
+apply; idle/zero torque/neutral alone do not prevent precharge, but engine-off,
+cranking, cold engine, relevant faults and shadow mode do.
+
+Configure `master_air_isolation.precharge` in `config/fault_manager.json` and run
+`tools/generate_fault_config.py`. Sensor location verification, stable duration,
+fill timeout and tank rearm pressure are intentionally uncommissioned. Driver
+verification and valid Air Shot calibration remain required. Do not set these
+flags just to hide a warning. Physical sensor publisher/wiring is still pending.
+
+OFF closes the master; lost permissions revoke priming immediately. Fill timeout
+or pressure collapse after qualification latches closed until OFF acknowledgement.
+Held FIRE is not queued during priming. HUD telemetry distinguishes PRIMING,
+PRIMED and PRIME FAULT; it does not claim physical valve closure or safe venting.
+See [plumbing and valve selection](airshot_valve_selection.md).
+
+### Shot controller
+
 The existing main Teensy owns four independent PWM valves at a 200 Hz control
 tick. The second Teensy remains dedicated to thermals. No flame pin is allocated.
 The Pi issues requests; it does not calculate duty or bypass ECU protection.

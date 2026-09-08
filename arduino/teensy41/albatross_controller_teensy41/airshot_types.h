@@ -4,7 +4,7 @@
 namespace airshot {
 enum class Mode : uint8_t { OFF, MANUAL, AUTO };
 enum class State : uint8_t { DISABLED, READY, ARMED, REQUESTED, PRECHECK, FIRING, TAPERING, RECOVERY, INHIBITED, FAULT };
-enum class Reason : uint8_t { NONE, OFF, UNCALIBRATED, CAN_STALE, PRESSURE_SENSOR, LOW_PRESSURE, REGULATOR, ENGINE_COLD, RPM_RANGE, TORQUE_LOW, DBW, TRACTION, WHEELIE, THERMAL, WMI, ECU_PROTECTION, DRIVER, ALREADY_BOOSTED, RECOVERY, MAX_DURATION, RELEASED, SPOOL_COMPLETE, OVERBOOST, BUDGET, WASTEGATE, SHADOW, SERVICE, FUEL };
+enum class Reason : uint8_t { NONE, OFF, UNCALIBRATED, CAN_STALE, PRESSURE_SENSOR, LOW_PRESSURE, REGULATOR, ENGINE_COLD, RPM_RANGE, TORQUE_LOW, DBW, TRACTION, WHEELIE, THERMAL, WMI, ECU_PROTECTION, DRIVER, ALREADY_BOOSTED, RECOVERY, MAX_DURATION, RELEASED, SPOOL_COMPLETE, OVERBOOST, BUDGET, WASTEGATE, SHADOW, SERVICE, FUEL, PRIMING, PRIME_FAULT };
 enum class CompressorState : uint8_t { OFF, FILLING, COOLDOWN, FAULT };
 enum class Profile : uint8_t { LAUNCH, MID_TRANSIENT, RECOVERY, HIGH_RPM, LEFT_LAG, RIGHT_LAG };
 struct Inputs {
@@ -19,6 +19,7 @@ struct Inputs {
   bool driver_valid=false, tcs=false, awc=false, traction_fault=false, ecu_protection=true;
   bool wmi_verified=false, wmi_fault=false, manual=false, service_key=false;
   bool vdc_valid=false,vdc_permitted=true;float vdc_margin=1;
+  bool prime_required=false,primed=false,prime_fault=false;
 };
 struct Outputs {
   State state=State::DISABLED;

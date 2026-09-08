@@ -45,6 +45,59 @@ Environment overrides:
 Private repositories must already be accessible through the Pi user's Git
 credentials or SSH configuration.
 
+## Diagnosing online-update installation problems
+
+Run from the installed HUD folder, using the same Python environment and OS user
+as the HUD service:
+
+```sh
+python3 tools/install_update.py --diagnose
+```
+
+This prints the actual application directory and checks Git locally. It does
+not fetch, install, flash firmware, reboot, initialize a repository, or alter
+Git's ownership/trust settings. ZIP/COPY INSTALL means the Git history is
+missing. Other results distinguish missing Git, ownership/access failures,
+an invalid HEAD, a missing remote, and an unrelated parent repository.
+Git worktrees with a .git file are supported.
+
+### Migrating a ZIP installation
+
+GitHub ZIP downloads and Pi update bundles intentionally omit .git.
+Extracting a ZIP can run the HUD, but cannot use fast-forward Git updates.
+A USB app overlay does not turn a ZIP installation into a clone.
+
+With the engine off and stable power:
+
+1. Back up the existing installation and leave that folder intact.
+2. Install Git if needed (`sudo apt install git` on Raspberry Pi OS).
+3. As the HUD service user (not root), clone into a NEW, unused sibling folder:
+   `git clone https://github.com/JDMarc/albatross.git ~/albatross-git`.
+4. Preserve settings/, logs/, and maps/ as needed. Review differences in config/
+   and any modified code before transferring them. Do not blindly replace new
+   engineering configuration with old files. Do not copy an old updates/ folder,
+   pending rollback markers, or virtual environment into the new clone.
+5. Install the application's dependencies for the new folder. Run its
+   `tools/install_update.py --diagnose` as the service user.
+6. Stop the HUD service and update BOTH WorkingDirectory and the script path
+   in ExecStart to the new absolute path (and the new interpreter if using a
+   virtual environment). Check User and desktop environment paths too.
+   Run `sudo systemctl daemon-reload`, then restart the service.
+7. Verify the new HUD, settings, CAN connections and POST before using ONLINE
+   UPDATE. Retain the old folder until the new installation is proven.
+
+The supplied service template uses /home/albatross/albatross and User=albatross;
+your installed service may differ. Inspect it with
+`systemctl cat albatross-hud.service` before editing. An interactive clone owned
+by one user can fail when the service runs as another. Do not solve that by
+globally trusting every Git directory or running the HUD as root.
+
+Do not use git init/reset --hard inside the ZIP directory as a shortcut: the
+updater cannot distinguish your edits from archive contents without history.
+After migration, tracked local calibration/code changes will correctly block
+online updates with LOCAL CHANGES; reconcile those explicitly rather than
+discarding them.
+
 ## Build A Pi Update Bundle
 
 From the repo root:

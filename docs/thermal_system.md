@@ -5,18 +5,20 @@ The dedicated `THERMAL_NODE` is a second Teensy 4.1. It acquires and validates 3
 ## Hardware boundary
 
 The [thermal wiring pack](thermal_wiring.md) includes a printable 10-sheet diagram
-and full wire schedule. Its ADC reference/pipeline findings are commissioning
-blockers; the current front-end design is not fabrication-ready.
+and full wire schedule. Revision C documents implemented Rev B wiring:
+five ADS1115 and seven MAX31865 PT1000 boards, retaining four MAX31856s.
+Configuration 2.0.0 requires the matching thermal binary; bench validation remains mandatory.
 
 The complete [thermal Teensy pin map and 32-channel connector assignment](../arduino/README.md#dedicated-thermal-teensy-pin-map)
 are maintained in the firmware README. This is a physically separate board:
-SPI 11/12/13, MAX31856 CS 10/9/8/7, ADS7953 CS 6/5, CAN1 TX/RX 22/23.
+SPI 11/12/13, MAX31856 CS 10/9/8/7, MAX31865 CS 2/3/4/5/6/14/15;
+Wire SDA18/SCL19, Wire1 SDA17/SCL16; CAN1 TX22/RX23.
 The current configuration enables 29 of the 32 stable sensor IDs; three are reserved.
 
 - CAN remains 500 kbit/s, 11-bit identifiers, through a 3.3 V automotive CAN transceiver. Terminate only at the two physical bus ends.
 - Four K-type probes use four MAX31856-class cold-junction-compensated front ends. Never wire a thermocouple to a Teensy ADC. Use K extension wire and connectors through the cold-junction point.
-- Two ADS7953 16-channel SPI ADCs provide 32 analog inputs. Each installed circuit requires the calibration network named in `config/thermal_system.json`, a stable reference/excitation supply, RC filtering, series/current limiting, ESD and load-dump/transient protection, and a low-noise sensor return.
-- PT1000 channels assume a precision 500 µA excitation circuit. NTC channels use the profile-specific precision pull-up. The firmware constants are initial engineering values and must be calibrated against the actual selected probes and conditioning PCB.
+- Five ADS1115 boards acquire 18 NTCs plus excitation sense. Precision pull-ups, protection/filtering and quiet returns remain required. Conversion uses signed ADC codes and measured excitation.
+- Seven MAX31865 PT1000 boards use 4300-ohm references and two-wire configuration by default. Do not add external RTD current sources or ground RTD minus. Actual probes and lead resistance still require calibration.
 - Keep thermocouple and analog harnesses separated from ignition, injectors, starter/stator wiring, DBW, wastegate actuators, WMI pump, Air Shot solenoids, and other switched-current wiring.
 - `AMBIENT_AIR` must be shielded from radiator discharge, exhaust radiation, sunlight, and heated bodywork.
 
@@ -78,3 +80,15 @@ py -3.12 main.py --simulator --thermal-scenario full_boost_pull
 Optional offline animation preview (requires Pygame and Pillow, opens no CAN/network connection): `py -3.12 tools/render_thermal_motion.py thermal-motion.gif`. Add `--theme "NIGHT OPS"` to choose a theme or `--cycle-themes` to preview all four. The synthetic 0–20 psi sweep demonstrates visual spool-up/down only; it is not calibration or test evidence for the motorcycle.
 
 Thermal logs are written independently of the selected page under `logs/thermal`. Every record carries the configuration version and vehicle-state context.
+
+
+## Acquisition verification
+
+See [wiring commissioning](thermal_wiring.md#commissioning-holds) for timing,
+fault handling and hardware tests. Generate firmware tables using
+`python tools/generate_thermal_config.py`; verify with
+`python tools/check_thermal_config.py`. Native driver tests in
+`tests/thermal_firmware_test.cpp` simulate faults, not physical electronics.
+
+[Startup POST](power_on_self_test.md) checks fresh thermal health and matching
+configuration without energizing actuators.

@@ -21,6 +21,10 @@ def check():
     reject(lambda c:c['monitors']['fuel_dp'].update(confirm_ms=-1))
     reject(lambda c:c.update(fuel_fusion_enabled=True))
     reject(lambda c:c['master_air_isolation'].update(driver_verified='false'))
+    reject(lambda c:c['master_air_isolation']['precharge'].update(post_master_sensor_verified=True))
+    reject(lambda c:c['master_air_isolation']['precharge'].update(stable_ms=-1))
+    reject(lambda c:c['master_air_isolation']['precharge'].update(tank_rearm_psi=float('nan')))
+    reject(lambda c:c['master_air_isolation']['precharge'].update(post_master_sensor_verified=True,tank_rearm_psi=80,stable_ms=100,fill_timeout_ms=50))
     # Feed the same wire bundle through the production decoder, no CAN adapter.
     frames=[(0x240,bytes((1,0,3,255,0,0,0,1))),
             (0x241,bytes((1,100,255,255,255,255,0,1))),

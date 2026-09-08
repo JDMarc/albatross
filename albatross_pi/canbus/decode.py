@@ -21,6 +21,7 @@ from .ids import (
     ThermalNodeToNetworkID,
 )
 from ..thermal import ThermalService
+from ..diagnostics.post import RX_LENGTHS
 from ..thermal.summary import primary_temperatures
 from ..airshot import AirShotService
 from ..dynamics import DynamicsService
@@ -139,6 +140,7 @@ class CANStateAggregator:
         self._faults: Dict[int, str] = {}
         self._shift_light = False
         self._last_rx_monotonic: float | None = None
+        self._telemetry_stamps: dict[int, float] = {}
         self._last_ecu_rx_monotonic: float | None = None
         self._last_controller_rx_monotonic: float | None = None
         self._last_thermal_rx_monotonic: float | None = None
@@ -157,6 +159,9 @@ class CANStateAggregator:
             if direction.upper() == "RX":
                 received_at = time.monotonic()
                 self._last_rx_monotonic = received_at
+                required = RX_LENGTHS.get(arbitration_id)
+                if required is not None and required <= len(data) <= 8:
+                    self._telemetry_stamps[arbitration_id] = received_at
                 if arbitration_id in _ECU_RX_IDS:
                     self._last_ecu_rx_monotonic = received_at
                 elif arbitration_id in _CONTROLLER_RX_IDS:
@@ -243,6 +248,7 @@ class CANStateAggregator:
             return self._refresh_ages()
 
     def _refresh_ages(self) -> StateSnapshot:
+        observed_at = time.monotonic()
         thermal = self._thermal.snapshot()
         air = self.airshot_service.snapshot()
         dynamics = self.dynamics_service.snapshot()
@@ -254,6 +260,8 @@ class CANStateAggregator:
         faults=(faults-set(old_fm.alerts if old_fm else ()))|set(fault_management.alerts)
         if self.fault_windows.failed:faults.add('FAULT SNAPSHOT LOGGING FAILED')
         return replace(self._last_snapshot, thermal=thermal,dynamics=dynamics,fault_management=fault_management,
+            telemetry_observed_at=observed_at,
+            telemetry_age_s={fid: max(0, observed_at-stamp) for fid, stamp in self._telemetry_stamps.items()},
             advisories=fault_management.advisories,
             temps=primary_temperatures(self._last_snapshot.temps,thermal),
             air_shot=replace(self._last_snapshot.air_shot,v2=air), faults=tuple(sorted(faults)))

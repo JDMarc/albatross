@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 import pygame
+import logging
+from pathlib import Path
 
-THEME_FONT_PREFERRED = (
-    "VT323",
-    "Press Start 2P",
-    "Orbitron",
-    "OCR A Extended",
-    "Eurostile",
-    "DejaVu Sans Mono",
-)
-THEME_FONT_QUERY = ",".join(THEME_FONT_PREFERRED)
+# Resolve against the package, never the launcher/service working directory.
+# Bundle the existing cockpit face rather than letting installed fonts choose it.
+BUNDLED_FONT = Path(__file__).resolve().parents[2] / "assets" / "fonts" / "orbitron" / "Orbitron-Bold.ttf"
+_FONT_WARNING_EMITTED = False
 
 Color = list[int]
 ThemeColors = tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]
@@ -43,13 +40,24 @@ _FONT_CACHE: dict[tuple[int, bool], pygame.font.Font] = {}
 
 
 def font(size: int, *, bold: bool = False) -> pygame.font.Font:
+    global _FONT_WARNING_EMITTED
     key = (max(8, size), bold)
     cached = _FONT_CACHE.get(key)
     if cached is None:
         try:
-            cached = pygame.font.SysFont(THEME_FONT_QUERY, max(8, size), bold=bold)
-        except Exception:
-            cached = pygame.font.SysFont("Courier New", max(8, size), bold=bold)
+            # Bold is the actual bundled face, also used by the previous bench
+            # installation for normal text. Do not add synthetic extra weight.
+            cached = pygame.font.Font(str(BUNDLED_FONT), key[0])
+            # Some SDL_ttf builds defer corrupt-font errors until first use.
+            cached.size("Ag09")
+        except (OSError, pygame.error):
+            if not _FONT_WARNING_EMITTED:
+                logging.getLogger(__name__).warning(
+                    "Bundled HUD font unavailable: %s; using Pygame fallback. Restore the font assets from the repository.",
+                    BUNDLED_FONT)
+                _FONT_WARNING_EMITTED = True
+            cached = pygame.font.Font(None, key[0])
+            cached.set_bold(bold)
         _FONT_CACHE[key] = cached
     return cached
 

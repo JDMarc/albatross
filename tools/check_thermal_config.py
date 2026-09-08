@@ -35,26 +35,16 @@ def main() -> int:
         match = re.search(rf"\b{name}\s*=\s*(0x[0-9A-Fa-f]+|\d+)", header)
         if not match or int(match.group(1), 0) != value:
             errors.append(f"{name}: firmware does not match JSON value {value}")
-    source = SENSOR_SOURCE.read_text(encoding="utf-8")
-    firmware_rows = re.findall(r"(?:TC|NTC|CLT|RTD|OFF)\((\d+),\"([^\"]+)\"", source)
-    expected_rows = [(str(sensor["id"]), sensor["key"]) for sensor in config["sensors"]]
-    if firmware_rows != expected_rows:
-        errors.append("firmware sensor ID/key order does not match JSON channels 1..32")
-    for sensor in config["sensors"]:
-        if f'"{sensor["key"]}"' not in source:
-            errors.append(f'{sensor["key"]}: missing from firmware sensor table')
-    crc = binascii.crc32(payload) & 0xFFFFFFFF
-    if args.write_crc:
-        header = re.sub(r"CONFIG_CRC32\s*=\s*0x[0-9A-Fa-f]+UL", f"CONFIG_CRC32 = 0x{crc:08X}UL", header)
-        PROTOCOL_HEADER.write_text(header, encoding="utf-8")
-    else:
-        match = re.search(r"CONFIG_CRC32\s*=\s*0x([0-9A-Fa-f]+)UL", header)
-        if not match or int(match.group(1), 16) != crc:
-            errors.append(f"CONFIG_CRC32: run {Path(__file__).name} --write-crc")
+    from generate_thermal_config import outputs
+    for path, content in outputs().items():
+        if args.write_crc:
+            path.write_text(content, encoding="utf-8")
+        elif path.read_text() != content:
+            errors.append(f"Stale generated thermal configuration: {path.name}")
     if errors:
         print("\n".join(errors))
         return 1
-    print(f"thermal configuration OK: 32 channels, CRC32 0x{crc:08X}")
+    print("thermal configuration OK: protocol constants and all generated fields match")
     return 0
 
 

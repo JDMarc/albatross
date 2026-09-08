@@ -27,7 +27,35 @@ REASON_TEXT = {
     "OVERBOOST": "Boost exceeds the protection limit", "BUDGET": "Air Shot time budget exhausted",
     "WASTEGATE": "Wastegate permission is unavailable", "SHADOW": "Shadow test: valves are not driven",
     "SERVICE": "Controller is in service mode", "FUEL": "Fuel, gear or ride-mode eligibility is not met",
+    "PRIMING": "Manifold priming is not confirmed; metering valves remain closed",
+    "PRIME FAULT": "Priming timed out or pressure collapsed; inspect system, then select OFF to reset",
 }
+
+
+def airshot_pneumatic_status(air, fault_management=None):
+    """Read-only annunciators. Never infer physical priming from tank pressure.
+
+    0x245 extension v1 carries controller-qualified pressure readiness. Legacy
+    frames only report commands. Neither format proves physical master closure.
+    Compressor state reports controller intent, not motor RPM.
+    """
+    compressor = "COMP --"
+    if air.online:
+        compressor = {
+            "OFF": "COMP OFF", "FILLING": "COMP ON CMD",
+            "COOLDOWN": "COMP WAIT", "FAULT": "COMP FAULT",
+        }.get(air.compressor, "COMP --")
+    prime = "PRIMED --"
+    if air.online and getattr(fault_management, "online", False):
+        master = fault_management.master_isolation
+        if master:
+            if not master.get("configured"):
+                prime = "PRIMED SETUP"
+            elif master.get("commanded_open"):
+                prime = {"PRIMED":"PRIMED", "FILLING":"PRIMING"}.get(master.get("prime_state"), "PRIMED ?")
+            else:
+                prime = {"FAULT":"PRIME FAULT","UNCONFIGURED":"PRIMED SETUP","SHADOW":"PRIMED SIM"}.get(master.get("prime_state"), "PRIMED NO")
+    return prime, compressor
 
 
 def airshot_status(air, request=None, now=None):

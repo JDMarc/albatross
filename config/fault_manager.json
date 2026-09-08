@@ -9,7 +9,13 @@
     "pin": null,
     "active_high": true,
     "driver_verified": false,
-    "closure_feedback_verified": false
+    "closure_feedback_verified": false,
+    "precharge": {
+      "post_master_sensor_verified": false,
+      "tank_rearm_psi": null,
+      "stable_ms": null,
+      "fill_timeout_ms": null
+    }
   },
   "fuel_fusion_enabled": false,
   "rules": [

@@ -1,19 +1,27 @@
 #include "sensor_conversion.h"
+#include "thermal_hardware.h"
 #include <math.h>
 
-float convertAnalogToCelsius(const SensorConfig& config, uint16_t raw) {
-  if (raw == 0 || raw >= 4095) return NAN;
-  if (config.technology == SensorTechnology::PT1000) {
-    constexpr float excitation_a = 0.0005f;
-    const float voltage = raw * 3.3f / 4095.0f;
-    const float resistance = voltage / excitation_a;
-    return (resistance / 1000.0f - 1.0f) / 0.00385f;
+float convertNtcToCelsius(const SensorConfig& c,int16_t raw,float excitation_v) {
+  const float v=raw*ThermalHardware::ADC_LSB_V;
+  if(!isfinite(excitation_v) || excitation_v<=0 || v<=0 || v>=excitation_v ||
+     c.pullup_ohm<=0 || c.r0_ohm<=0 || c.beta_k<=0) return NAN;
+  const float r=c.pullup_ohm*v/(excitation_v-v);
+  return 1.0f/(1.0f/(c.t0_c+273.15f)+logf(r/c.r0_ohm)/c.beta_k)-273.15f;
+}
+float convertRtdToCelsius(uint16_t raw) {
+  using namespace ThermalHardware;
+  if(raw==0 || raw>=32767) return NAN;
+  const float ratio=(raw/32768.0f)*RTD_RREF/RTD_R0;
+  // Invert Callendar-Van Dusen over the platinum RTD domain.
+  // Bisection avoids cancellation around zero and handles the negative-C term.
+  float lo=-200,hi=850;
+  for(uint8_t n=0;n<32;++n) {
+    const float t=(lo+hi)*0.5f;
+    const float r=1+RTD_A*t+RTD_B*t*t+(t<0?RTD_C*(t-100)*t*t*t:0);
+    if(r<ratio) lo=t;else hi=t;
   }
-  const float pullup = config.technology == SensorTechnology::COOLANT_NTC ? 2490.0f : 10000.0f;
-  const float r0 = config.technology == SensorTechnology::COOLANT_NTC ? 2500.0f : 10000.0f;
-  const float t0_c = config.technology == SensorTechnology::COOLANT_NTC ? 80.0f : 25.0f;
-  const float beta = config.technology == SensorTechnology::COOLANT_NTC ? 3977.0f : 3435.0f;
-  const float resistance = pullup * raw / (4095.0f - raw);
-  const float inverse_k = 1.0f / (t0_c + 273.15f) + logf(resistance / r0) / beta;
-  return 1.0f / inverse_k - 273.15f;
+  const float t=(lo+hi)*0.5f;
+  if(t<=-199.99f || t>=849.99f) return NAN;
+  return t;
 }

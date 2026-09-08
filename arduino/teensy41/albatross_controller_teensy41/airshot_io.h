@@ -2,12 +2,16 @@
 #include <Arduino.h>
 #include "airshot_controller.h"
 #include "airshot_calibration.h"
+#include "airshot_priming.h"
 namespace airshot {
 class IO {
  public:
   Config c=calibration();
   Controller controller{c};
   Inputs inputs;
+  Priming priming;
+  PrimeConfig prime_config;
+  bool isolation_permitted=false;
   uint32_t dbw_at=0,pressure_at=0,wg_at=0,driver_at[4]={0},request_at=0;
   bool remote_request=false,configured_pins=false;
   uint8_t config_status=0;

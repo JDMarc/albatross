@@ -2,6 +2,7 @@
 #pragma once
 #include "manager.h"
 #include "subsystems.h"
+#include "../airshot_priming.h"
 namespace fm {
 inline void loadPolicies(Manager& m) {
  {auto& p=m.policies[unsigned(Id::PI_OFFLINE)];
@@ -175,4 +176,9 @@ m.oil.reference_temp=NAN;
 m.oil.temp_slope=NAN;
 }
 constexpr bool master_isolation_configured=false;
+inline airshot::PrimeConfig primeConfig(){airshot::PrimeConfig p;
+p.commissioned=master_isolation_configured && false;
+p.tank_rearm_psi=NAN;
+p.stable_ms=0;p.fill_timeout_ms=0;return p;
+}
 }

@@ -2,7 +2,7 @@
 #include <Arduino.h>
 
 enum class SensorTechnology : uint8_t { K_TYPE, IAT_NTC, COOLANT_NTC, PT1000, DISABLED };
-enum class SourceBus : uint8_t { MAX31856, ADS7953, NONE };
+enum class SourceBus : uint8_t { MAX31856, ADS1115, MAX31865, NONE };
 
 struct SensorConfig {
   uint8_t id;
@@ -16,9 +16,10 @@ struct SensorConfig {
   float derivative_tau_s;
   float minimum_c;
   float maximum_c;
-  uint16_t raw_minimum;
-  uint16_t raw_maximum;
+  int32_t raw_minimum;
+  int32_t raw_maximum;
   bool enabled;
+  float pullup_ohm, r0_ohm, t0_c, beta_k;
 };
 
 constexpr size_t THERMAL_SENSOR_COUNT = 32;

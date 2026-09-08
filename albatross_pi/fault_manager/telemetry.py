@@ -36,8 +36,11 @@ class FaultService:
         now=self.clock()
         if fid==0x245:
             if data[1]>1 or data[2]>1 or data[3]>3:return
+            if data[4] not in (0,1) or (data[4]==1 and (data[5]>6 or data[6] or data[7])):return
             self.master=dict(configured=bool(data[1]),commanded_open=bool(data[2]),
                 physical_quality=('VALID','ESTIMATED','DEGRADED','INVALID')[data[3]],received_at=now)
+            if data[4]==1:
+                self.master['prime_state']=('UNCONFIGURED','OFF','INHIBITED','FILLING','PRIMED','FAULT','SHADOW')[data[5]]
             return
         if fid==0x242:
             _,index,state,severity,confidence,result,hi,lo=data

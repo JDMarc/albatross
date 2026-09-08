@@ -13,4 +13,20 @@ All frames use standard 11-bit identifiers, 500 kbit/s, and network byte order. 
 
 Status values: `0 VALID`, `1 OPEN_CIRCUIT`, `2 SHORT_TO_GROUND`, `3 SHORT_TO_SUPPLY`, `4 OUT_OF_RANGE`, `5 IMPLAUSIBLE_RATE`, `6 STALE`, `7 FRONT_END_FAULT`, `8 NOT_CONFIGURED`.
 
-The value frames are grouped broadcasts rather than one frame per sensor. Acquisition runs at each sensor's configured rate; value groups publish at 25 Hz, status/heartbeat at 10 Hz, configuration at 0.5 Hz, and raw commissioning data at 2 Hz. Pi receivers declare the node offline after 750 ms without a valid v1 heartbeat.
+The value frames are grouped broadcasts rather than one frame per sensor. Acquisition is asynchronous and conversion-ready gated; configured rates are requests, not guaranteed throughput. value groups publish at 25 Hz, status/heartbeat at 10 Hz, configuration at 0.5 Hz, and raw commissioning data at 2 Hz. Pi receivers declare the node offline after 750 ms without a valid v1 heartbeat.
+
+
+## Thermal configuration 2.0.0 / breakout wiring
+
+CAN IDs and protocol version 1 remain unchanged. The configuration frame carries
+semantic bytes 2,0,0 and 32 stable IDs. CRC32 is calculated over UTF-8 canonical
+JSON (sort_keys=True, separators=(',', ':')), not whitespace-sensitive file
+bytes. A legacy firmware/config CRC is intentionally incompatible.
+
+Raw diagnostic words are technology-specific: ADS1115 signed 16-bit counts
+(0.125 mV/count at +/-4.096 V), MAX31865 unsigned 15-bit resistance ratio
+(R = raw * 4300 / 32768 ohms), or MAX31856 signed tenths Celsius.
+These are not all 12-bit ADC counts. Status is authoritative; never infer
+validity from a raw value alone. Excitation N4.A2 is local to acquisition,
+not an additional temperature ID. Invalid/stale temperatures use the existing
+-32768 sentinel; cached measurements cannot renew the acquisition timestamp.

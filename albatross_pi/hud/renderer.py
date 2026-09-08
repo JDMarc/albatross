@@ -25,6 +25,7 @@ try:
 except ModuleNotFoundError:  # Python 3.13 removed sunau.
     sunau = None
 
+from ..diagnostics.post import PowerOnSelfTest, INTRO_S, STEP_S
 from ..diagnostics.fault_logger import engine_status, fault_action, fault_reason
 from ..economy import EconomyTracker
 from ..navigation import NavigationManager
@@ -263,7 +264,8 @@ class HUDRenderer:
         self.state = StateSnapshot()
         self.state_lock = threading.Lock()
         self.widgets: List = []
-        self._post_lines: list[tuple[str, bool]] = []
+        self._post = PowerOnSelfTest()
+        self._post_lines = ()
         self._post_started_at = 0.0
         self._post_fault_active = False
         self._post_complete = False
@@ -1061,7 +1063,7 @@ class HUDRenderer:
 
         bottom_limit = message_rect.y - panel_gap
         compact_strip_height = max(36, min(46, int(height * 0.065)))
-        airshot_height = max(62, min(76, int(height * .13)))
+        airshot_height = max(82, min(96, int(height * .17)))
         # The dynamics strip contains two independently selectable levels plus
         # live intervention feedback. Give those rows enough vertical room at
         # the supported compact 1280x480 resolution.
@@ -1131,51 +1133,29 @@ class HUDRenderer:
         if air_shot_key is not None:
             self._air_shot_key = air_shot_key
 
+    def _acknowledge_post(self, event) -> bool:
+        if not (self._post_complete and self._post_fault_active):
+            return False
+        keyboard = (event.type == pygame.KEYDOWN and event.key == self._ack_key
+                    and not getattr(event, "repeat", False))
+        grip = event.type == pygame.JOYBUTTONDOWN and event.button == self._joy_select_button
+        if keyboard or grip:
+            self._post_fault_active = False  # Presentation only; no controller callback.
+            return True
+        return False
+
     def _run_post(self, state: StateSnapshot) -> None:
-        if self._post_started_at <= 0.0:
-            self._post_started_at = time.monotonic()
-        has_ecu_signal = any(
-            (
-                state.engine.rpm > 0,
-                state.engine.throttle_pct > 0,
-                state.temps.coolant_temp_f > 0,
-                state.temps.oil_temp_f > 0,
-                state.temps.oil_pressure_psi > 0,
-            )
+        self._post_lines = self._post.update(
+            state, time.monotonic(),
+            display_ok=self.screen.get_width() > 0 and self.screen.get_height() > 0,
+            usb_present=pygame.joystick.get_count() > 0,
         )
-        has_arduino_signal = any(
-            (
-                state.air_shot.pressure_psi > 0,
-                state.air_shot.charges_remaining > 0,
-                state.wmi.commanded_flow_cc_min > 0,
-                state.wmi.actual_flow_cc_min > 0,
-                state.traction.slip_pct > 0,
-                abs(state.traction.wheelie_pitch_deg) > 0.01,
-            )
-        )
-        age_s = self._can_age_s()
-        has_can_signal = (has_ecu_signal or has_arduino_signal or state.engine.speed_mph > 0 or state.engine.boost_psi > 0) and age_s <= 1.5
-
-        checks = [
-            ("DISPLAY BUS", self.screen.get_width() > 0 and self.screen.get_height() > 0),
-            ("COOLANT SENSOR", state.temps.coolant_temp_f >= 0.0 or has_can_signal),
-            ("OIL TEMP SENSOR", state.temps.oil_temp_f >= 0.0 or has_can_signal),
-            ("OIL PRESS SENSOR", state.temps.oil_pressure_psi > 0),
-            ("FUEL LEVEL SENSOR", has_can_signal and state.environment.fuel_level_pct >= 0.0),
-            ("BATTERY VOLT", state.temps.battery_voltage >= 0.0 or has_can_signal),
-            ("GEAR INPUT", has_can_signal and state.engine.gear in {"1", "2", "3", "4", "5", "6", "N"}),
-            ("TRACTION INPUT", has_can_signal and state.traction.intervention_level != ""),
-            ("CAN LINK", has_can_signal),
-            ("USB INPUT", pygame.joystick.get_count() > 0),
-        ]
-        self._post_lines = [(f"TEST {name:<18} {'OK' if ok else 'FAULT'}", ok) for name, ok in checks]
-        self._post_fault_active = any(not ok for _, ok in checks)
-
-        # Keep POST live briefly so late-arriving telemetry can clear false startup faults.
-        elapsed = time.monotonic() - self._post_started_at
-        all_passed = not self._post_fault_active
-        timed_out = elapsed >= 2.5
-        self._post_complete = all_passed or timed_out
+        self._post_started_at = self._post.started_at
+        self._post_complete = self._post.complete
+        self._post_fault_active = self._post.complete and self._post.needs_ack
+        if self._post.complete:
+            for result in self._post_lines:
+                logging.getLogger(__name__).info("POST %s: %s - %s", result.name, result.status, result.detail)
 
     def _with_hud_owned_controls(self, snapshot: StateSnapshot) -> StateSnapshot:
         flame_enabled = self._effective_flame_mode_enabled()
@@ -1228,6 +1208,8 @@ class HUDRenderer:
                     self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
                     self._create_widgets()
                 elif event.type == pygame.KEYDOWN:
+                    if self._acknowledge_post(event):
+                        continue
                     if (not self._post_complete) or self._post_fault_active:
                         continue
                     if event.key == self._air_shot_key:
@@ -1264,6 +1246,8 @@ class HUDRenderer:
                         )
                         self._save_preferences()
                 elif event.type == pygame.JOYBUTTONDOWN:
+                    if self._acknowledge_post(event):
+                        continue
                     if (not self._post_complete) or self._post_fault_active:
                         continue
                     if event.button == self._joy_select_button:
@@ -1330,10 +1314,6 @@ class HUDRenderer:
             if not self._post_complete:
                 self._run_post(state)
 
-            if self._post_complete and self._post_fault_active:
-                pressed = pygame.key.get_pressed()
-                if pressed[self._ack_key]:
-                    self._post_fault_active = False
             self._log_new_faults(state)
             self._audio.update(
                 self._presentation_faults(state.faults),
@@ -1472,43 +1452,33 @@ class HUDRenderer:
             pygame.display.flip()
 
     def _render_post_overlay(self) -> None:
-        _bg, bright, glow, fault = self._theme_colors()
-        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 255))
-        self.screen.blit(overlay, (0, 0))
-        x = 24
-        y = 24
+        bg, bright, glow, fault = self._theme_colors()
+        self.screen.fill(bg)
+        width, height = self.screen.get_size()
         elapsed = max(0.0, time.monotonic() - self._post_started_at)
-        title_full = "POWER ON SELF TEST"
-        title_chars = min(len(title_full), int(elapsed / 0.045))
-        title = font(18, bold=True).render(title_full[:title_chars], True, bright)
-        self.screen.blit(title, (x, y))
-        y += 28
-        t = elapsed - 1.0
-        for idx, (line, ok) in enumerate(self._post_lines):
-            phase = t - idx * 2.0
+        self.screen.blit(font(20, bold=True).render("POWER ON SELF TEST", True, bright), (24, 18))
+        self.screen.blit(font(12).render("READ-ONLY STARTUP CHECK / NO ACTUATOR MOVEMENT", True, glow), (24, 46))
+        per_column = max(1, (len(self._post_lines) + 1) // 2)
+        column_width = (width - 48) // 2
+        row_height = min(27, (height - 142) // per_column)
+        for index, result in enumerate(self._post_lines):
+            phase = elapsed - INTRO_S - index * STEP_S
             if phase <= 0:
                 continue
-            prefix = f"TEST {line.split('TEST ', 1)[1].rsplit(' ',1)[0]}"
-            result = "OK" if ok else "FAULT"
-            if phase < 1.0:
-                visible = min(len(prefix), int(phase / 0.04))
-                out = prefix[:visible]
-                color = glow
-            else:
-                out = f"{prefix} {result}"
-                color = glow if ok else fault
-            sz = fit_font_size(out, self.screen.get_width() - 48, 20, start_size=16)
-            surf = font(sz).render(out, True, color)
-            self.screen.blit(surf, (x, y))
-            y += 20
-        # Hold 1s after last line before allow ack prompt
-        done_time = 1.0 + len(self._post_lines) * 2.0 + 1.0
-        if elapsed < done_time:
-            return
-        ack = f"FAULT ACK REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()}"
-        ack_s = font(16, bold=True).render(ack, True, fault)
-        self.screen.blit(ack_s, (x, self.screen.get_height() - 40))
+            text = f"{result.name}: {result.status}"
+            if phase < STEP_S * .55:
+                text = result.name[:int(len(result.name) * phase / (STEP_S * .55))]
+            color = fault if result.status in ("FAULT", "UNVERIFIED") else bright if result.status == "OK" else glow
+            size = fit_font_size(text, column_width - 16, row_height - 2, start_size=15)
+            self.screen.blit(font(size).render(text, True, color),
+                             (24 + index // per_column * column_width, 76 + index % per_column * row_height))
+        footer = "DEFER = PHYSICAL TEST REQUIRED / OK = REPORTED HEALTH ONLY"
+        if self._post_complete and self._post_fault_active:
+            footer = f"REVIEW REQUIRED: PRESS {pygame.key.name(self._ack_key).upper()} OR GRIP SELECT"
+        size = fit_font_size(footer, width - 48, 18, start_size=14)
+        self.screen.blit(font(size, bold=True).render(footer, True, glow), (24, height - 50))
+        self.screen.blit(font(12).render("ACK DISMISSES THIS REPORT ONLY; CONTROLLER PROTECTIONS REMAIN ACTIVE.", True, glow),
+                         (24, height - 28))
 
     def _active_faults_for_detail(self, state: StateSnapshot) -> list[str]:
         return sorted(set(state.faults))

@@ -79,6 +79,41 @@ def _current_git_commit() -> str | None:
     return _git_output("rev-parse", "HEAD")
 
 
+def diagnose_repository_install() -> UpdateResult:
+    """Read-only install check. Never initialize, trust, fetch or modify a repo."""
+    try:
+        result = _run_git("rev-parse", "--show-toplevel", check=False)
+        if result.returncode:
+            error = result.stderr.lower()
+            if "dubious ownership" in error or "unsafe repository" in error:
+                return UpdateResult("GIT OWNERSHIP", "CHECK HUD SERVICE USER")
+            if "permission denied" in error or "access is denied" in error:
+                return UpdateResult("GIT ACCESS DENIED", "CHECK FOLDER PERMISSIONS")
+            if not (REPO_ROOT / ".git").exists() and "not a git repository" in error:
+                return UpdateResult("ZIP/COPY INSTALL", "GIT CLONE REQUIRED")
+            return UpdateResult("GIT METADATA ERROR", "RUN UPDATE DIAGNOSTICS")
+        # Git searches parents. Never update an unrelated containing repository.
+        top = result.stdout.strip()
+        if not top or Path(top).resolve() != REPO_ROOT.resolve():
+            return UpdateResult("WRONG GIT ROOT", "CLONE HUD INTO ITS OWN FOLDER")
+        commit = _run_git("rev-parse", "--verify", "HEAD^{commit}", check=False)
+        if commit.returncode:
+            return UpdateResult("GIT HEAD INVALID", "FRESH CLONE REQUIRED")
+        remote = _run_git("remote", "get-url", _github_remote(), check=False)
+        if remote.returncode:
+            return UpdateResult("NO UPDATE REMOTE", "CHECK ALBATROSS_GITHUB_REMOTE")
+        return UpdateResult("GIT READY", commit.stdout.strip())
+    except FileNotFoundError:
+        return UpdateResult("GIT NOT INSTALLED", "INSTALL GIT FOR HUD USER")
+    except PermissionError:
+        return UpdateResult("GIT ACCESS DENIED", "CHECK FOLDER PERMISSIONS")
+    except subprocess.TimeoutExpired:
+        return UpdateResult("GIT TIMEOUT", "CHECK STORAGE")
+    except OSError:
+        LOGGER.exception("Unable to inspect HUD repository at %s", REPO_ROOT)
+        return UpdateResult("GIT CHECK FAILED", "CHECK APPLICATION LOG")
+
+
 def _git_has_tracked_changes() -> bool:
     result = _run_git("status", "--porcelain", "--untracked-files=no")
     return bool(result.stdout.strip())
@@ -221,8 +256,6 @@ def _github_branch() -> str:
 def _fetch_repository_head(progress: ProgressCallback | None = None) -> tuple[str, str, str]:
     remote = _github_remote()
     branch = _github_branch()
-    if not (REPO_ROOT / ".git").exists():
-        raise RuntimeError("HUD install is not a Git repository")
     if _git_output("remote", "get-url", remote) is None:
         raise RuntimeError(f"Git remote {remote!r} is not configured")
     _progress(progress, "DOWNLOADING", 0, 1)
@@ -425,9 +458,11 @@ def install_update_from_repository(snapshot: StateSnapshot, progress: ProgressCa
     """Fast-forward the installed HUD to the configured repository branch."""
     try:
         _progress(progress, "CHECKING")
-        current = _current_git_commit()
-        if not current:
-            return UpdateResult("NO GIT REPO")
+        diagnosis = diagnose_repository_install()
+        if diagnosis.status != "GIT READY":
+            LOGGER.warning("Online update blocked at %s: %s", REPO_ROOT, diagnosis.display())
+            return diagnosis
+        current = diagnosis.detail
         try:
             remote, branch, target = _fetch_repository_head(progress)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:

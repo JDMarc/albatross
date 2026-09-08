@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import binascii
+import json
 import math
 import struct
 import time
@@ -279,4 +280,6 @@ class ThermalService:
 
     @staticmethod
     def config_crc32(path: Path | str) -> int:
-        return binascii.crc32(Path(path).read_bytes()) & 0xFFFFFFFF
+        config = json.loads(Path(path).read_text(encoding="utf-8"))
+        payload = json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+        return binascii.crc32(payload) & 0xFFFFFFFF
