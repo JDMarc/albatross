@@ -89,56 +89,45 @@ class ModeStatsPanel(Widget):
         surface.blit(value_surface, (inner.right - value_surface.get_width(), inner.y + label_h - 1))
 
     def _rows_for_mode(self, mode: str, state: StateSnapshot) -> list[tuple[str, str, bool]]:
-        instant_mpg = state.economy.instant_mpg if state.economy.instant_mpg > 0 else fallback_mpg_estimate(state)
-        average_mpg = state.economy.average_mpg if state.economy.average_mpg > 0 else instant_mpg
-        mte = state.economy.miles_to_empty if state.economy.miles_to_empty > 0 else None
-        economy_label = "AVG MPG" if state.economy.source == "INJECTOR" else "EST MPG"
-        fuel_low = 0 <= state.environment.fuel_level_pct <= 15
-        wmi_flow = f"{state.wmi.actual_flow_cc_min:.0f}/{state.wmi.commanded_flow_cc_min:.0f}"
-        boost_error = abs(state.engine.boost_psi - state.engine.target_boost_psi) > 3.0 and state.engine.target_boost_psi > 4.0
-        afr_text = f"{state.engine.afr_left:.1f}/{state.engine.afr_right:.1f}"
-        afr_fault = (
-            state.engine.afr_left > 0
-            and state.engine.afr_right > 0
-            and abs(state.engine.afr_left - state.engine.afr_right) >= 0.8
-        )
-        spark_text = f"{state.engine.spark_advance_deg:.1f}deg"
-        spark_fault = state.engine.knock_events > 0
-        if mode == "ECO":
+        # Context, not duplicates of BoostPanel, FuelPanel, TempsGrid or AirShotPanel.
+        e,d,a=state.engine,state.dynamics,state.air_shot.v2
+        instant=state.economy.instant_mpg if state.economy.instant_mpg>0 else fallback_mpg_estimate(state)
+        average=state.economy.average_mpg if state.economy.average_mpg>0 else instant
+        economy_label="AVG MPG" if state.economy.source=="INJECTOR" else "EST MPG"
+        range_value=state.economy.miles_to_empty if state.economy.miles_to_empty>0 else None
+        if mode in {"ECO","NORMAL"}:
             return [
-                (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 24),
-                ("RANGE", _fmt(mte, "mi"), fuel_low),
-                ("FUEL", _fmt(state.environment.fuel_level_pct, "%") if state.environment.fuel_level_pct >= 0 else "--", fuel_low),
-                ("BOOST", "LOCKED", state.engine.target_boost_psi > 0.5),
+                (economy_label,_fmt(average,precision=1),False),
+                ("EST RANGE",_fmt(range_value," mi"),False),
+                ("TRIP",_fmt(state.economy.distance_miles," mi",1),False),
+                ("FUEL USED",_fmt(state.economy.fuel_used_gal," gal",2) if state.economy.source=="INJECTOR" else "--",False),
             ]
-        if mode == "NORMAL":
-            return [
-                (economy_label, _fmt(average_mpg, precision=1), average_mpg is not None and average_mpg < 20),
-                ("RANGE", _fmt(mte, "mi"), fuel_low),
-                ("FUEL FLOW", _fmt(state.economy.fuel_flow_cc_min, "ccm") if state.economy.source == "INJECTOR" else "--", False),
-                ("BOOST", "LOCKED", state.engine.target_boost_psi > 0.5),
+        limiter="OFFLINE"
+        if d.online:
+            limits={"TCS":d.tcs_limit,"AWC":d.awc_limit,"LEAN":d.lean_limit,
+                    "ENGINE":d.engine_limit,"MODE":d.mode_limit}
+            floor=min(limits.values())
+            if d.permitted>=d.rider:limiter="RIDER"
+            elif floor<d.rider and floor<=d.permitted:
+                names=[name for name,value in limits.items() if value==floor]
+                limiter=names[0] if len(names)==1 else "MULTIPLE"
+            else:limiter="OTHER / RAMP"
+        # These are observed differences, not new fault thresholds or diagnoses.
+        boost_gap=f"{e.boost_psi-d.boost_target:+.1f} psi" if d.online and not d.faults&(1<<10) else "--"
+        dbw_error=f"{d.throttle_actual-d.throttle_target:+.1f} deg" if d.online and not d.faults&(1<<7) else "--"
+        shared=[("TQ LIMITER",limiter,not d.online),("BOOST GAP",boost_gap,False)]
+        if mode=="SPORT":
+            return shared+[
+                ("REAR SLIP",_fmt(d.slip,"%",1) if d.online and d.slip_confidence>0 else "--",False),
+                ("DBW ERROR",dbw_error,False),
             ]
-        if mode == "SPORT":
-            return [
-                ("REQ BOOST", f"{state.engine.target_boost_psi:.1f} psi", boost_error),
-                ("WG DUTY", f"{state.engine.wastegate_duty_pct:.0f}%", state.engine.wastegate_duty_pct > 85),
-                ("TC SLIP", f"{state.traction.slip_pct:.1f}%", state.traction.sensor_fault),
-                ("KNOCK", f"{state.engine.knock_events:.0f}", state.engine.knock_events > 0),
+        if mode=="RACE":
+            afr=f"{e.afr_left:.1f}/{e.afr_right:.1f}" if e.afr_left>0 and e.afr_right>0 else "--"
+            return shared+[
+                ("AFR L/R",afr,False),
+                ("PERMIT TQ",_fmt(d.permitted,"%") if d.online else "--",False),
             ]
-        if mode == "RACE":
-            return [
-                ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}psi", boost_error),
-                ("AFR L/R", afr_text, afr_fault),
-                ("SPARK", spark_text, spark_fault),
-                ("EGT", f"{state.temps.exhaust_temp_f:.0f}F", state.temps.exhaust_temp_f > 1600),
-                ("WMI FLOW", wmi_flow, state.wmi.fault_active or state.wmi.actual_flow_cc_min < state.wmi.commanded_flow_cc_min * 0.6),
-                ("TC CUT", f"{state.traction.torque_cut_pct:.0f}%", state.traction.sensor_fault),
-            ]
-        return [
-            ("BOOST", f"{state.engine.boost_psi:.1f}/{state.engine.target_boost_psi:.1f}psi", boost_error),
-            ("AFR L/R", afr_text, afr_fault),
-            ("SPARK", spark_text, spark_fault),
-            ("AIR SHOT", f"{state.air_shot.pressure_psi:.0f} psi", state.air_shot.pressure_psi < 35 and state.engine.target_boost_psi > 6),
-            ("WMI FLOW", wmi_flow, state.wmi.fault_active),
-            ("IAT/EGT", f"{state.temps.intake_temp_f:.0f}/{state.temps.exhaust_temp_f:.0f}F", state.temps.intake_temp_f > 155 or state.temps.exhaust_temp_f > 1600),
+        return shared+[
+            ("LAST AIR",_fmt(a.last_duration_ms," ms") if a.online and a.event_id else "--",False),
+            ("AIR USED",_fmt(a.pressure_used_psi," psi",1) if a.online and a.event_id and a.pressure_valid else "--",False),
         ]

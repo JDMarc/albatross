@@ -40,7 +40,7 @@ from albatross_pi.diagnostics import FaultLogger
 from albatross_pi.hud.renderer import HUDRenderer
 from albatross_pi.phone import PhoneBridge, PhoneStatus
 from albatross_pi.dynamics_weather import WeatherService
-from albatross_pi.demo_systems import DemoReceiver
+from albatross_pi.demo_systems import DemoReceiver, decode_demo_packet
 from albatross_pi.runtime import PiPowerSupervisor, SystemdNotifier
 from albatross_pi.security import NfcAuthorizer
 from albatross_pi.state.simulator import StateSimulator
@@ -823,147 +823,153 @@ def main() -> None:
                     if demo_receiver.active:renderer.update_state(demo_receiver.apply(renderer.state,[]))
                     continue
                 try:
-                    obj = json.loads(data.decode("utf-8"))
+                    obj = decode_demo_packet(data)
                 except Exception:
+                    if demo_receiver.active:renderer.update_state(demo_receiver.apply(renderer.state,[]))
                     continue
-                snap = renderer.state
-                eng = replace(
-                    snap.engine,
-                    rpm=int(obj.get("rpm", snap.engine.rpm)),
-                    speed_mph=float(obj.get("speed_mph", obj.get("speed", snap.engine.speed_mph))),
-                    boost_psi=(
-                        float(obj.get("boost_l", obj.get("boost", snap.engine.boost_psi)))
-                        + float(obj.get("boost_r", obj.get("boost", snap.engine.boost_psi)))
-                    ) / 2.0,
-                    boost_left_psi=float(obj.get("boost_l", obj.get("boost", snap.engine.boost_left_psi))),
-                    boost_right_psi=float(obj.get("boost_r", obj.get("boost", snap.engine.boost_right_psi))),
-                    throttle_pct=float(obj.get("tps", snap.engine.throttle_pct)),
-                    gear=str(obj.get("gear", snap.engine.gear)),
-                    afr_left=float(obj.get("afr_l", snap.engine.afr_left)),
-                    afr_right=float(obj.get("afr_r", snap.engine.afr_right)),
-                    knock_events=int(bin(int(obj.get("knock_mask", 0))).count("1")) if "knock_mask" in obj else snap.engine.knock_events,
-                    engine_load_pct=float(obj.get("load", snap.engine.engine_load_pct)),
-                    wastegate_duty_pct=(float(obj.get("wg1", snap.engine.wastegate_duty_pct)) + float(obj.get("wg2", snap.engine.wastegate_duty_pct))) / 2.0,
-                )
-                economy = replace(
-                    snap.economy,
-                    injector_pulse_width_ms=float(obj.get("inj_pw_ms", snap.economy.injector_pulse_width_ms)),
-                    injector_duty_pct=float(obj.get("inj_duty_pct", snap.economy.injector_duty_pct)),
-                )
-                temps = replace(
-                    snap.temps,
-                    coolant_temp_f=float(obj.get("clt_f", obj.get("clt", snap.temps.coolant_temp_f))),
-                    oil_temp_f=float(obj.get("oilt_f", obj.get("oilt", snap.temps.oil_temp_f))),
-                    oil_pressure_psi=float(obj.get("oilp", snap.temps.oil_pressure_psi)),
-                    intake_temp_f=float(obj.get("iat", snap.temps.intake_temp_f)),
-                    exhaust_temp_f=(float(obj.get("egt_b1", snap.temps.exhaust_temp_f)) + float(obj.get("egt_b2", snap.temps.exhaust_temp_f))) / 2.0,
-                    exhaust_left_temp_f=float(obj.get("egt_b1", snap.temps.exhaust_left_temp_f)),
-                    exhaust_right_temp_f=float(obj.get("egt_b2", snap.temps.exhaust_right_temp_f)),
-                    battery_voltage=float(obj.get("batt_v", snap.temps.battery_voltage)),
-                )
-                env = replace(
-                    snap.environment,
-                    mode=str(obj.get("mode", snap.environment.mode)),
-                    fuel_type=str(obj.get("fuel_type", snap.environment.fuel_type)),
-                    ethanol_content_pct=float(obj.get("ethanol_pct", snap.environment.ethanol_content_pct)),
-                    fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
-                    gps_lock=bool(obj.get("gps_lock", snap.environment.gps_lock)),
-                    gps_latitude=_optional_float(obj.get("gps_lat", obj.get("gps_latitude")), snap.environment.gps_latitude),
-                    gps_longitude=_optional_float(obj.get("gps_lon", obj.get("gps_longitude")), snap.environment.gps_longitude),
-                    message_line=str(obj.get("msg", snap.environment.message_line)),
-                    flame_mode_enabled=bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)),
-                    rev_limiter_strategy="IGNITION CUT" if bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)) else "FUEL CUT",
-                )
-                air = replace(
-                    snap.air_shot,
-                    pressure_psi=float(obj.get("tank_psi", snap.air_shot.pressure_psi)),
-                    charges_remaining=max(0, min(3, int(obj.get("airshot_charges", snap.air_shot.charges_remaining)))),
-                    is_firing=bool(obj.get("airshot_firing", snap.air_shot.is_firing)),
-                )
-                wmi = WMIState(
-                    tank_level_pct=float(obj.get("wmi_tank", snap.wmi.tank_level_pct)),
-                    commanded_flow_cc_min=float(obj.get("wmi_commanded", snap.wmi.commanded_flow_cc_min)),
-                    actual_flow_cc_min=float(obj.get("wmi_actual", snap.wmi.actual_flow_cc_min)),
-                    fault_active=bool(obj.get("wmi_fault", snap.wmi.fault_active)),
-                )
-                trac = replace(
-                    snap.traction,
-                    intervention_level=str(obj.get("traction", snap.traction.intervention_level)),
-                    slip_pct=float(obj.get("traction_slip", snap.traction.slip_pct)),
-                    torque_cut_pct=float(obj.get("torque_cut", snap.traction.torque_cut_pct)),
-                    active=bool(obj.get("traction_active", snap.traction.active)),
-                    sensor_fault=bool(obj.get("traction_fault", snap.traction.sensor_fault)),
-                    wheelie_pitch_deg=float(obj.get("lean_deg", snap.traction.wheelie_pitch_deg)),
-                )
-                clutch = ClutchState(
-                    slip_pct=float(obj.get("clutch_slip_pct", snap.clutch.slip_pct)),
-                    severity=str(obj.get("clutch_slip_severity", snap.clutch.severity)),
-                )
-                lighting = LightingState(
-                    left_indicator=bool(obj.get("left_indicator", obj.get("turn_left", snap.lighting.left_indicator))),
-                    right_indicator=bool(obj.get("right_indicator", obj.get("turn_right", snap.lighting.right_indicator))),
-                    high_beam=bool(obj.get("high_beam", snap.lighting.high_beam)),
-                    neutral=bool(obj.get("neutral_light", obj.get("neutral", eng.gear == "N"))),
-                    brake=bool(obj.get("brake_light", obj.get("brake", snap.lighting.brake))),
-                    oil_warning=bool(obj.get("oil_warning", snap.lighting.oil_warning)),
-                )
-                service = ServiceStatus(
-                    recent_can_frames=_demo_recent_can_frames(obj),
-                    sensor_voltages=(
-                        ServiceReading("Oil pressure sensor", f"{float(obj.get('oil_sensor_v', 2.75)):.2f} V"),
-                        ServiceReading("WMI tank sender", f"{float(obj.get('wmi_tank_v', 3.25)):.2f} V"),
-                        ServiceReading("Controller 3.3V rail", f"{float(obj.get('arduino_5v', 3.30)):.2f} V"),
-                        ServiceReading("Air tank pressure sender", f"{float(obj.get('air_tank_v', 2.95)):.2f} V"),
-                    ),
-                    pin_states=(
-                        ServiceFlag("Left indicator", lighting.left_indicator),
-                        ServiceFlag("Right indicator", lighting.right_indicator),
-                        ServiceFlag("High beam", lighting.high_beam),
-                        ServiceFlag("Neutral switch", lighting.neutral),
-                        ServiceFlag("Brake light", lighting.brake),
-                        ServiceFlag("Oil warning lamp", lighting.oil_warning),
-                        ServiceFlag("WMI pressure OK", bool(obj.get("wmi_pressure_ok", True))),
-                    ),
-                    relay_states=(
-                        ServiceFlag("WMI pump", bool(obj.get("wmi_pump_relay", obj.get("wmi_arm", False)))),
-                        ServiceFlag("Flame enable", bool(obj.get("flame_mode", False))),
-                        ServiceFlag("Air shot solenoid", air.is_firing),
-                        ServiceFlag("Air compressor", bool(obj.get("air_compressor", air.pressure_psi < 68.0))),
-                        ServiceFlag("WG1 enable", int(obj.get("wg1", 0)) > 0),
-                        ServiceFlag("WG2 enable", int(obj.get("wg2", 0)) > 0),
-                    ),
-                    firmware_versions=(
-                        ServiceReading("Pi HUD", "local/dev"),
-                        ServiceReading("Teensy controller", str(obj.get("arduino_fw", "demo"))),
-                    ),
-                )
-                limp_active = bool(obj.get("limp_mode", snap.system.limp_mode_active))
-                limp_reason = str(obj.get("limp_reason", snap.system.limp_mode_reason or ("PI REQUEST" if limp_active else ""))).upper()
-                updated = replace(
-                    snap,
-                    engine=eng,
-                    temps=temps,
-                    environment=env,
-                    economy=economy,
-                    traction=trac,
-                    clutch=clutch,
-                    lighting=lighting,
-                    air_shot=air,
-                    wmi=wmi,
-                    service=service,
-                    system=SystemStatus(limp_mode_active=limp_active, limp_mode_reason=limp_reason if limp_active else ""),
-                )
                 try:
-                    updated=demo_receiver.apply(updated,obj.get("demo_system_frames",[]))
-                except (ValueError,TypeError):
-                    logging.warning("Rejected invalid demo telemetry envelope")
-                    continue
-                renderer.update_state(
-                    replace(
-                        updated,
-                        engine=replace(updated.engine, target_boost_psi=calculate_boost_target(updated)),
+                    snap = renderer.state
+                    eng = replace(
+                        snap.engine,
+                        rpm=int(obj.get("rpm", snap.engine.rpm)),
+                        speed_mph=float(obj.get("speed_mph", obj.get("speed", snap.engine.speed_mph))),
+                        boost_psi=(
+                            float(obj.get("boost_l", obj.get("boost", snap.engine.boost_psi)))
+                            + float(obj.get("boost_r", obj.get("boost", snap.engine.boost_psi)))
+                        ) / 2.0,
+                        boost_left_psi=float(obj.get("boost_l", obj.get("boost", snap.engine.boost_left_psi))),
+                        boost_right_psi=float(obj.get("boost_r", obj.get("boost", snap.engine.boost_right_psi))),
+                        throttle_pct=float(obj.get("tps", snap.engine.throttle_pct)),
+                        gear=str(obj.get("gear", snap.engine.gear)),
+                        afr_left=float(obj.get("afr_l", snap.engine.afr_left)),
+                        afr_right=float(obj.get("afr_r", snap.engine.afr_right)),
+                        knock_events=int(bin(int(obj.get("knock_mask", 0))).count("1")) if "knock_mask" in obj else snap.engine.knock_events,
+                        engine_load_pct=float(obj.get("load", snap.engine.engine_load_pct)),
+                        wastegate_duty_pct=(float(obj.get("wg1", snap.engine.wastegate_duty_pct)) + float(obj.get("wg2", snap.engine.wastegate_duty_pct))) / 2.0,
                     )
-                )
+                    economy = replace(
+                        snap.economy,
+                        injector_pulse_width_ms=float(obj.get("inj_pw_ms", snap.economy.injector_pulse_width_ms)),
+                        injector_duty_pct=float(obj.get("inj_duty_pct", snap.economy.injector_duty_pct)),
+                    )
+                    temps = replace(
+                        snap.temps,
+                        coolant_temp_f=float(obj.get("clt_f", obj.get("clt", snap.temps.coolant_temp_f))),
+                        oil_temp_f=float(obj.get("oilt_f", obj.get("oilt", snap.temps.oil_temp_f))),
+                        oil_pressure_psi=float(obj.get("oilp", snap.temps.oil_pressure_psi)),
+                        intake_temp_f=float(obj.get("iat", snap.temps.intake_temp_f)),
+                        exhaust_temp_f=(float(obj.get("egt_b1", snap.temps.exhaust_temp_f)) + float(obj.get("egt_b2", snap.temps.exhaust_temp_f))) / 2.0,
+                        exhaust_left_temp_f=float(obj.get("egt_b1", snap.temps.exhaust_left_temp_f)),
+                        exhaust_right_temp_f=float(obj.get("egt_b2", snap.temps.exhaust_right_temp_f)),
+                        battery_voltage=float(obj.get("batt_v", snap.temps.battery_voltage)),
+                    )
+                    env = replace(
+                        snap.environment,
+                        mode=str(obj.get("mode", snap.environment.mode)),
+                        fuel_type=str(obj.get("fuel_type", snap.environment.fuel_type)),
+                        ethanol_content_pct=float(obj.get("ethanol_pct", snap.environment.ethanol_content_pct)),
+                        fuel_level_pct=float(obj.get("fuel", snap.environment.fuel_level_pct)),
+                        gps_lock=bool(obj.get("gps_lock", snap.environment.gps_lock)),
+                        gps_latitude=_optional_float(obj.get("gps_lat", obj.get("gps_latitude")), snap.environment.gps_latitude),
+                        gps_longitude=_optional_float(obj.get("gps_lon", obj.get("gps_longitude")), snap.environment.gps_longitude),
+                        message_line=str(obj.get("msg", snap.environment.message_line)),
+                        flame_mode_enabled=bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)),
+                        rev_limiter_strategy="IGNITION CUT" if bool(obj.get("flame_mode", snap.environment.flame_mode_enabled)) else "FUEL CUT",
+                    )
+                    air = replace(
+                        snap.air_shot,
+                        pressure_psi=float(obj.get("tank_psi", snap.air_shot.pressure_psi)),
+                        charges_remaining=max(0, min(3, int(obj.get("airshot_charges", snap.air_shot.charges_remaining)))),
+                        is_firing=bool(obj.get("airshot_firing", snap.air_shot.is_firing)),
+                    )
+                    wmi = WMIState(
+                        tank_level_pct=float(obj.get("wmi_tank", snap.wmi.tank_level_pct)),
+                        commanded_flow_cc_min=float(obj.get("wmi_commanded", snap.wmi.commanded_flow_cc_min)),
+                        actual_flow_cc_min=float(obj.get("wmi_actual", snap.wmi.actual_flow_cc_min)),
+                        fault_active=bool(obj.get("wmi_fault", snap.wmi.fault_active)),
+                    )
+                    trac = replace(
+                        snap.traction,
+                        intervention_level=str(obj.get("traction", snap.traction.intervention_level)),
+                        slip_pct=float(obj.get("traction_slip", snap.traction.slip_pct)),
+                        torque_cut_pct=float(obj.get("torque_cut", snap.traction.torque_cut_pct)),
+                        active=bool(obj.get("traction_active", snap.traction.active)),
+                        sensor_fault=bool(obj.get("traction_fault", snap.traction.sensor_fault)),
+                        wheelie_pitch_deg=float(obj.get("lean_deg", snap.traction.wheelie_pitch_deg)),
+                    )
+                    clutch = ClutchState(
+                        slip_pct=float(obj.get("clutch_slip_pct", snap.clutch.slip_pct)),
+                        severity=str(obj.get("clutch_slip_severity", snap.clutch.severity)),
+                    )
+                    lighting = LightingState(
+                        left_indicator=bool(obj.get("left_indicator", obj.get("turn_left", snap.lighting.left_indicator))),
+                        right_indicator=bool(obj.get("right_indicator", obj.get("turn_right", snap.lighting.right_indicator))),
+                        high_beam=bool(obj.get("high_beam", snap.lighting.high_beam)),
+                        neutral=bool(obj.get("neutral_light", obj.get("neutral", eng.gear == "N"))),
+                        brake=bool(obj.get("brake_light", obj.get("brake", snap.lighting.brake))),
+                        oil_warning=bool(obj.get("oil_warning", snap.lighting.oil_warning)),
+                    )
+                    service = ServiceStatus(
+                        recent_can_frames=_demo_recent_can_frames(obj),
+                        sensor_voltages=(
+                            ServiceReading("Oil pressure sensor", f"{float(obj.get('oil_sensor_v', 2.75)):.2f} V"),
+                            ServiceReading("WMI tank sender", f"{float(obj.get('wmi_tank_v', 3.25)):.2f} V"),
+                            ServiceReading("Controller 3.3V rail", f"{float(obj.get('arduino_5v', 3.30)):.2f} V"),
+                            ServiceReading("Air tank pressure sender", f"{float(obj.get('air_tank_v', 2.95)):.2f} V"),
+                        ),
+                        pin_states=(
+                            ServiceFlag("Left indicator", lighting.left_indicator),
+                            ServiceFlag("Right indicator", lighting.right_indicator),
+                            ServiceFlag("High beam", lighting.high_beam),
+                            ServiceFlag("Neutral switch", lighting.neutral),
+                            ServiceFlag("Brake light", lighting.brake),
+                            ServiceFlag("Oil warning lamp", lighting.oil_warning),
+                            ServiceFlag("WMI pressure OK", bool(obj.get("wmi_pressure_ok", True))),
+                        ),
+                        relay_states=(
+                            ServiceFlag("WMI pump", bool(obj.get("wmi_pump_relay", obj.get("wmi_arm", False)))),
+                            ServiceFlag("Flame enable", bool(obj.get("flame_mode", False))),
+                            ServiceFlag("Air shot solenoid", air.is_firing),
+                            ServiceFlag("Air compressor", bool(obj.get("air_compressor", air.pressure_psi < 68.0))),
+                            ServiceFlag("WG1 enable", int(obj.get("wg1", 0)) > 0),
+                            ServiceFlag("WG2 enable", int(obj.get("wg2", 0)) > 0),
+                        ),
+                        firmware_versions=(
+                            ServiceReading("Pi HUD", "local/dev"),
+                            ServiceReading("Teensy controller", str(obj.get("arduino_fw", "demo"))),
+                        ),
+                    )
+                    limp_active = bool(obj.get("limp_mode", snap.system.limp_mode_active))
+                    limp_reason = str(obj.get("limp_reason", snap.system.limp_mode_reason or ("PI REQUEST" if limp_active else ""))).upper()
+                    updated = replace(
+                        snap,
+                        engine=eng,
+                        temps=temps,
+                        environment=env,
+                        economy=economy,
+                        traction=trac,
+                        clutch=clutch,
+                        lighting=lighting,
+                        air_shot=air,
+                        wmi=wmi,
+                        service=service,
+                        system=SystemStatus(limp_mode_active=limp_active, limp_mode_reason=limp_reason if limp_active else ""),
+                    )
+                    try:
+                        updated=demo_receiver.apply(updated,obj.get("demo_system_frames",[]))
+                    except (ValueError,TypeError):
+                        logging.warning("Rejected invalid demo telemetry envelope")
+                        continue
+                    renderer.update_state(
+                        replace(
+                            updated,
+                            engine=replace(updated.engine, target_boost_psi=calculate_boost_target(updated)),
+                        )
+                    )
+                except (ValueError, TypeError, KeyError, OverflowError):
+                    logging.warning("Rejected malformed demo values; listener remains active")
+                    if demo_receiver.active:
+                        renderer.update_state(demo_receiver.apply(renderer.state, []))
 
         threading.Thread(target=loop, name="demo-udp", daemon=True).start()
 

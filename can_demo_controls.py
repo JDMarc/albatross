@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+from types import SimpleNamespace
 import socket
 import struct
 import tkinter as tk
@@ -26,7 +28,6 @@ from albatross_pi.thermal import SensorStatus
 from albatross_pi.thermal.simulation import SCENARIOS
 
 from albatross_pi.canbus.encode import (
-    build_air_shot_request_frame,
     build_boost_target_frame,
     build_ecu_fuel_profile_frame,
     build_ecu_rev_limiter_strategy_frame,
@@ -37,10 +38,9 @@ from albatross_pi.canbus.encode import (
     build_limp_mode_frame,
     build_mode_selection_frame,
     build_nfc_auth_frame,
-    build_traction_level_frame,
     build_wmi_enable_frame,
 )
-from albatross_pi.canbus.ids import ArduinoToEcuID, ArduinoToHudID, ECUToHudID, LIMP_REASON_CODES
+from albatross_pi.canbus.ids import ArduinoToHudID, ECUToHudID, LIMP_REASON_CODES
 from albatross_pi.canbus.iface import PythonCANInterface, SocketCANInterface
 
 
@@ -64,7 +64,7 @@ class App:
         self.can_channel_name = channel
         self.can_bitrate = bitrate
         self.tty_baudrate=tty_baudrate
-        self.systems=DemoSystems();self.fire_held=False;self.fire_sequence=0
+        self.systems=DemoSystems();self.fire_held=False;self.fire_sequence=0;self._cycle_errors=[]
         self.iface = None if dry_run else self._open_can_interface(interface, channel, bitrate, tty_baudrate)
         self.udp_host, self.udp_port = udp_target.split(":")
         self.udp_port = int(self.udp_port)
@@ -100,33 +100,18 @@ class App:
             "gear": tk.StringVar(value="N"),
             "load": tk.IntVar(value=35),
             "iat": tk.DoubleVar(value=90.0),
-            "egt_b1": tk.DoubleVar(value=1450.0),
-            "egt_b2": tk.DoubleVar(value=1470.0),
             "speed": tk.DoubleVar(value=25.0),
-            "airshot_charges": tk.IntVar(value=3),
-            "airshot_firing": tk.BooleanVar(value=False),
-            "tank_psi": tk.DoubleVar(value=120.0),
             "wmi_tank": tk.IntVar(value=65),
             "wmi_commanded": tk.IntVar(value=250),
             "wmi_actual": tk.IntVar(value=250),
             "wmi_fault": tk.BooleanVar(value=False),
-            "awc_enabled": tk.BooleanVar(value=True),
-            "lean_deg": tk.DoubleVar(value=1.5),
-            "traction": tk.StringVar(value="MED"),
-            "traction_slip": tk.DoubleVar(value=0.0),
-            "torque_cut": tk.IntVar(value=0),
-            "traction_active": tk.BooleanVar(value=False),
-            "traction_fault": tk.BooleanVar(value=False),
             "clutch_slip_pct": tk.IntVar(value=0),
             "clutch_slip_severity": tk.StringVar(value="NONE"),
-            "turbo1": tk.DoubleVar(value=6.0),
-            "turbo2": tk.DoubleVar(value=6.0),
             "wg1": tk.IntVar(value=45),
             "wg2": tk.IntVar(value=45),
             "mode": tk.StringVar(value="NORMAL"),
             "nfc_ok": tk.BooleanVar(value=True),
             "send_hud_commands": tk.BooleanVar(value=send_hud_commands),
-            "send_ecu_requests": tk.BooleanVar(value=False),
             "boost_target": tk.DoubleVar(value=0.0),
             "wmi_arm": tk.BooleanVar(value=True),
             "flame_mode": tk.BooleanVar(value=False),
@@ -144,16 +129,19 @@ class App:
             "wmi_tank_v": tk.DoubleVar(value=3.25),
             "air_tank_v": tk.DoubleVar(value=2.95),
             "arduino_5v": tk.DoubleVar(value=3.30),
-            "air_compressor": tk.BooleanVar(value=False),
             "arduino_fw": tk.StringVar(value="0.1.0+1"),
             "gps_lock": tk.BooleanVar(value=True),
             "gps_lat": tk.StringVar(value="42.3314"),
             "gps_lon": tk.StringVar(value="-83.0458"),
             "msg": tk.StringVar(value="ECU OK | ARDUINO OK | CAN OK"),
         }
+        self.vars["send_air_commands"]=tk.BooleanVar(value=False)
+        self.vars["send_dynamics_commands"]=tk.BooleanVar(value=False)
         for key,_,initial,_ in DYNAMICS_FIELDS+AIR_FIELDS:
+            if key in self.vars:raise ValueError(f"Duplicate demo control: {key}")
             cls=tk.BooleanVar if type(initial) is bool else tk.StringVar if isinstance(initial,str) else tk.DoubleVar
             self.vars[key]=cls(value=initial)
+        self._last_values={key:var.get() for key,var in self.vars.items()}
         self.fault_vars=[tk.BooleanVar(value=False) for _ in FAULTS]
         self.demo_status=tk.StringVar(value="SYNTHETIC HUD DATA — isolate from the vehicle powertrain")
         self.thermal_stream=tk.BooleanVar(value=True);self.thermal_scenario=tk.StringVar(value="normal_warmup")
@@ -175,7 +163,7 @@ class App:
 
     def _build(self) -> None:
         self.notebook=ttk.Notebook(self.root);self.notebook.grid(sticky="nsew")
-        shell = ttk.Frame(self.notebook);self.notebook.add(shell,text="ECU / Bike / Legacy")
+        shell = ttk.Frame(self.notebook);self.notebook.add(shell,text="ECU / Bike")
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         shell.columnconfigure(0, weight=1)
@@ -244,13 +232,9 @@ class App:
             self._slider(ecu, label, key, lo, hi, row)
 
         ard_sliders = [
-            ("Tank Pressure psi", "tank_psi", 0, 200),
             ("WMI Tank %", "wmi_tank", 0, 100),
             ("WMI Cmd cc/min", "wmi_commanded", 0, 1000),
             ("WMI Act cc/min", "wmi_actual", 0, 1000),
-            ("AWC Lean deg", "lean_deg", -15, 15),
-            ("Turbo1 psi", "turbo1", 0, 30),
-            ("Turbo2 psi", "turbo2", 0, 30),
             ("Wastegate1 %", "wg1", 0, 100),
             ("Wastegate2 %", "wg2", 0, 100),
             ("Clutch Slip %", "clutch_slip_pct", 0, 100),
@@ -259,12 +243,8 @@ class App:
             self._slider(ard, label, key, lo, hi, row)
 
         row = len(ard_sliders)
-        ttk.Label(ard, text="Airshot Charges").grid(row=row, column=0, sticky="w")
-        ttk.Combobox(ard, textvariable=self.vars["airshot_charges"], values=[0, 1, 2, 3], width=8, state="readonly").grid(row=row, column=1, sticky="w")
-        ttk.Checkbutton(ard, text="Airshot Firing", variable=self.vars["airshot_firing"]).grid(row=row, column=2, sticky="w")
 
         row += 1
-        ttk.Checkbutton(ard, text="AWC Enabled", variable=self.vars["awc_enabled"]).grid(row=row, column=0, sticky="w")
         ttk.Checkbutton(ard, text="WMI Fault", variable=self.vars["wmi_fault"]).grid(row=row, column=1, sticky="w")
         ttk.Label(ard, text="Slip Severity").grid(row=row, column=2, sticky="e")
         ttk.Combobox(ard, textvariable=self.vars["clutch_slip_severity"], values=["NONE", "MILD", "MODERATE", "SEVERE"], width=12, state="readonly").grid(row=row, column=3, sticky="w")
@@ -275,19 +255,12 @@ class App:
         ttk.Combobox(cmds, textvariable=self.vars["fuel_type"], values=["87", "91", "93", "100", "E85", "C16"], width=8).grid(row=0, column=3, sticky="w")
         ttk.Label(cmds, text="Mode").grid(row=0, column=4, sticky="w")
         ttk.Combobox(cmds, textvariable=self.vars["mode"], values=["ECO", "NORMAL", "SPORT", "RACE", "ALBATROSS"], width=12).grid(row=0, column=5, sticky="w")
-        ttk.Label(cmds, text="Traction").grid(row=0, column=6, sticky="w")
-        ttk.Combobox(cmds, textvariable=self.vars["traction"], values=["LOW", "MED", "HIGH", "OFF"], width=8).grid(row=0, column=7, sticky="w")
 
-        ttk.Checkbutton(cmds, text="Send HUD Commands", variable=self.vars["send_hud_commands"]).grid(row=1, column=0, sticky="w")
-        ttk.Checkbutton(cmds, text="Send ECU Requests", variable=self.vars["send_ecu_requests"]).grid(row=1, column=1, sticky="w")
+        ttk.Checkbutton(cmds, text="Repeat ECU / HUD commands (overrides HUD)", variable=self.vars["send_hud_commands"]).grid(row=1, column=0, sticky="w")
         ttk.Checkbutton(cmds, text="NFC Auth OK", variable=self.vars["nfc_ok"]).grid(row=1, column=2, sticky="w")
-        ttk.Checkbutton(cmds, text="TC Active", variable=self.vars["traction_active"]).grid(row=1, column=6, sticky="w")
-        ttk.Checkbutton(cmds, text="TC Fault", variable=self.vars["traction_fault"]).grid(row=1, column=7, sticky="w")
         ttk.Label(cmds, text="Message").grid(row=2, column=0, sticky="w")
         ttk.Entry(cmds, textvariable=self.vars["msg"], width=60).grid(row=2, column=1, columnspan=5, sticky="ew")
         self._slider(cmds, "Boost Target psi", "boost_target", 0, 30, 3)
-        self._slider(cmds, "Traction Slip %", "traction_slip", 0, 30, 4)
-        self._slider(cmds, "Torque Cut %", "torque_cut", 0, 100, 5)
 
         ttk.Checkbutton(cmds, text="WMI Arm", variable=self.vars["wmi_arm"]).grid(row=6, column=0, sticky="w")
         ttk.Checkbutton(cmds, text="Flame", variable=self.vars["flame_mode"]).grid(row=6, column=1, sticky="w")
@@ -315,7 +288,6 @@ class App:
         self._slider(service, "WMI Tank V", "wmi_tank_v", 0.0, 5.0, 1)
         self._slider(service, "Controller 3.3V", "arduino_5v", 3.0, 3.5, 2)
         self._slider(service, "Air Tank V", "air_tank_v", 0.0, 5.0, 3)
-        ttk.Checkbutton(service, text="Air Compressor Relay", variable=self.vars["air_compressor"]).grid(row=4, column=0, sticky="w")
         ttk.Label(service, text="Controller FW").grid(row=4, column=1, sticky="e")
         ttk.Entry(service, textvariable=self.vars["arduino_fw"], width=12).grid(row=4, column=2, sticky="w")
 
@@ -350,17 +322,20 @@ class App:
         for n,name in enumerate(FAULTS):ttk.Checkbutton(faults,text=name,variable=self.fault_vars[n]).grid(row=n,column=0,sticky="w")
         for n,name in enumerate(("Normal","Controlled lift","Rear slip","Lift + slip","Touchdown","DBW fault","Powertrain stopped")):
             ttk.Button(faults,text=name,command=lambda name=name:self._preset(name)).grid(row=len(FAULTS)+n,column=0,sticky="ew")
-        ttk.Checkbutton(faults,text="Allow command transmission (shared opt-in)",variable=self.vars["send_hud_commands"]).grid(row=22,column=0)
+        ttk.Checkbutton(faults,text="Allow dynamics commands",variable=self.vars["send_dynamics_commands"]).grid(row=22,column=0)
         ttk.Button(faults,text="Send rider levels / curve / weather",command=self._dynamics_settings).grid(row=23,column=0,sticky="ew")
         ttk.Button(faults,text="Request LATCHED powertrain STOP",command=self._powertrain_stop).grid(row=24,column=0,sticky="ew")
         for n,(key,label) in enumerate((("wheelie_target","target"),("wheelie_max","maximum"),("lean_left","left lean"),("lean_right","right lean"))):
             ttk.Button(faults,text="Send rider "+label,command=lambda n=n,key=key:self._rider_envelope(n,key)).grid(row=25+n,column=0,sticky="ew")
         self.air_tab,a=tab("Air Shot V2");fields(a,AIR_FIELDS)
         controls=ttk.LabelFrame(a,text="Explicit commands — isolated bench only",padding=8);controls.grid(row=1,column=2,rowspan=10,sticky="nw")
-        ttk.Checkbutton(controls,text="Allow command transmission",variable=self.vars["send_hud_commands"]).pack(anchor="w")
+        ttk.Checkbutton(controls,text="Allow Air Shot CAN requests",variable=self.vars["send_air_commands"]).pack(anchor="w")
         ttk.Button(controls,text="Send selected OFF / MANUAL / AUTO",command=self._air_mode).pack(fill="x")
         fire=ttk.Button(controls,text="Hold to request Air Shot")
         fire.pack(fill="x");fire.bind("<ButtonPress-1>",lambda e:self._hold_air(True));fire.bind("<ButtonRelease-1>",lambda e:self._hold_air(False));fire.bind("<Leave>",lambda e:self._hold_air(False))
+        for name in ("Ready", "Firing", "Inhibited", "Off"):
+            ttk.Button(controls,text="Preview "+name+" (telemetry only)",command=lambda name=name:self._air_preview(name)).pack(fill="x")
+        ttk.Label(controls,text="Requests require a real isolated controller.\nThey do not simulate acceptance or FIRING.").pack(anchor="w",pady=6)
         ttk.Label(controls,text="Telemetry sliders do not operate valves.\nNo calibration upload or DBWX2 motor target\nis emitted by these new controls.").pack(anchor="w",pady=12)
         _,t=tab("Thermal node / 32 channels")
         ttk.Checkbutton(t,text="Transmit thermal node (uncheck for dropout)",variable=self.thermal_stream).grid(row=1,column=0,sticky="w")
@@ -403,8 +378,19 @@ class App:
         for key,value in changes.items():self.vars["vdc_"+key].set(value)
         if name=="DBW fault":self.fault_vars[8].set(True)
         if name=="Powertrain stopped":self.fault_vars[13].set(True)
-    def _command_allowed(self):
-        allowed=bool(self.vars["send_hud_commands"].get())
+    def _air_preview(self,name):
+        # Display fixtures only: never send a command or change boost/mode settings.
+        changes=dict(mode="MANUAL",state="READY",reason="NONE",flags=0,demand=0,
+                     intake_l=0,intake_r=0,turbine_l=0,turbine_r=0,driver_faults=0)
+        if name=="Firing":
+            changes.update(state="FIRING",flags=5,demand=50,intake_l=50,intake_r=50,turbine_l=50,turbine_r=50)
+        elif name=="Inhibited":changes.update(state="INHIBITED",reason="LOW PRESSURE",flags=1)
+        elif name=="Off":changes.update(mode="OFF",state="DISABLED",reason="OFF")
+        for key,value in changes.items():self.vars["air_"+key].set(value)
+        self.demo_status.set("Synthetic "+name.upper()+" preview — not physical valve feedback")
+
+    def _command_allowed(self,group="dynamics"):
+        allowed=bool(self.vars["send_"+group+"_commands"].get())
         if not allowed:self.demo_status.set("Command blocked: enable command transmission explicitly")
         return allowed
     def _dynamics_settings(self):
@@ -412,7 +398,7 @@ class App:
         self.fire_sequence=(self.fire_sequence+1)&255
         self._send(0x208,bytes((1,LEVELS.index(self.vars["vdc_tcs"].get()),LEVELS.index(self.vars["vdc_awc"].get()),int(self.vars["vdc_curve"].get()),int(self.vars["vdc_weather_assist"].get()),0,self.fire_sequence,0xA5)))
     def _air_mode(self):
-        if self._command_allowed():self._send(*mode_frame(self.vars["air_mode"].get()))
+        if self._command_allowed("air"):self._send(*mode_frame(self.vars["air_mode"].get()))
     def _rider_envelope(self,parameter,key):
         import math
         if not self._command_allowed():return
@@ -422,7 +408,7 @@ class App:
         self.fire_sequence=(self.fire_sequence+1)&255
         self._send(0x209,struct.pack(">BBfBB",1,parameter,value,self.fire_sequence,0xA5))
     def _hold_air(self,held):
-        if held and not self._command_allowed():return
+        if held and not self._command_allowed("air"):return
         was_held=self.fire_held;self.fire_held=held
         if held or was_held:
             self.fire_sequence=(self.fire_sequence+1)&65535;self._send(*fire_frame(held,self.fire_sequence))
@@ -438,7 +424,8 @@ class App:
 
     def _send(self, arb_id: int, payload: bytes) -> None:
         if self.iface:
-            self.iface.send(arb_id, payload)
+            try:self.iface.send(arb_id, payload)
+            except Exception as exc:self._cycle_errors.append(f"CAN send: {exc}")
         else:
             print(f"TX 0x{arb_id:03X} {payload.hex()}")
 
@@ -465,18 +452,47 @@ class App:
         return parsed if lo <= parsed <= hi else None
 
     def send_all(self) -> None:
+        """Snapshot edits atomically. Bad system entries pause only their stream."""
+        live=self.vars;values={};invalid=[];metadata={k:(initial,choices) for k,_,initial,choices in DYNAMICS_FIELDS+AIR_FIELDS}
+        self._cycle_errors=[]
+        for key,var in live.items():
+            try:
+                value=var.get()
+                if isinstance(value,(int,float)) and not math.isfinite(value):raise ValueError("finite number required")
+                if key in metadata:
+                    initial,choices=metadata[key]
+                    if choices and value not in choices:raise ValueError("select a listed value")
+                if key in {"mode","fuel_type","gear"}:
+                    choices={"mode":("ECO","NORMAL","SPORT","RACE","ALBATROSS"),"fuel_type":("87","91","93","100","E85","C16"),"gear":("N","1","2","3","4","5","6")}[key]
+                    if value not in choices:raise ValueError("select a listed value")
+                values[key]=value;self._last_values[key]=value
+            except (ValueError,TypeError,tk.TclError):
+                invalid.append(key);values[key]=self._last_values[key]
+        for prefix in ("vdc","air"):
+            if any(k.startswith(prefix+"_") for k in invalid):values[prefix+"_stream"]=False
+        if invalid:
+            for key in ("send_hud_commands","send_air_commands","send_dynamics_commands"):values[key]=False
+        # Basic ECU entries retain their previous synthetic value while being edited;
+        # invalid dynamics/Air Shot groups go stale rather than claiming fresh data.
+        self.vars={k:SimpleNamespace(get=lambda value=v:value) for k,v in values.items()}
+        try:self._send_snapshot()
+        finally:self.vars=live
+        status=["Editing invalid fields: "+", ".join(invalid)] if invalid else []
+        status.extend(self._cycle_errors)
+        self.demo_status.set(" | ".join(status) if status else "SYNTHETIC HUD DATA — streams running (unchecked streams remain off)")
+
+    def _send_snapshot(self) -> None:
         self.systems.values.update({key:self.vars[key].get() for key,_,_,_ in DYNAMICS_FIELDS+AIR_FIELDS})
         self.systems.faults=sum(1<<n for n,v in enumerate(self.fault_vars) if v.get())
         self.systems.thermal_stream=self.thermal_stream.get();self.systems.thermal.scenario=self.thermal_scenario.get()
         system_frames=self.systems.frames() # validate before transmitting this cycle
         for fid,data in system_frames:self._send(fid,data)
         if self.fire_held:
-            if self._command_allowed():self._hold_air(True)
+            if self._command_allowed("air"):self._hold_air(True)
             else:self._hold_air(False)
         gear_map = {"N": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
         fuel_type_map = {"87": 0, "91": 1, "93": 2, "100": 3, "E85": 4, "C16": 5}
         mode_map = {"ECO": 1, "NORMAL": 2, "SPORT": 3, "RACE": 4, "ALBATROSS": 5}
-        trac_map = {"LOW": 1, "MED": 2, "HIGH": 3, "OFF": 4}
         slip_sev_map = {"NONE": 0, "MILD": 1, "MODERATE": 2, "SEVERE": 3}
 
         rpm = int(self.vars["rpm"].get())
@@ -484,14 +500,8 @@ class App:
         oil_t_c10 = self._f_to_cx10(float(self.vars["oilt"].get()))
         clt_c10 = self._f_to_cx10(float(self.vars["clt"].get()))
         iat_c10 = self._f_to_cx10(float(self.vars["iat"].get()))
-        egt1_c10 = self._f_to_cx10(float(self.vars["egt_b1"].get()))
-        egt2_c10 = self._f_to_cx10(float(self.vars["egt_b2"].get()))
-        lean_raw = int(float(self.vars["lean_deg"].get()) * 10)
         mode_code = mode_map[self.vars["mode"].get()]
         fuel_code = fuel_type_map[self.vars["fuel_type"].get()]
-        traction_level_code = trac_map[self.vars["traction"].get()]
-        traction_slip_x10 = int(max(-100.0, min(100.0, float(self.vars["traction_slip"].get()))) * 10)
-        torque_cut_pct = max(0, min(100, int(self.vars["torque_cut"].get())))
 
         self._send(int(ECUToHudID.ENGINE_RPM), struct.pack(">H", max(0, min(65535, rpm))))
         self._send(int(ECUToHudID.THROTTLE_POSITION), bytes((max(0, min(100, int(self.vars["tps"].get()))),)))
@@ -524,11 +534,6 @@ class App:
         self._send(int(ECUToHudID.INTAKE_AIR_TEMP), struct.pack(">H", iat_c10))
         # EGT now comes from the dedicated thermal module, not legacy 0x10B.
 
-        airshot_flags = 0x01 if bool(self.vars["airshot_firing"].get()) else 0x00
-        self._send(int(ArduinoToHudID.AIR_SHOT_STATUS), bytes((max(0, min(3, int(self.vars["airshot_charges"].get()))), airshot_flags)))
-        self._send(int(ArduinoToHudID.AWC_STATE), bytes((1 if bool(self.vars["awc_enabled"].get()) else 0, max(-127, min(127, int(lean_raw / 10))) & 0xFF)))
-        self._send(int(ArduinoToHudID.TANK_PRESSURE), struct.pack(">H", int(max(0.0, float(self.vars["tank_psi"].get())) * 10)))
-        self._send(int(ArduinoToHudID.TWIN_TURBO_STATUS), struct.pack(">HH", int(max(0.0, float(self.vars["turbo1"].get())) * 10), int(max(0.0, float(self.vars["turbo2"].get())) * 10)))
         self._send(int(ArduinoToHudID.WASTEGATE_STATUS), bytes((max(0, min(100, int(self.vars["wg1"].get()))), max(0, min(100, int(self.vars["wg2"].get()))))))
         self._send(int(ArduinoToHudID.GEAR_POSITION), bytes((gear_map[self.vars["gear"].get()],)))
         self._send(int(ArduinoToHudID.WHEEL_SPEED), struct.pack(">HH", speed_mps100, speed_mps100))
@@ -555,27 +560,9 @@ class App:
                 )
             ),
         )
-        tc_flags = 0
-        tc_flags |= 0x01 if bool(self.vars["traction_active"].get()) else 0
-        tc_flags |= 0x02 if bool(self.vars["traction_fault"].get()) else 0
-        self._send(
-            int(ArduinoToHudID.TRACTION_STATUS),
-            struct.pack(
-                ">hBB",
-                traction_slip_x10,
-                torque_cut_pct,
-                tc_flags,
-            ),
-        )
-
-        if bool(self.vars["send_ecu_requests"].get()):
-            self._send(int(ArduinoToEcuID.TORQUE_CUT_REQUEST), bytes((torque_cut_pct,)))
-            self._send(int(ArduinoToEcuID.TRACTION_SLIP_REQUEST), struct.pack(">hB", traction_slip_x10, tc_flags))
-
         if bool(self.vars["send_hud_commands"].get()):
             self._send(*build_boost_target_frame(float(self.vars["boost_target"].get())))
             self._send(*build_mode_selection_frame(mode_code))
-            self._send(*build_traction_level_frame(traction_level_code))
             self._send(*build_fuel_type_frame(fuel_code))
             self._send(*build_nfc_auth_frame(bool(self.vars["nfc_ok"].get())))
             self._send(*build_wmi_enable_frame(bool(self.vars["wmi_arm"].get())))
@@ -608,8 +595,8 @@ class App:
         output_bits |= 0x02 if int(self.vars["wg2"].get()) > 0 else 0
         output_bits |= 0x04 if bool(self.vars["wmi_arm"].get()) else 0
         output_bits |= 0x08 if bool(self.vars["flame_mode"].get()) else 0
-        output_bits |= 0x10 if bool(self.vars["airshot_firing"].get()) else 0
-        output_bits |= 0x20 if bool(self.vars["air_compressor"].get()) else 0
+        output_bits |= 0x10 if self.vars["air_stream"].get() and self.vars["air_state"].get() in ("FIRING","TAPERING") and not int(self.vars["air_flags"].get())&8 else 0
+        output_bits |= 0x20 if self.vars["air_stream"].get() and self.vars["air_compressor"].get()=="FILLING" else 0
         output_bits |= 0x40 if int(self.vars["wg1"].get()) > 0 else 0
         output_bits |= 0x80 if int(self.vars["wg2"].get()) > 0 else 0
         command_bits = 0
@@ -620,7 +607,7 @@ class App:
         command_bits |= 0x10 if bool(self.vars["wmi_arm"].get()) else 0
         fault_bits = 0
         fault_bits |= 0x04 if bool(self.vars["wmi_fault"].get()) else 0
-        fault_bits |= 0x08 if bool(self.vars["traction_fault"].get()) else 0
+        fault_bits |= 0x08 if self.systems.faults else 0
         self._send(int(ArduinoToHudID.SERVICE_DIGITAL_STATES), bytes((input_bits, output_bits, command_bits, fault_bits)))
         limp_active = bool(self.vars["limp_mode"].get())
         limp_reason_code = LIMP_REASON_CODES.get(str(self.vars["limp_reason"].get()).upper(), LIMP_REASON_CODES["PI REQUEST"])
@@ -654,15 +641,18 @@ class App:
         if not bool(self.vars["send_hud_commands"].get()):
             for key in ("mode", "fuel_type", "traction", "boost_target", "wmi_arm", "flame_mode", "engine_run", "nfc_ok"):
                 payload.pop(key, None)
+        # Strings such as "OFF" must never be interpreted as a truthy relay bit.
+        payload["air_compressor"]=self.vars["air_stream"].get() and self.vars["air_compressor"].get()=="FILLING"
         payload["msg"] = self.vars["msg"].get()
         payload["demo_system_frames"]=[[fid,data.hex()] for fid,data in system_frames]
         packet = json.dumps(payload).encode("utf-8")
         for p in self.udp_ports:
-            self.sock.sendto(packet, (self.udp_host, p))
+            try:self.sock.sendto(packet, (self.udp_host, p))
+            except OSError as exc:self._cycle_errors.append(f"UDP {p}: {exc}")
 
     def _tick(self) -> None:
         try:self.send_all()
-        except (ValueError,TypeError,tk.TclError,struct.error) as exc:self.demo_status.set(f"Invalid demo value: {exc}")
+        except (ValueError,TypeError,KeyError,OverflowError,tk.TclError,struct.error,OSError) as exc:self.demo_status.set(f"Invalid demo value: {exc}")
         finally:self.root.after(100, self._tick)
 
     def close(self) -> None:

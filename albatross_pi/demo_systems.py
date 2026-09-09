@@ -49,6 +49,21 @@ AIR_FIELDS=[
 def defaults():
     return {k:v for k,_,v,_ in DYNAMICS_FIELDS+AIR_FIELDS}
 
+def decode_demo_packet(data):
+    """Reject malformed/nonfinite UI values before they can poison HUD state."""
+    obj=json.loads(data.decode("utf-8"))
+    if not isinstance(obj,dict):raise ValueError("Demo object required")
+    numeric={"rpm","speed_mph","speed","boost","boost_l","boost_r","tps","afr_l","afr_r",
+             "knock_mask","load","wg1","wg2","inj_pw_ms","inj_duty_pct","clt_f","clt",
+             "oilt_f","oilt","oilp","iat","egt_b1","egt_b2","batt_v","ethanol_pct","fuel",
+             "tank_psi","airshot_charges","wmi_tank","wmi_commanded","wmi_actual",
+             "traction_slip","torque_cut","lean_deg","clutch_slip_pct","oil_sensor_v",
+             "wmi_tank_v","arduino_5v","air_tank_v"}
+    for key,value in obj.items():
+        if key in numeric and (isinstance(value,bool) or not math.isfinite(float(value))):
+            raise ValueError(f"Invalid numeric demo value: {key}")
+    return obj
+
 def number(values,key,lo,hi,scale=1):
     value=float(values[key])
     if not math.isfinite(value):raise ValueError(f"{key}: finite number required")
@@ -75,7 +90,7 @@ class DemoSystems:
              (0x225,struct.pack(">BHHHB",1,n("vdc_throttle_target",0,655.35,100),n("vdc_throttle_actual",0,655.35,100),n("vdc_boost_target",0,6553.5,10),n("vdc_air_margin"))),
              (0x226,struct.pack(">BIBBB",1,faults,n("vdc_sensor_confidence"),vd.WEATHER.index(v["vdc_weather"]),bool(v["vdc_calibrated"]))),
              (0x227,struct.pack(">BHHBBB",1,n("vdc_wheelie_target",0,655.35,100),n("vdc_wheelie_max",0,655.35,100),n("vdc_lean_left",0,255),n("vdc_lean_right",0,255),bool(v["vdc_weather_assist"]))),
-             (0x228,struct.pack(">BfBBB",1,float(v["vdc_boost_target"]),0,0,0))]
+             (0x228,struct.pack(">BfBBB",1,n("vdc_boost_target",0,6553.5,10)/10,0,0,0))]
         if v["air_stream"]:
             out += [(0x180,bytes((2,air.MODES.index(v["air_mode"]),air.STATES.index(v["air_state"]),air.REASONS.index(v["air_reason"]),air.PROFILES.index(v["air_profile"]),n("air_demand"),n("air_available"),n("air_flags",0,255)))),
              (0x181,struct.pack(">BBBBBBH",2,*[n("air_"+k) for k in ("intake_l","intake_r","turbine_l","turbine_r")],n("air_driver_faults",0,255),n("air_event_id",0,65535))),
@@ -122,5 +137,10 @@ class DemoReceiver:
         self.thermal.set_vehicle_context({"rpm":state.engine.rpm,"load_pct":state.engine.engine_load_pct,"boost_psi":state.engine.boost_psi,"ambient_c":(state.environment.ambient_temp_f-32)*5/9,"wmi_command":state.wmi.commanded_flow_cc_min})
         d,a,t=self.dynamics.snapshot(),self.air.snapshot(),self.thermal.snapshot()
         alerts=set(d.alerts)|set(a.alerts)|set(t.alerts);faults=(set(state.faults)-self.alerts)|alerts;self.alerts=alerts
+        relays={"Air shot solenoid":a.online and a.state in ("FIRING","TAPERING") and not a.flags&8,
+                "Air compressor":a.online and a.compressor=="FILLING"}
+        service=replace(state.service,relay_states=tuple(
+            replace(row,active=bool(relays[row.label])) if row.label in relays else row
+            for row in state.service.relay_states))
         return replace(state,dynamics=d,air_shot=replace(state.air_shot,v2=a),thermal=t,
-                       temps=primary_temperatures(state.temps,t),faults=tuple(sorted(faults)))
+                       service=service,temps=primary_temperatures(state.temps,t),faults=tuple(sorted(faults)))

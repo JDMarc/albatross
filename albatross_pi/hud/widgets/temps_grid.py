@@ -1,79 +1,98 @@
-"""Temperature and pressure grid widget."""
-from __future__ import annotations
-
+"""Readable rotating vitals. Selection is display-only, never protection."""
+import math
 import pygame
-
 from .base import Widget
-from .ui_utils import AMBER_BG, AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, fit_font_size, font
-from ...state.snapshot import StateSnapshot
-from .ui_utils import instrument_frame
+from .ui_utils import AMBER_BRIGHT, AMBER_DARK, AMBER_GLOW, FAULT_AMBER, fit_font_size, font, instrument_frame
+from ...thermal.model import SensorStatus
 
 
 class TempsGrid(Widget):
-    def __init__(self, rect: pygame.Rect, *, split: bool = False) -> None:
-        self.rect = rect
-        self.split = split
-        self.rows = [
-            ("CLT max", lambda s: self._temperature(s.temps.coolant_temp_f)),
-            ("Oil", lambda s: self._temperature(s.temps.oil_temp_f)),
-            ("Oil P", lambda s: f"{s.temps.oil_pressure_psi:5.1f}psi"),
-            ("Battery", lambda s: f"{s.temps.battery_voltage:4.2f}V"),
-            ("Plenum", lambda s: self._temperature(s.temps.intake_temp_f)),
-            ("EGT max", lambda s: self._temperature(s.temps.exhaust_temp_f)),
-            ("WMI Tank", lambda s: f"{s.wmi.tank_level_pct:4.0f}%"),
-            ("WMI Flow", lambda s: f"{s.wmi.actual_flow_cc_min:4.0f}/{s.wmi.commanded_flow_cc_min:4.0f}"),
-            ("WMI Stat", lambda s: "FAULT" if s.wmi.fault_active else "OK"),
-        ]
+    PAGE_MS = 4000  # UI dwell only, not a protection timeout.
+
+    def __init__(self, rect, *, split=False):
+        self.rect=rect
+        self.split=split
+        self._page=None
+        self._keys=()
+        self._scan=0
+        self._focus_label="HOT"
 
     @staticmethod
     def _temperature(value):
-        return "--" if value == -1.0 else f"{value:.0f}F"
+        return "--" if value is None or not math.isfinite(value) or value==-1 else f"{value:.0f}F"
 
-    def draw(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        instrument_frame(surface, self.rect)
-        if self.split:
-            self._draw_split(surface, state)
-            return
-        row_height = self.rect.height // len(self.rows)
-        for i, (label, value_fn) in enumerate(self.rows):
-            y = self.rect.y + i * row_height
-            if i > 0:
-                pygame.draw.line(surface, AMBER_DARK, (self.rect.x, y), (self.rect.right, y), 1)
-            value = value_fn(state)
-            label_size = fit_font_size(label, int(self.rect.width * 0.38), row_height - 4, start_size=max(13, int(row_height * 0.6)))
-            value_size = fit_font_size(value, int(self.rect.width * 0.55), row_height - 4, start_size=max(13, int(row_height * 0.62)), bold=True)
-            label_surface = font(label_size).render(label, True, AMBER_GLOW)
-            value_surface = font(value_size, bold=True).render(value, True, AMBER_BRIGHT)
-            surface.blit(label_surface, (self.rect.x + 8, y + max(2, (row_height - label_surface.get_height()) // 2)))
-            surface.blit(
-                value_surface,
-                (
-                    self.rect.right - value_surface.get_width() - 8,
-                    y + max(2, (row_height - value_surface.get_height()) // 2),
-                ),
-            )
+    @staticmethod
+    def _finite(value):
+        return value if value is not None and math.isfinite(value) else 0.0
 
-    def _draw_split(self, surface: pygame.Surface, state: StateSnapshot) -> None:
-        title_h = min(19, max(15, self.rect.height // 7))
-        body_y = self.rect.y + title_h
-        body_h = self.rect.height - title_h
-        column_w = self.rect.width // 2
-        row_h = max(1, body_h // 5)
-        surface.blit(font(12, bold=True).render("SYSTEM VITALS", True, AMBER_BRIGHT), (self.rect.x + 8, self.rect.y + 2))
-        pygame.draw.line(surface, AMBER_DARK, (self.rect.x, body_y), (self.rect.right, body_y), 1)
-        pygame.draw.line(surface, AMBER_DARK, (self.rect.x + column_w, body_y), (self.rect.x + column_w, self.rect.bottom), 1)
-        for index, (label, value_fn) in enumerate(self.rows):
-            column = index // 5
-            row = index % 5
-            x = self.rect.x + column * column_w
-            y = body_y + row * row_h
-            if row > 0:
-                pygame.draw.line(surface, AMBER_DARK, (x, y), (x + column_w, y), 1)
-            value = value_fn(state)
-            label_size = fit_font_size(label, int(column_w * 0.48), row_h - 4, start_size=max(11, int(row_h * 0.56)))
-            value_size = fit_font_size(value, int(column_w * 0.48), row_h - 4, start_size=max(11, int(row_h * 0.58)), bold=True)
-            label_surface = font(label_size).render(label, True, AMBER_GLOW)
-            value_surface = font(value_size, bold=True).render(value, True, AMBER_BRIGHT)
-            text_y = y + max(1, (row_h - max(label_surface.get_height(), value_surface.get_height())) // 2)
-            surface.blit(label_surface, (x + 7, text_y))
-            surface.blit(value_surface, (x + column_w - value_surface.get_width() - 7, text_y))
+    def selected_rows(self,state,now_ms):
+        thermal=state.thermal
+        page=now_ms//self.PAGE_MS
+        readings=sorted((r for r in thermal.readings.values()
+                         if r.status!=SensorStatus.NOT_CONFIGURED),key=lambda r:r.sensor_id)
+        if page!=self._page:
+            self._page=page
+            self._keys=()
+            if readings:
+                faults=[r for r in readings if not r.valid or not math.isfinite(r.temperature_c)]
+                valid=[r for r in readings if r not in faults]
+                if faults:
+                    focus=faults[page%len(faults)]
+                    self._focus_label="FAULT"
+                elif page%2:
+                    focus=max(valid,key=lambda r:self._finite(r.derivative_c_s))
+                    self._focus_label="RISE"
+                else:
+                    focus=max(valid,key=lambda r:max(self._finite(r.thermal_abs),self._finite(r.thermal_dev)))
+                    self._focus_label="HOT"
+                others=[r for r in readings if r.key!=focus.key]
+                scan=others[self._scan%len(others)] if others else focus
+                self._scan+=1
+                self._keys=(focus.key,scan.key)
+
+        def cell(index):
+            r=thermal.get(self._keys[index]) if len(self._keys)>index else None
+            if not thermal.online:return ("THERMAL","OFFLINE",True)
+            if r is None:return ("SENSOR","--",True)
+            label=r.key.replace("_LEFT"," L").replace("_RIGHT"," R").replace("_"," ")
+            for long,short in (("HEAD COOLANT","COOLANT"),("TURBO OIL DRAIN","TURBO DRAIN"),
+                               ("OIL COOLER","OIL CLR"),("UNDER FAIRING","FAIRING"),
+                               ("AMBIENT AIR","AMBIENT"),("RUNNER IAT","RUNNER")):
+                label=label.replace(long,short)
+            if not r.valid or not math.isfinite(r.temperature_c):
+                return (label,r.status.name.replace("_"," "),True)
+            return (label,self._temperature(r.temperature_c*1.8+32),False)
+
+        utility=[
+            ("BATTERY",f"{state.temps.battery_voltage:.2f}V" if state.temps.battery_voltage>=0 else "--",False),
+            ("WMI TANK",f"{state.wmi.tank_level_pct:.0f}%",False),
+            ("WMI FLOW",f"{state.wmi.actual_flow_cc_min:.0f}/{state.wmi.commanded_flow_cc_min:.0f}",False),
+        ][page%3]
+        if state.wmi.fault_active:utility=("WMI","FAULT",True)
+        return [cell(0),cell(1),("OIL PRESSURE",f"{state.temps.oil_pressure_psi:.1f}psi",False),utility]
+
+    def draw(self,surface,state):
+        previous=surface.get_clip()
+        surface.set_clip(self.rect)
+        try:
+            instrument_frame(surface,self.rect)
+            rows=self.selected_rows(state,pygame.time.get_ticks())
+            title=f"VITALS / {self._focus_label} + SCAN" if state.thermal.online else "VITALS / THERMAL OFFLINE"
+            size=fit_font_size(title,self.rect.width-16,13,start_size=11,bold=True)
+            surface.blit(font(size,bold=True).render(title,True,AMBER_BRIGHT),(self.rect.x+8,self.rect.y+2))
+            top=self.rect.y+17
+            width=self.rect.width//2
+            height=max(1,(self.rect.bottom-top-3)//2)
+            for index,(label,value,fault) in enumerate(rows):
+                x=self.rect.x+(index%2)*width
+                y=top+(index//2)*height
+                pygame.draw.line(surface,AMBER_DARK,(x+6,y),(x+width-6,y))
+                label_w=int(width*.60)-12
+                value_w=width-label_w-20
+                size=fit_font_size(label,label_w,height-3,start_size=13,bold=True)
+                value_size=fit_font_size(value,value_w,height-3,start_size=16,bold=True)
+                a=font(size,bold=True).render(label,True,AMBER_GLOW)
+                b=font(value_size,bold=True).render(value,True,FAULT_AMBER if fault else AMBER_BRIGHT)
+                surface.blit(a,(x+7,y+max(1,(height-a.get_height())//2)))
+                surface.blit(b,(x+width-7-b.get_width(),y+max(1,(height-b.get_height())//2)))
+        finally:surface.set_clip(previous)
